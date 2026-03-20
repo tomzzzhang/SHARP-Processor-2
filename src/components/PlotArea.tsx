@@ -171,57 +171,57 @@ function useGroupedColors(
   wellStyleOverrides: Map<string, unknown>,
   analysisResults?: Map<string, { tt?: number | null }>,
   paletteReversed?: boolean,
+  groupColors?: boolean,
 ): Map<string, string> {
   return useMemo(() => {
     const colorMap = new Map<string, string>();
-    if (wellsUsed.length === 0) return colorMap;
+    if (visibleWells.length === 0) return colorMap;
 
-    // Build palette units: each group = 1 unit, each ungrouped well = 1 unit
-    const groupMembers = new Map<string, string[]>();
-    const ungrouped: string[] = [];
-    const seenGroups = new Set<string>();
-
-    for (const well of wellsUsed) {
-      const group = wellGroups.get(well);
-      if (group) {
-        if (!seenGroups.has(group)) {
-          seenGroups.add(group);
-          groupMembers.set(group, []);
-        }
-        groupMembers.get(group)!.push(well);
-      } else {
-        ungrouped.push(well);
-      }
-    }
-
-    // Build sortable units: [sortKey, wells[]]
+    // Build palette units
     const units: [number, string[]][] = [];
 
-    for (const [, members] of groupMembers) {
-      // Group sort key = mean Tt of members
-      let sum = 0, count = 0;
-      for (const w of members) {
-        const tt = analysisResults?.get(w)?.tt;
-        if (tt != null) { sum += tt; count++; }
+    if (groupColors) {
+      // Grouped mode: each group = 1 unit, ungrouped wells = individual units
+      const groupMembers = new Map<string, string[]>();
+      const ungrouped: string[] = [];
+      const seenGroups = new Set<string>();
+      for (const well of visibleWells) {
+        const group = wellGroups.get(well);
+        if (group) {
+          if (!seenGroups.has(group)) { seenGroups.add(group); groupMembers.set(group, []); }
+          groupMembers.get(group)!.push(well);
+        } else {
+          ungrouped.push(well);
+        }
       }
-      units.push([count > 0 ? sum / count : Infinity, members]);
-    }
-    for (const well of ungrouped) {
-      const tt = analysisResults?.get(well)?.tt;
-      units.push([tt ?? Infinity, [well]]);
+      for (const [, members] of groupMembers) {
+        let sum = 0, count = 0;
+        for (const w of members) {
+          const tt = analysisResults?.get(w)?.tt;
+          if (tt != null) { sum += tt; count++; }
+        }
+        units.push([count > 0 ? sum / count : Infinity, members]);
+      }
+      for (const well of ungrouped) {
+        const tt = analysisResults?.get(well)?.tt;
+        units.push([tt ?? Infinity, [well]]);
+      }
+    } else {
+      // Individual mode: one color per well
+      for (const well of visibleWells) {
+        const tt = analysisResults?.get(well)?.tt ?? Infinity;
+        units.push([tt, [well]]);
+      }
     }
 
-    // Sort by Tt ascending (wells with no Tt go to end)
+    // Sort by Tt ascending
     if (analysisResults && analysisResults.size > 0) {
       units.sort((a, b) => a[0] - b[0]);
     }
 
-    // Get palette colors
-    const nUnits = units.length;
-    let colors = getPaletteColors(paletteName, nUnits);
+    let colors = getPaletteColors(paletteName, units.length);
     if (paletteReversed) colors = [...colors].reverse();
 
-    // Assign colors
     for (let i = 0; i < units.length; i++) {
       const color = colors[i % colors.length];
       for (const well of units[i][1]) {
@@ -236,7 +236,7 @@ function useGroupedColors(
     }
 
     return colorMap;
-  }, [wellsUsed, paletteName, wellGroups, wellStyleOverrides, analysisResults, paletteReversed]);
+  }, [visibleWells, paletteName, wellGroups, wellStyleOverrides, analysisResults, paletteReversed, groupColors]);
 }
 
 // Plot config: disable zoom drag, enable box select
@@ -274,6 +274,7 @@ function AmplificationPlot() {
   const setThresholdRfu = useAppState((s) => s.setThresholdRfu);
   const showLegendAmp = useAppState((s) => s.showLegendAmp);
   const paletteReversed = useAppState((s) => s.paletteReversed);
+  const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
   const style = usePlotStyle();
   const analysisResults = useAnalysisResults();
   const dragPreviewWells = useAppState((s) => s.dragPreviewWells);
@@ -291,7 +292,8 @@ function AmplificationPlot() {
 
   const colorMap = useGroupedColors(
     exp?.wellsUsed ?? [], visibleWells, style.palette, wellGroups, wellStyleOverrides,
-    analysisResults as Map<string, { tt?: number | null }>, paletteReversed
+    analysisResults as Map<string, { tt?: number | null }>, paletteReversed,
+    paletteGroupColors
   );
 
   const traces = useMemo((): Data[] => {
@@ -511,11 +513,14 @@ function MeltDerivMini() {
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
   const wellGroups = useAppState((s) => s.wellGroups);
   const paletteReversed = useAppState((s) => s.paletteReversed);
+  const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
   const hoveredWell = useAppState((s) => s.hoveredWell);
   const setHoveredWell = useAppState((s) => s.setHoveredWell);
   const deselectAll = useAppState((s) => s.deselectAll);
   const style = usePlotStyle();
   const setSelectedWells = useAppState((s) => s.setSelectedWells);
+  const selectOnly = useAppState((s) => s.selectOnly);
+  const toggleWellSelection = useAppState((s) => s.toggleWellSelection);
   const analysisResults = useAnalysisResults();
   const dragPreviewWells = useAppState((s) => s.dragPreviewWells);
   const setDragPreviewWells = useAppState((s) => s.setDragPreviewWells);
@@ -530,7 +535,8 @@ function MeltDerivMini() {
 
   const colorMap = useGroupedColors(
     exp?.wellsUsed ?? [], visibleWells, style.palette, wellGroups, wellStyleOverrides,
-    analysisResults as Map<string, { tt?: number | null }>, paletteReversed
+    analysisResults as Map<string, { tt?: number | null }>, paletteReversed,
+    paletteGroupColors
   );
 
   const hasDerivative = melt && Object.keys(melt.derivative).length > 0;
@@ -623,6 +629,20 @@ function MeltDerivMini() {
     onEmptyClick: deselectAll,
   });
 
+  const handleClick = useCallback((event: Readonly<PlotMouseEvent>) => {
+    if (!event.points.length || !visibleWells.length) return;
+    const browserEvent = event.event as MouseEvent | undefined;
+    if (browserEvent && browserEvent.button !== 0) return;
+    const ci = event.points[0].curveNumber;
+    if (ci < 0 || ci >= visibleWells.length) return;
+    const well = visibleWells[ci];
+    if (browserEvent && (browserEvent.ctrlKey || browserEvent.metaKey)) {
+      toggleWellSelection(well);
+    } else {
+      selectOnly(well);
+    }
+  }, [visibleWells, selectOnly, toggleWellSelection]);
+
   const handleHover = useCallback((event: Readonly<PlotMouseEvent>) => {
     if (!event.points.length) return;
     const ci = event.points[0].curveNumber;
@@ -639,6 +659,7 @@ function MeltDerivMini() {
         data={traces} layout={layout}
         useResizeHandler style={{ width: '100%', height: '100%' }}
         config={PLOT_CONFIG}
+        onClick={handleClick}
         onHover={handleHover}
         onUnhover={handleUnhover}
       />
@@ -658,6 +679,7 @@ function MeltPlot() {
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
   const wellGroups = useAppState((s) => s.wellGroups);
   const paletteReversed = useAppState((s) => s.paletteReversed);
+  const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
   const setSelectedWells = useAppState((s) => s.setSelectedWells);
   const selectOnly = useAppState((s) => s.selectOnly);
   const deselectAll = useAppState((s) => s.deselectAll);
@@ -680,7 +702,8 @@ function MeltPlot() {
 
   const colorMap = useGroupedColors(
     exp?.wellsUsed ?? [], visibleWells, style.palette, wellGroups, wellStyleOverrides,
-    analysisResults as Map<string, { tt?: number | null }>, paletteReversed
+    analysisResults as Map<string, { tt?: number | null }>, paletteReversed,
+    paletteGroupColors
   );
 
   const hasDerivative = melt && Object.keys(melt.derivative).length > 0;
@@ -967,6 +990,12 @@ function DilutionPlot() {
         <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
           <div className="text-sm font-semibold">
             Doubling Time: <span className="text-primary font-bold text-base">{result.doublingTime.toFixed(3)}</span>
+            <button
+              onClick={() => useAppState.getState().setShowDilutionWizard(true)}
+              className="ml-3 px-2 py-0.5 text-[10px] border rounded hover:bg-accent text-muted-foreground"
+            >
+              Edit Steps
+            </button>
             <span className="text-muted-foreground font-normal text-xs ml-1">
               ± {result.doublingTimeSE.toFixed(3)} {xUnit}
             </span>
@@ -1005,9 +1034,9 @@ function DilutionPlot() {
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-background">
             <tr className="text-muted-foreground border-b">
-              <th className="w-8 px-2 py-1 text-center">On</th>
+              <th className="w-10 px-1 py-1 text-center">On</th>
               <th className="px-2 py-1 text-left">Step</th>
-              <th className="px-2 py-1 text-right">Concentration</th>
+              <th className="px-2 py-1 text-right">Concentration{unit ? ` (${unit})` : ''}</th>
               <th className="px-2 py-1 text-right">log₂(C)</th>
               <th className="px-2 py-1 text-right">Mean {xLabel}</th>
               <th className="px-2 py-1 text-right">±SEM</th>
@@ -1019,7 +1048,7 @@ function DilutionPlot() {
               const gs = result.groupStats.find((g) => Math.abs(g.concentration - step.concentration) < 1e-10);
               return (
                 <tr key={i} className={`border-b last:border-b-0 ${!step.enabled ? 'opacity-40' : ''}`}>
-                  <td className="px-2 py-0.5 text-center">
+                  <td className="px-1 py-0.5 text-center">
                     <Checkbox
                       checked={step.enabled}
                       onCheckedChange={(v) => setDilutionStepEnabled(i, v === true)}
@@ -1051,6 +1080,7 @@ function PerWellDoublingPlot() {
   const xAxisMode = useAppState((s) => s.xAxisMode);
   const showLegendDoubling = useAppState((s) => s.showLegendDoubling);
   const paletteReversed = useAppState((s) => s.paletteReversed);
+  const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
   const style = usePlotStyle();
   const analysisResults = useAnalysisResults();
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
@@ -1065,7 +1095,8 @@ function PerWellDoublingPlot() {
 
   const colorMap = useGroupedColors(
     exp?.wellsUsed ?? [], dtVisibleWells, style.palette, wellGroups, wellStyleOverrides,
-    analysisResults as Map<string, { tt?: number | null }>, paletteReversed
+    analysisResults as Map<string, { tt?: number | null }>, paletteReversed,
+    paletteGroupColors
   );
 
   const data = useMemo(() => {
@@ -1258,7 +1289,7 @@ export function PlotArea() {
   }
 
   return (
-    <div ref={containerRef} className="flex flex-col flex-1 min-h-0 h-full" onContextMenu={onContextMenu}>
+    <div ref={containerRef} className="flex flex-col flex-1 min-w-0 min-h-0 h-full" onContextMenu={onContextMenu}>
       <PlotErrorBoundary>
         {plotTab === 'amplification' && (
           <>

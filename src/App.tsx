@@ -20,7 +20,8 @@ function App() {
   const [dragOver, setDragOver] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showWizard, setShowWizard] = useState(false);
+  const showWizard = useAppState((s) => s.showDilutionWizard);
+  const setShowWizard = useAppState((s) => s.setShowDilutionWizard);
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const [tableHeight, setTableHeight] = useState(160);
   const sidebarDragging = useRef(false);
@@ -85,11 +86,10 @@ function App() {
   useEffect(() => {
     if (!tauriWebviewWindow) return;
     let cancelled = false;
-    let cleanupFn: (() => void) | null = null;
-    tauriWebviewWindow.then((mod) => {
-      if (cancelled) return;
+    const unlistenPromise = tauriWebviewWindow.then(async (mod) => {
+      if (cancelled) return undefined;
       const webview = mod.getCurrentWebviewWindow();
-      const unlisten = webview.onDragDropEvent((event) => {
+      return webview.onDragDropEvent((event) => {
         if (event.payload.type === 'over') {
           setDragOver(true);
         } else if (event.payload.type === 'leave') {
@@ -101,11 +101,10 @@ function App() {
           }
         }
       });
-      unlisten.then((fn) => { cleanupFn = fn; });
     });
     return () => {
       cancelled = true;
-      cleanupFn?.();
+      unlistenPromise.then((fn) => fn?.());
     };
   }, [handleFilePath]);
 
@@ -206,7 +205,7 @@ function App() {
         )}
 
         {/* Plot area + quick panel */}
-        <div className="flex flex-1 min-h-0">
+        <div className="flex flex-1 min-h-0 overflow-hidden">
           <PlotArea />
           <QuickStylePanel />
         </div>
@@ -238,7 +237,7 @@ function App() {
       </div>
       </div>
 
-      {/* Dilution wizard modal */}
+      {/* Dilution wizard floating panel */}
       {showWizard && <DilutionWizard onClose={() => setShowWizard(false)} />}
     </div>
   );

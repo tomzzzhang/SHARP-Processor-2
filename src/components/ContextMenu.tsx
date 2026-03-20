@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useAppState } from '@/hooks/useAppState';
+import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { MAIN_PALETTE_NAMES, GRADIENT_PALETTE_NAMES, CONTENT_DISPLAY, getPaletteColors } from '@/lib/constants';
 import type { ContentType } from '@/types/experiment';
 
@@ -69,6 +70,10 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
   const removeWellGroup = useAppState((s) => s.removeWellGroup);
   const autoGroupBySample = useAppState((s) => s.autoGroupBySample);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
+  const wellGroups = useAppState((s) => s.wellGroups);
+  const selectionPaletteGroupColors = useAppState((s) => s.selectionPaletteGroupColors);
+  const setSelectionPaletteGroupColors = useAppState((s) => s.setSelectionPaletteGroupColors);
+  const analysisResults = useAnalysisResults();
   const addToLegend = useAppState((s) => s.addToLegend);
   const removeFromLegend = useAppState((s) => s.removeFromLegend);
 
@@ -146,11 +151,36 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
 
   const applyPaletteToSelection = useCallback((paletteName: string) => {
     if (wells.length === 0) return;
-    const colors = getPaletteColors(paletteName, wells.length);
-    for (let i = 0; i < wells.length; i++) {
-      setWellStyleOverride([wells[i]], { color: colors[i % colors.length] });
+    const units: [number, string[]][] = [];
+    if (selectionPaletteGroupColors) {
+      const groupMembers = new Map<string, string[]>();
+      const ungrouped: string[] = [];
+      const seenGroups = new Set<string>();
+      for (const well of wells) {
+        const group = wellGroups.get(well);
+        if (group) {
+          if (!seenGroups.has(group)) { seenGroups.add(group); groupMembers.set(group, []); }
+          groupMembers.get(group)!.push(well);
+        } else {
+          ungrouped.push(well);
+        }
+      }
+      for (const [, members] of groupMembers) {
+        let sum = 0, count = 0;
+        for (const w of members) { const tt = analysisResults.get(w)?.tt; if (tt != null) { sum += tt; count++; } }
+        units.push([count > 0 ? sum / count : Infinity, members]);
+      }
+      for (const well of ungrouped) { units.push([analysisResults.get(well)?.tt ?? Infinity, [well]]); }
+    } else {
+      for (const well of wells) { units.push([analysisResults.get(well)?.tt ?? Infinity, [well]]); }
     }
-  }, [wells, setWellStyleOverride]);
+    units.sort((a, b) => a[0] - b[0]);
+    const colors = getPaletteColors(paletteName, units.length);
+    for (let i = 0; i < units.length; i++) {
+      const color = colors[i % colors.length];
+      for (const well of units[i][1]) setWellStyleOverride([well], { color });
+    }
+  }, [wells, wellGroups, analysisResults, selectionPaletteGroupColors, setWellStyleOverride]);
 
   const reverseSelectionColors = useCallback(() => {
     if (wells.length === 0) return;
@@ -250,6 +280,15 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
         </button>
         {(submenu === 'palette' || submenu === 'gradients') && (
           <SubMenu className="min-w-[120px]">
+            <label className="flex items-center gap-1.5 px-3 py-1 text-xs cursor-pointer hover:bg-accent border-b">
+              <input
+                type="checkbox"
+                checked={selectionPaletteGroupColors}
+                onChange={(e) => setSelectionPaletteGroupColors(e.target.checked)}
+                className="h-3 w-3"
+              />
+              Color groups same
+            </label>
             {MAIN_PALETTE_NAMES.map((p) => (
               <button
                 key={p}

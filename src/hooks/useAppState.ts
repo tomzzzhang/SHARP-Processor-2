@@ -62,6 +62,8 @@ export interface ExperimentViewState {
   // Style
   palette: string;
   paletteReversed: boolean;
+  paletteGroupColors: boolean;
+  selectionPaletteGroupColors: boolean;
   lineWidth: number;
   fontFamily: string;
   titleSize: number;
@@ -104,6 +106,8 @@ function defaultViewState(wellsUsed: string[] = []): ExperimentViewState {
     dilutionConfig: null,
     palette: 'Tableau 10',
     paletteReversed: false,
+    paletteGroupColors: false,
+    selectionPaletteGroupColors: true,
     lineWidth: DEFAULT_LINE_WIDTH,
     fontFamily: DEFAULT_FONT_FAMILY,
     titleSize: DEFAULT_TITLE_SIZE,
@@ -148,6 +152,8 @@ function snapshotViewState(state: AppState): ExperimentViewState {
     dilutionConfig: state.dilutionConfig,
     palette: state.palette,
     paletteReversed: state.paletteReversed,
+    paletteGroupColors: state.paletteGroupColors,
+    selectionPaletteGroupColors: state.selectionPaletteGroupColors,
     lineWidth: state.lineWidth,
     fontFamily: state.fontFamily,
     titleSize: state.titleSize,
@@ -174,6 +180,7 @@ interface AppState extends ExperimentViewState {
   // Transient (not per-experiment)
   hoveredWell: string | null;
   dragPreviewWells: Set<string> | null;
+  showDilutionWizard: boolean;
 
   // Per-experiment state snapshots (index → snapshot)
   _experimentSnapshots: Map<number, ExperimentViewState>;
@@ -189,6 +196,8 @@ interface AppState extends ExperimentViewState {
   selectAll: () => void;
   deselectAll: () => void;
   selectByType: (type: string) => void;
+  selectShown: () => void;
+  selectHidden: () => void;
   toggleWellHidden: (well: string) => void;
   showWells: (wells: string[]) => void;
   hideWells: (wells: string[]) => void;
@@ -216,6 +225,9 @@ interface AppState extends ExperimentViewState {
   setShowRawOverlay: (on: boolean) => void;
   setThresholdEnabled: (on: boolean) => void;
   setThresholdRfu: (rfu: number) => void;
+  setFittingEnabled: (on: boolean) => void;
+  setFitStartFraction: (fraction: number) => void;
+  setFitEndFraction: (fraction: number) => void;
   setDilutionConfig: (config: DilutionConfig | null) => void;
   setDilutionStepEnabled: (stepIndex: number, enabled: boolean) => void;
   setPalette: (palette: string) => void;
@@ -232,10 +244,13 @@ interface AppState extends ExperimentViewState {
   setLegendPosition: (pos: string) => void;
   setLegendVisibleOnly: (on: boolean) => void;
   setPaletteReversed: (reversed: boolean) => void;
+  setPaletteGroupColors: (on: boolean) => void;
+  setSelectionPaletteGroupColors: (on: boolean) => void;
   reversePalette: () => void;
   setShowGrid: (on: boolean) => void;
   setGridAlpha: (alpha: number) => void;
   setFigureDpi: (dpi: number) => void;
+  setShowDilutionWizard: (show: boolean) => void;
 }
 
 export const useAppState = create<AppState>((set, get) => ({
@@ -244,6 +259,7 @@ export const useAppState = create<AppState>((set, get) => ({
   _experimentSnapshots: new Map(),
   hoveredWell: null,
   dragPreviewWells: null,
+  showDilutionWizard: false,
 
   // Spread default view state as initial top-level fields
   ...defaultViewState(),
@@ -318,6 +334,8 @@ export const useAppState = create<AppState>((set, get) => ({
         experiments,
         activeExperimentIndex: newActive,
         _experimentSnapshots: snapshots,
+        hoveredWell: null,
+        dragPreviewWells: null,
       };
     }),
 
@@ -349,6 +367,20 @@ export const useAppState = create<AppState>((set, get) => ({
       if (type === 'Unkn') return content === 'Unkn' || content === '';
       return content === type;
     });
+    set({ selectedWells: new Set(wells) });
+  },
+  selectShown: () => {
+    const state = get();
+    const exp = state.experiments[state.activeExperimentIndex];
+    if (!exp) return;
+    const wells = exp.wellsUsed.filter((w) => !state.hiddenWells.has(w));
+    set({ selectedWells: new Set(wells) });
+  },
+  selectHidden: () => {
+    const state = get();
+    const exp = state.experiments[state.activeExperimentIndex];
+    if (!exp) return;
+    const wells = exp.wellsUsed.filter((w) => state.hiddenWells.has(w));
     set({ selectedWells: new Set(wells) });
   },
   toggleWellHidden: (well) =>
@@ -477,6 +509,9 @@ export const useAppState = create<AppState>((set, get) => ({
   setShowRawOverlay: (on) => set({ showRawOverlay: on }),
   setThresholdEnabled: (on) => set({ thresholdEnabled: on }),
   setThresholdRfu: (rfu) => set({ thresholdRfu: rfu }),
+  setFittingEnabled: (on) => set({ fittingEnabled: on }),
+  setFitStartFraction: (fraction) => set({ fitStartFraction: fraction }),
+  setFitEndFraction: (fraction) => set({ fitEndFraction: fraction }),
   setDilutionConfig: (config) => set({ dilutionConfig: config }),
   setDilutionStepEnabled: (stepIndex, enabled) =>
     set((state) => {
@@ -500,8 +535,11 @@ export const useAppState = create<AppState>((set, get) => ({
   setLegendPosition: (pos) => set({ legendPosition: pos }),
   setLegendVisibleOnly: (on) => set({ legendVisibleOnly: on }),
   setPaletteReversed: (reversed) => set({ paletteReversed: reversed }),
+  setPaletteGroupColors: (on) => set({ paletteGroupColors: on }),
+  setSelectionPaletteGroupColors: (on) => set({ selectionPaletteGroupColors: on }),
   reversePalette: () => set((state) => ({ paletteReversed: !state.paletteReversed })),
   setShowGrid: (on) => set({ showGrid: on }),
   setGridAlpha: (alpha) => set({ gridAlpha: alpha }),
   setFigureDpi: (dpi) => set({ figureDpi: dpi }),
+  setShowDilutionWizard: (show) => set({ showDilutionWizard: show }),
 }));
