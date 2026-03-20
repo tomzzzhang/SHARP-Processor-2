@@ -1,121 +1,242 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useCallback, useEffect, useRef, useState } from 'react';
+// Dynamic imports to allow running in plain browser (preview)
+const isTauri = !!(window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__;
+const tauriWebviewWindow = isTauri ? import('@tauri-apps/api/webviewWindow') : null;
+const tauriFs = isTauri ? import('@tauri-apps/plugin-fs') : null;
+import { MenuBar } from './components/MenuBar';
+import { Sidebar } from './components/Sidebar';
+import { PlotArea } from './components/PlotArea';
+import { QuickStylePanel } from './components/QuickStylePanel';
+import { ResultsTable } from './components/ResultsTable';
+import { XAxisBar } from './components/XAxisBar';
+import { PlotTabs } from './components/PlotTabs';
+import { useAppState } from './hooks/useAppState';
+import { loadSharpFile } from './lib/sharp-loader';
+import { isInstrumentFile, isSupportedFile, loadInstrumentFile } from './lib/instrument-loader';
 
 function App() {
-  const [count, setCount] = useState(0)
+  const loadExperiment = useAppState((s) => s.loadExperiment);
+  const [dragOver, setDragOver] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(280);
+  const [tableHeight, setTableHeight] = useState(160);
+  const sidebarDragging = useRef(false);
+  const sidebarDragStartX = useRef(0);
+  const sidebarDragStartW = useRef(0);
+  const tableDragging = useRef(false);
+  const tableDragStartY = useRef(0);
+  const tableDragStartH = useRef(0);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (sidebarDragging.current) {
+        e.preventDefault();
+        const delta = e.clientX - sidebarDragStartX.current;
+        setSidebarWidth(Math.max(200, Math.min(450, sidebarDragStartW.current + delta)));
+      }
+      if (tableDragging.current) {
+        e.preventDefault();
+        const delta = tableDragStartY.current - e.clientY; // dragging up = bigger
+        setTableHeight(Math.max(60, Math.min(500, tableDragStartH.current + delta)));
+      }
+    };
+    const onUp = () => {
+      if (sidebarDragging.current || tableDragging.current) {
+        sidebarDragging.current = false;
+        tableDragging.current = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+  }, []);
+
+  const handleFilePath = useCallback(async (filePath: string) => {
+    if (!isSupportedFile(filePath)) {
+      setError(`Unsupported file type: ${filePath}`);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      let experiment;
+      if (isInstrumentFile(filePath)) {
+        experiment = await loadInstrumentFile(filePath);
+      } else {
+        const fs = await tauriFs;
+        if (!fs) throw new Error('File system not available outside Tauri');
+        const bytes = await fs.readFile(filePath);
+        experiment = await loadSharpFile(bytes.buffer as ArrayBuffer, filePath.split(/[/\\]/).pop()!);
+      }
+      loadExperiment(experiment);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [loadExperiment]);
+
+  // Listen for Tauri file drop events
+  useEffect(() => {
+    if (!tauriWebviewWindow) return;
+    let cancelled = false;
+    let cleanupFn: (() => void) | null = null;
+    tauriWebviewWindow.then((mod) => {
+      if (cancelled) return;
+      const webview = mod.getCurrentWebviewWindow();
+      const unlisten = webview.onDragDropEvent((event) => {
+        if (event.payload.type === 'over') {
+          setDragOver(true);
+        } else if (event.payload.type === 'leave') {
+          setDragOver(false);
+        } else if (event.payload.type === 'drop') {
+          setDragOver(false);
+          for (const path of event.payload.paths) {
+            handleFilePath(path);
+          }
+        }
+      });
+      unlisten.then((fn) => { cleanupFn = fn; });
+    });
+    return () => {
+      cancelled = true;
+      cleanupFn?.();
+    };
+  }, [handleFilePath]);
+
+  const experiments = useAppState((s) => s.experiments);
+  const activeExperimentIndex = useAppState((s) => s.activeExperimentIndex);
+  const switchExperiment = useAppState((s) => s.switchExperiment);
+  const removeExperiment = useAppState((s) => s.removeExperiment);
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+    <div className="flex flex-col h-screen select-none">
+      {/* Menu bar */}
+      <MenuBar />
+
+      {/* Experiment tab bar (shown when >1 experiment loaded) */}
+      {experiments.length > 1 && (
+        <div className="flex items-end bg-muted/20 border-b shrink-0 overflow-x-auto">
+          {experiments.map((exp, i) => (
+            <div
+              key={`${exp.experimentId}-${i}`}
+              className={`group flex items-center gap-1 px-3 py-1.5 text-xs cursor-pointer border-r transition-colors shrink-0 ${
+                i === activeExperimentIndex
+                  ? 'bg-background border-b-2 border-b-primary font-medium'
+                  : 'hover:bg-accent/50 text-muted-foreground'
+              }`}
+              onClick={() => switchExperiment(i)}
+            >
+              <span className="truncate max-w-[150px]" title={exp.experimentId}>
+                {exp.experimentId}
+              </span>
+              <button
+                className="ml-1 w-4 h-4 rounded-sm flex items-center justify-center text-muted-foreground hover:bg-destructive/20 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeExperiment(i);
+                }}
+                title="Close experiment"
+              >
+                ×
+              </button>
+            </div>
+          ))}
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
+      )}
+
+      <div className="flex flex-1 min-h-0">
+      {/* Drag overlay */}
+      {dragOver && (
+        <div className="fixed inset-0 z-50 bg-primary/10 border-4 border-dashed border-primary flex items-center justify-center pointer-events-none">
+          <div className="bg-background rounded-lg shadow-lg p-8 text-center">
+            <p className="text-lg font-semibold">Drop experiment file to load</p>
+            <p className="text-xs text-muted-foreground mt-1">.sharp · .pcrd · .tlpd · .eds · .amxd</p>
+          </div>
         </div>
-        <button
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
+      )}
+
+      {/* Loading overlay */}
+      {loading && (
+        <div className="fixed inset-0 z-50 bg-background/50 flex items-center justify-center">
+          <div className="bg-background rounded-lg shadow-lg p-6 text-center">
+            <p className="text-sm">Loading experiment...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Sidebar */}
+      <div className="flex-shrink-0 overflow-hidden" style={{ width: sidebarWidth }}>
+        <Sidebar />
+      </div>
+
+      {/* Sidebar resize handle */}
+      <div
+        className="flex-shrink-0 w-1 cursor-col-resize hover:bg-blue-200 active:bg-blue-300 transition-colors"
+        style={{ borderRight: '1px solid #d0d0d0' }}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          sidebarDragging.current = true;
+          sidebarDragStartX.current = e.clientX;
+          sidebarDragStartW.current = sidebarWidth;
+          document.body.style.cursor = 'col-resize';
+          document.body.style.userSelect = 'none';
+        }}
+      />
+
+      {/* Main area */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* X-axis selector bar */}
+        <XAxisBar />
+
+        {/* Plot tabs */}
+        <PlotTabs />
+
+        {/* Error message */}
+        {error && (
+          <div className="px-3 py-1 bg-destructive/10 text-destructive text-sm border-b">
+            {error}
+            <button className="ml-2 underline" onClick={() => setError(null)}>dismiss</button>
+          </div>
+        )}
+
+        {/* Plot area + quick panel */}
+        <div className="flex flex-1 min-h-0">
+          <PlotArea />
+          <QuickStylePanel />
+        </div>
+
+        {/* Results table resize handle */}
+        <div
+          className="flex-shrink-0 flex items-center justify-center cursor-row-resize hover:bg-blue-100 active:bg-blue-200 transition-colors"
+          style={{ height: 7, borderTop: '1px solid #d0d0d0', borderBottom: '1px solid #d0d0d0' }}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            tableDragging.current = true;
+            tableDragStartY.current = e.clientY;
+            tableDragStartH.current = tableHeight;
+            document.body.style.cursor = 'row-resize';
+            document.body.style.userSelect = 'none';
+          }}
         >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
+          <div className="flex gap-1">
+            <div className="w-1 h-1 rounded-full bg-gray-400" />
+            <div className="w-1 h-1 rounded-full bg-gray-400" />
+            <div className="w-1 h-1 rounded-full bg-gray-400" />
+          </div>
         </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+        {/* Results table */}
+        <div className="overflow-auto" style={{ height: tableHeight }}>
+          <ResultsTable />
+        </div>
+      </div>
+      </div>
+    </div>
+  );
 }
 
-export default App
+export default App;
