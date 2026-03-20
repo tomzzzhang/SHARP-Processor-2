@@ -212,6 +212,10 @@ export async function exportAsSharp(exp: ExperimentData): Promise<string | null>
     data_summary: {
       wells_used: exp.wellsUsed,
     },
+    plate_layout: {
+      rows: exp.plateRows,
+      cols: exp.plateCols,
+    },
     wells: {} as Record<string, unknown>,
   };
 

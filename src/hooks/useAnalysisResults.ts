@@ -19,6 +19,7 @@ export function useAnalysisResults(): Map<string, WellAnalysisResult> {
   const fittingEnabled = useAppState((s) => s.fittingEnabled);
   const fitStartFraction = useAppState((s) => s.fitStartFraction);
   const fitEndFraction = useAppState((s) => s.fitEndFraction);
+  const wellBaselineOverrides = useAppState((s) => s.wellBaselineOverrides);
 
   const exp = experiments[idx];
 
@@ -32,7 +33,7 @@ export function useAnalysisResults(): Map<string, WellAnalysisResult> {
       xAxisMode === 'time_s' ? amp.timeS :
       amp.timeMin;
 
-    const options = {
+    const globalOptions = {
       baselineEnabled,
       baselineMethod,
       baselineStart,
@@ -47,10 +48,23 @@ export function useAnalysisResults(): Map<string, WellAnalysisResult> {
     for (const well of exp.wellsUsed) {
       const rawRfu = amp.wells[well];
       if (!rawRfu) continue;
+
+      // Merge per-well baseline overrides if present
+      const override = wellBaselineOverrides.get(well);
+      const options = override
+        ? {
+            ...globalOptions,
+            baselineMethod: override.method ?? globalOptions.baselineMethod,
+            baselineStart: override.start ?? globalOptions.baselineStart,
+            baselineEnd: override.end ?? globalOptions.baselineEnd,
+          }
+        : globalOptions;
+
       results.set(well, analyzeWell(rawRfu, xData, options));
     }
 
     return results;
   }, [exp, xAxisMode, baselineEnabled, baselineMethod, baselineStart, baselineEnd,
-      thresholdEnabled, thresholdRfu, fittingEnabled, fitStartFraction, fitEndFraction]);
+      thresholdEnabled, thresholdRfu, fittingEnabled, fitStartFraction, fitEndFraction,
+      wellBaselineOverrides]);
 }

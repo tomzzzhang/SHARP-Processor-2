@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, useMemo } from 'react';
 import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
-import { PLATE_ROWS, PLATE_COLS, WELL_EMPTY_COLOR, WELL_SELECTED_BORDER, getPaletteColors } from '@/lib/constants';
+import { WELL_EMPTY_COLOR, WELL_SELECTED_BORDER, getPaletteColors, DEFAULT_PLATE_ROW_COUNT, DEFAULT_PLATE_COL_COUNT, getPlateRowLetters, getPlateColNumbers } from '@/lib/constants';
 import { ContextMenu, useContextMenu } from './ContextMenu';
 
 // Cell size constants (must match render)
@@ -26,10 +26,15 @@ export function WellGrid() {
   const hoveredWell = useAppState((s) => s.hoveredWell);
   const setHoveredWell = useAppState((s) => s.setHoveredWell);
   const dragPreviewWells = useAppState((s) => s.dragPreviewWells);
+  const setDragPreviewWells = useAppState((s) => s.setDragPreviewWells);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
   const exp = experiments[idx];
   const usedWells = exp ? exp.wellsUsed : [];
   const usedSet = new Set(usedWells);
+  const plateRowCount = exp?.plateRows ?? DEFAULT_PLATE_ROW_COUNT;
+  const plateColCount = exp?.plateCols ?? DEFAULT_PLATE_COL_COUNT;
+  const rows = getPlateRowLetters(plateRowCount);
+  const cols = getPlateColNumbers(plateColCount);
   const analysisResults = useAnalysisResults();
 
   // Build well→color map respecting groups and Tt ordering (matches plot color logic)
@@ -106,20 +111,20 @@ export function WellGrid() {
     const bottomRight = pixelToRowCol(right, bottom);
 
     const rowStart = Math.max(0, topLeft.row);
-    const rowEnd = Math.min(7, bottomRight.row);
+    const rowEnd = Math.min(plateRowCount - 1, bottomRight.row);
     const colStart = Math.max(0, topLeft.col);
-    const colEnd = Math.min(11, bottomRight.col);
+    const colEnd = Math.min(plateColCount - 1, bottomRight.col);
 
     const wells: string[] = [];
     for (let r = rowStart; r <= rowEnd; r++) {
       for (let c = colStart; c <= colEnd; c++) {
-        const well = `${PLATE_ROWS[r]}${PLATE_COLS[c]}`;
+        const well = `${rows[r]}${cols[c]}`;
         // Only allow selecting populated wells
         if (usedSet.has(well)) wells.push(well);
       }
     }
     return wells;
-  }, [pixelToRowCol, usedSet]);
+  }, [pixelToRowCol, usedSet, plateRowCount, plateColCount, rows, cols]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     // Only left button, not on right-click
@@ -152,8 +157,10 @@ export function WellGrid() {
         w: Math.abs(dx),
         h: Math.abs(dy),
       });
+      const previewWells = getWellsInRect(dragStart.current.x, dragStart.current.y, x, y);
+      setDragPreviewWells(previewWells.length > 0 ? new Set(previewWells) : null);
     }
-  }, []);
+  }, [getWellsInRect, setDragPreviewWells]);
 
   const handleMouseUp = useCallback((e: React.MouseEvent) => {
     if (isDragging.current && dragStart.current && gridRef.current) {
@@ -172,7 +179,8 @@ export function WellGrid() {
     dragStart.current = null;
     isDragging.current = false;
     setDragRect(null);
-  }, [getWellsInRect, addToSelection, setSelectedWells]);
+    setDragPreviewWells(null);
+  }, [getWellsInRect, addToSelection, setSelectedWells, setDragPreviewWells]);
 
   return (
     <div
@@ -187,26 +195,27 @@ export function WellGrid() {
           dragStart.current = null;
           isDragging.current = false;
           setDragRect(null);
+          setDragPreviewWells(null);
         }
       }}
       style={{
-        gridTemplateColumns: `${HEADER_COL_W}px repeat(12, ${CELL_SIZE}px)`,
+        gridTemplateColumns: `${HEADER_COL_W}px repeat(${plateColCount}, ${CELL_SIZE}px)`,
       }}
     >
       {/* Column headers */}
       <div />
-      {PLATE_COLS.map((col) => (
+      {cols.map((col) => (
         <div key={col} className="text-center text-[9px] text-muted-foreground font-medium leading-4">
           {col}
         </div>
       ))}
 
       {/* Rows */}
-      {[...PLATE_ROWS].flatMap((row) => [
+      {[...rows].flatMap((row) => [
         <div key={`label-${row}`} className="text-[9px] text-muted-foreground font-medium flex items-center justify-center">
           {row}
         </div>,
-        ...PLATE_COLS.map((col) => {
+        ...cols.map((col) => {
           const well = `${row}${col}`;
           const isSelected = selectedWells.has(well);
           const isUsed = usedSet.has(well);
