@@ -1,8 +1,12 @@
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import type { DilutionConfig, DilutionStep } from '@/lib/analysis';
 import { getPlateRowLetters, getPlateColNumbers, WELL_EMPTY_COLOR, WELL_SELECTED_BORDER, DEFAULT_PLATE_ROW_COUNT, DEFAULT_PLATE_COL_COUNT } from '@/lib/constants';
+
+// ── Constants ─────────────────────────────────────────────────────────
+
+const CONCENTRATION_UNITS = ['fM', 'pM', 'nM', 'µM', 'mM', 'copies/µL'] as const;
 
 // ── Page 1: Concentration Setup ────────────────────────────────────────
 
@@ -12,6 +16,7 @@ interface Page1Props {
     highestConcentration: number;
     dilutionFactor: number;
     numSteps: number;
+    copiesExponent: number;
   };
   setConfig: (c: Page1Props['config']) => void;
   onNext: () => void;
@@ -25,7 +30,18 @@ function formatConcentration(value: number): string {
   return value.toFixed(2);
 }
 
+function formatConcentrationWithUnit(value: number, unit: string, copiesExponent: number): string {
+  const formatted = formatConcentration(value);
+  if (!unit) return formatted;
+  if (unit === 'copies/µL') {
+    return `${formatted} ×10^${copiesExponent} copies/µL`;
+  }
+  return `${formatted} ${unit}`;
+}
+
 function Page1({ config, setConfig, onNext, onCancel }: Page1Props) {
+  const isCopies = config.unit === 'copies/µL';
+
   const concentrations = useMemo(() => {
     const out: number[] = [];
     for (let i = 0; i < config.numSteps; i++) {
@@ -53,14 +69,32 @@ function Page1({ config, setConfig, onNext, onCancel }: Page1Props) {
           />
         </label>
         <label className="space-y-1">
-          <span className="text-muted-foreground">Units (optional)</span>
-          <input
-            type="text"
-            value={config.unit}
-            onChange={(e) => setConfig({ ...config, unit: e.target.value })}
-            placeholder="e.g., copies/µL"
-            className="w-full h-8 border rounded px-2 text-sm"
-          />
+          <span className="text-muted-foreground">Units</span>
+          <div className="flex gap-1">
+            <select
+              value={config.unit}
+              onChange={(e) => setConfig({ ...config, unit: e.target.value })}
+              className="flex-1 h-8 border rounded px-2 text-sm bg-background"
+            >
+              <option value="">(none)</option>
+              {CONCENTRATION_UNITS.map((u) => (
+                <option key={u} value={u}>{u}</option>
+              ))}
+            </select>
+            {isCopies && (
+              <div className="flex items-center gap-0.5 text-xs text-muted-foreground">
+                <span>×10^</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={20}
+                  value={config.copiesExponent}
+                  onChange={(e) => setConfig({ ...config, copiesExponent: Number(e.target.value) })}
+                  className="w-10 h-8 border rounded px-1 text-sm text-center"
+                />
+              </div>
+            )}
+          </div>
         </label>
         <label className="space-y-1">
           <span className="text-muted-foreground">Dilution factor</span>
@@ -92,7 +126,7 @@ function Page1({ config, setConfig, onNext, onCancel }: Page1Props) {
         {concentrations.map((c, i) => (
           <div key={i} className="text-xs py-0.5 flex justify-between">
             <span>Step {i + 1}:</span>
-            <span className="font-mono">{formatConcentration(c)}{config.unit ? ` ${config.unit}` : ''}</span>
+            <span className="font-mono">{formatConcentrationWithUnit(c, config.unit, config.copiesExponent)}</span>
           </div>
         ))}
       </div>
@@ -122,6 +156,7 @@ interface Page2Props {
   steps: DilutionStep[];
   setSteps: (s: DilutionStep[]) => void;
   unit: string;
+  copiesExponent: number;
   onBack: () => void;
   onFinish: () => void;
   onCancel: () => void;
@@ -147,6 +182,8 @@ function MiniWellGrid({
   const gridRef = useRef<HTMLDivElement>(null);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const isDragging = useRef(false);
+  const [dragRect, setDragRect] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  const [dragPreview, setDragPreview] = useState<Set<string> | null>(null);
 
   const pixelToRowCol = useCallback((px: number, py: number) => {
     const col = Math.floor((px - HEADER_COL_W) / (CELL_SIZE + 1));
@@ -167,99 +204,144 @@ function MiniWellGrid({
     return wells;
   }, [pixelToRowCol, usedWells, plateRows, plateCols, rows, cols]);
 
-  return (
-    <div
-      ref={gridRef}
-      className="inline-grid gap-[1px] select-none"
-      style={{ gridTemplateColumns: `${HEADER_COL_W}px repeat(${plateCols}, ${CELL_SIZE}px)` }}
-      onMouseDown={(e) => {
-        if (e.button !== 0 || !gridRef.current) return;
+  // Global mouse handlers for drag (so drag works outside grid bounds)
+  useEffect(() => {
+    const handleGlobalMove = (e: MouseEvent) => {
+      if (!dragStart.current || !gridRef.current) return;
+      const rect = gridRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      if (!isDragging.current && Math.abs(x - dragStart.current.x) + Math.abs(y - dragStart.current.y) > 4) {
+        isDragging.current = true;
+      }
+      if (isDragging.current) {
+        setDragRect({ x1: dragStart.current.x, y1: dragStart.current.y, x2: x, y2: y });
+        const wells = getWellsInRect(dragStart.current.x, dragStart.current.y, x, y);
+        setDragPreview(new Set(wells));
+      }
+    };
+    const handleGlobalUp = (e: MouseEvent) => {
+      if (isDragging.current && dragStart.current && gridRef.current) {
         const rect = gridRef.current.getBoundingClientRect();
-        dragStart.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-        isDragging.current = false;
-      }}
-      onMouseMove={(e) => {
-        if (!dragStart.current || !gridRef.current) return;
-        const rect = gridRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        if (!isDragging.current && Math.abs(x - dragStart.current.x) + Math.abs(y - dragStart.current.y) > 4) {
-          isDragging.current = true;
-        }
-      }}
-      onMouseUp={(e) => {
-        if (isDragging.current && dragStart.current && gridRef.current) {
-          const rect = gridRef.current.getBoundingClientRect();
-          const wells = getWellsInRect(
-            dragStart.current.x, dragStart.current.y,
-            e.clientX - rect.left, e.clientY - rect.top
-          );
-          if (wells.length > 0) {
+        const wells = getWellsInRect(
+          dragStart.current.x, dragStart.current.y,
+          e.clientX - rect.left, e.clientY - rect.top
+        );
+        if (wells.length > 0) {
+          if (e.ctrlKey || e.metaKey) {
             const next = new Set(selectedWells);
-            if (e.ctrlKey || e.metaKey) {
-              for (const w of wells) next.add(w);
-            } else {
-              onSelectionChange(new Set(wells));
-              dragStart.current = null;
-              isDragging.current = false;
-              return;
-            }
+            for (const w of wells) next.add(w);
             onSelectionChange(next);
+          } else {
+            onSelectionChange(new Set(wells));
           }
         }
-        dragStart.current = null;
-        isDragging.current = false;
-      }}
-    >
-      <div />
-      {cols.map((col) => (
-        <div key={col} className="text-center text-[8px] text-muted-foreground font-medium leading-4">{col}</div>
-      ))}
-      {[...rows].flatMap((row) => [
-        <div key={`l-${row}`} className="text-[8px] text-muted-foreground font-medium flex items-center justify-center">{row}</div>,
-        ...cols.map((col) => {
-          const well = `${row}${col}`;
-          const isUsed = usedWells.has(well);
-          const isSel = selectedWells.has(well);
-          const assignedStep = assignedWells.get(well);
-          const stepColors = ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc948', '#b07aa1', '#ff9da7', '#9c755f', '#bab0ac',
-            '#1f78b4', '#33a02c', '#e31a1c', '#ff7f00', '#6a3d9a', '#b15928', '#a6cee3', '#b2df8a', '#fb9a99', '#fdbf6f'];
-          const bg = !isUsed ? WELL_EMPTY_COLOR
-            : assignedStep != null ? stepColors[assignedStep % stepColors.length]
-            : '#f0f0f0';
-          return (
-            <div
-              key={well}
-              style={{
-                width: CELL_SIZE, height: CELL_SIZE,
-                backgroundColor: bg,
-                border: `${isSel ? 2 : 1}px solid ${isSel ? WELL_SELECTED_BORDER : '#ccc'}`,
-                borderRadius: 2,
-                opacity: isUsed ? 1 : 0.3,
-                cursor: isUsed ? 'pointer' : 'default',
-              }}
-              title={well + (assignedStep != null ? ` (Step ${assignedStep + 1})` : '')}
-              onClick={(e) => {
-                if (!isUsed) return;
-                e.stopPropagation();
-                const next = new Set(selectedWells);
-                if (e.ctrlKey || e.metaKey) {
-                  if (next.has(well)) next.delete(well); else next.add(well);
-                } else {
-                  onSelectionChange(new Set([well]));
-                  return;
-                }
-                onSelectionChange(next);
-              }}
-            />
-          );
-        }),
-      ])}
+      }
+      dragStart.current = null;
+      isDragging.current = false;
+      setDragRect(null);
+      setDragPreview(null);
+    };
+    window.addEventListener('mousemove', handleGlobalMove);
+    window.addEventListener('mouseup', handleGlobalUp);
+    return () => {
+      window.removeEventListener('mousemove', handleGlobalMove);
+      window.removeEventListener('mouseup', handleGlobalUp);
+    };
+  }, [selectedWells, onSelectionChange, getWellsInRect]);
+
+  const stepColors = ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc948', '#b07aa1', '#ff9da7', '#9c755f', '#bab0ac',
+    '#1f78b4', '#33a02c', '#e31a1c', '#ff7f00', '#6a3d9a', '#b15928', '#a6cee3', '#b2df8a', '#fb9a99', '#fdbf6f'];
+
+  return (
+    <div style={{ position: 'relative', display: 'inline-block' }}>
+      <div
+        ref={gridRef}
+        className="inline-grid gap-[1px] select-none"
+        style={{ gridTemplateColumns: `${HEADER_COL_W}px repeat(${plateCols}, ${CELL_SIZE}px)` }}
+        onMouseDown={(e) => {
+          if (e.button !== 0 || !gridRef.current) return;
+          const rect = gridRef.current.getBoundingClientRect();
+          dragStart.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+          isDragging.current = false;
+        }}
+      >
+        <div />
+        {cols.map((col) => (
+          <div key={col} className="text-center text-[8px] text-muted-foreground font-medium leading-4">{col}</div>
+        ))}
+        {[...rows].flatMap((row) => [
+          <div key={`l-${row}`} className="text-[8px] text-muted-foreground font-medium flex items-center justify-center">{row}</div>,
+          ...cols.map((col) => {
+            const well = `${row}${col}`;
+            const isUsed = usedWells.has(well);
+            const isSel = selectedWells.has(well);
+            const assignedStep = assignedWells.get(well);
+            const isInDragPreview = dragPreview?.has(well) ?? false;
+            const isDragActive = dragPreview != null;
+
+            const bg = !isUsed ? WELL_EMPTY_COLOR
+              : assignedStep != null ? stepColors[assignedStep % stepColors.length]
+              : '#f0f0f0';
+
+            // During drag: highlight wells in selection box, grey out others
+            let opacity = isUsed ? 1 : 0.3;
+            if (isDragActive && isUsed) {
+              opacity = isInDragPreview ? 1.0 : 0.25;
+            }
+
+            const highlighted = isSel || isInDragPreview;
+            return (
+              <div
+                key={well}
+                style={{
+                  width: CELL_SIZE, height: CELL_SIZE,
+                  backgroundColor: bg,
+                  border: `${highlighted ? 2 : 1}px solid ${highlighted ? WELL_SELECTED_BORDER : '#ccc'}`,
+                  borderRadius: 2,
+                  opacity,
+                  cursor: isUsed ? 'pointer' : 'default',
+                  transition: isDragActive ? 'none' : 'opacity 0.1s',
+                }}
+                title={well + (assignedStep != null ? ` (Step ${assignedStep + 1})` : '')}
+                onClick={(e) => {
+                  if (!isUsed) return;
+                  e.stopPropagation();
+                  const next = new Set(selectedWells);
+                  if (e.ctrlKey || e.metaKey) {
+                    if (next.has(well)) next.delete(well); else next.add(well);
+                  } else {
+                    onSelectionChange(new Set([well]));
+                    return;
+                  }
+                  onSelectionChange(next);
+                }}
+              />
+            );
+          }),
+        ])}
+      </div>
+      {/* Selection rectangle overlay */}
+      {dragRect && (
+        <div
+          style={{
+            position: 'absolute',
+            left: Math.min(dragRect.x1, dragRect.x2),
+            top: Math.min(dragRect.y1, dragRect.y2),
+            width: Math.abs(dragRect.x2 - dragRect.x1),
+            height: Math.abs(dragRect.y2 - dragRect.y1),
+            border: '1.5px dashed #3b82f6',
+            backgroundColor: 'rgba(59, 130, 246, 0.08)',
+            pointerEvents: 'none',
+            zIndex: 10,
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function Page2({ steps, setSteps, unit, onBack, onFinish, onCancel }: Page2Props) {
+function Page2({ steps, setSteps, unit, copiesExponent, onBack, onFinish, onCancel }: Page2Props) {
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
   const exp = experiments[idx];
@@ -335,8 +417,7 @@ function Page2({ steps, setSteps, unit, onBack, onFinish, onCancel }: Page2Props
                 onClick={() => setActiveStep(i)}
               >
                 <div className="font-medium">
-                  Step {i + 1}: {formatConcentration(step.concentration)}
-                  {unit ? ` ${unit}` : ''}
+                  Step {i + 1}: {formatConcentrationWithUnit(step.concentration, unit, copiesExponent)}
                 </div>
                 <div className="text-muted-foreground truncate">
                   {wellNames.length > 0 ? wellNames.join(', ') : '(none)'}
@@ -419,6 +500,7 @@ export function DilutionWizard({ onClose }: DilutionWizardProps) {
     highestConcentration: existingConfig?.highestConcentration ?? 5e6,
     dilutionFactor: existingConfig?.dilutionFactor ?? 10,
     numSteps: existingConfig?.numSteps ?? 5,
+    copiesExponent: existingConfig?.copiesExponent ?? 0,
   });
 
   // Build steps from params (preserve existing assignments if editing)
@@ -450,6 +532,7 @@ export function DilutionWizard({ onClose }: DilutionWizardProps) {
       highestConcentration: params.highestConcentration,
       dilutionFactor: params.dilutionFactor,
       numSteps: params.numSteps,
+      copiesExponent: params.copiesExponent,
       steps,
     };
     setDilutionConfig(config);
@@ -457,13 +540,60 @@ export function DilutionWizard({ onClose }: DilutionWizardProps) {
     onClose();
   }, [params, steps, setDilutionConfig, setPlotTab, onClose]);
 
+  // Draggable floating panel
+  const panelRef = useRef<HTMLDivElement>(null);
+  const dragOffset = useRef<{ x: number; y: number } | null>(null);
+  const [panelPos, setPanelPos] = useState<{ x: number; y: number } | null>(null);
+
+  const onTitleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (!panelRef.current) return;
+    const rect = panelRef.current.getBoundingClientRect();
+    dragOffset.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    e.preventDefault();
+  }, []);
+
+  useEffect(() => {
+    const handleMove = (e: MouseEvent) => {
+      if (!dragOffset.current) return;
+      setPanelPos({
+        x: e.clientX - dragOffset.current.x,
+        y: e.clientY - dragOffset.current.y,
+      });
+    };
+    const handleUp = () => { dragOffset.current = null; };
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, []);
+
+  const panelStyle: React.CSSProperties = panelPos
+    ? { position: 'fixed', left: panelPos.x, top: panelPos.y, zIndex: 50 }
+    : { position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 50 };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+    <div
+      ref={panelRef}
+      className="bg-background border rounded-lg shadow-xl w-[640px] max-h-[90vh] overflow-y-auto"
+      style={panelStyle}
+    >
+      {/* Draggable title bar */}
       <div
-        className="bg-background border rounded-lg shadow-xl p-5 w-[640px] max-h-[90vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
+        className="flex items-center justify-between px-5 pt-4 pb-2 cursor-move select-none"
+        onMouseDown={onTitleMouseDown}
       >
-        <h2 className="text-base font-bold mb-4">Doubling Time Wizard</h2>
+        <h2 className="text-base font-bold">Doubling Time Wizard</h2>
+        <button
+          onClick={onClose}
+          className="text-muted-foreground hover:text-foreground text-lg leading-none px-1"
+          title="Close"
+        >
+          ×
+        </button>
+      </div>
+      <div className="px-5 pb-5">
         {page === 1 ? (
           <Page1
             config={params}
@@ -476,6 +606,7 @@ export function DilutionWizard({ onClose }: DilutionWizardProps) {
             steps={steps}
             setSteps={setSteps}
             unit={params.unit}
+            copiesExponent={params.copiesExponent}
             onBack={() => setPage(1)}
             onFinish={handleFinish}
             onCancel={onClose}
