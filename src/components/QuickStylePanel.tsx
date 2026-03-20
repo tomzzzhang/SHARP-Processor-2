@@ -197,7 +197,7 @@ export function QuickStylePanel() {
                 onChange={(e) => setSelectionPaletteGroupColors(e.target.checked)}
                 className="h-3 w-3"
               />
-              Color groups same
+              Group coloring
             </label>
             <div className="max-h-[140px] overflow-y-auto border rounded">
               {MAIN_PALETTE_NAMES.map((p) => (

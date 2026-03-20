@@ -70,7 +70,7 @@ export function StyleTab() {
         </label>
         <label className="flex items-center gap-2 text-sm">
           <Checkbox checked={paletteGroupColors} onCheckedChange={(v) => setPaletteGroupColors(v === true)} />
-          Color groups same
+          Group coloring
         </label>
       </fieldset>
 
