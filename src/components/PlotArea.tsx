@@ -1,0 +1,1090 @@
+import { Component, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Plotly from 'plotly.js-dist-min';
+import _createPlotlyComponent from 'react-plotly.js/factory';
+import { useAppState, type PlotTab } from '@/hooks/useAppState';
+import { useAnalysisResults } from '@/hooks/useAnalysisResults';
+import { THRESHOLD_LINE_COLOR, getPaletteColors } from '@/lib/constants';
+import { useBoxSelect, BOX_SELECT_OVERLAY_STYLE } from '@/hooks/useBoxSelect';
+import { ContextMenu, useContextMenu } from './ContextMenu';
+import type { Data, Layout, PlotMouseEvent, Shape } from 'plotly.js';
+
+// CJS interop
+const createPlotlyComponent =
+  typeof _createPlotlyComponent === 'function'
+    ? _createPlotlyComponent
+    : (_createPlotlyComponent as unknown as { default: typeof _createPlotlyComponent }).default;
+
+const Plot = createPlotlyComponent(Plotly);
+
+class PlotErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: string | null }
+> {
+  state = { error: null as string | null };
+  static getDerivedStateFromError(err: Error) {
+    return { error: err.message };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="p-4 text-red-500 text-sm">
+          Plot failed to load: {this.state.error}
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const X_AXIS_LABELS = {
+  cycle: 'Cycle',
+  time_s: 'Time (s)',
+  time_min: 'Time (min)',
+} as const;
+
+const LEGEND_POS_MAP: Record<string, { x: number; y: number; xanchor: string; yanchor: string }> = {
+  'upper right': { x: 1, y: 1, xanchor: 'right', yanchor: 'top' },
+  'upper left': { x: 0, y: 1, xanchor: 'left', yanchor: 'top' },
+  'lower left': { x: 0, y: 0, xanchor: 'left', yanchor: 'bottom' },
+  'lower right': { x: 1, y: 0, xanchor: 'right', yanchor: 'bottom' },
+  'right': { x: 1.02, y: 0.5, xanchor: 'left', yanchor: 'middle' },
+  'center left': { x: 0, y: 0.5, xanchor: 'left', yanchor: 'middle' },
+  'center right': { x: 1, y: 0.5, xanchor: 'right', yanchor: 'middle' },
+  'lower center': { x: 0.5, y: 0, xanchor: 'center', yanchor: 'bottom' },
+  'upper center': { x: 0.5, y: 1, xanchor: 'center', yanchor: 'top' },
+  'center': { x: 0.5, y: 0.5, xanchor: 'center', yanchor: 'middle' },
+};
+
+// "Best" legend position: pick the corner with least data density.
+// Checks the four corners and picks the one where the fewest data points fall.
+const CORNER_CANDIDATES = [
+  { x: 1, y: 1, xanchor: 'right', yanchor: 'top' },     // upper right
+  { x: 0, y: 1, xanchor: 'left', yanchor: 'top' },      // upper left
+  { x: 1, y: 0, xanchor: 'right', yanchor: 'bottom' },   // lower right
+  { x: 0, y: 0, xanchor: 'left', yanchor: 'bottom' },    // lower left
+] as const;
+
+function bestLegendPosition(traces: Data[]): { x: number; y: number; xanchor: string; yanchor: string } {
+  // Count data points in each quadrant (normalized 0-1 x and y ranges)
+  const counts = [0, 0, 0, 0]; // UR, UL, LR, LL
+  let hasData = false;
+
+  for (const trace of traces) {
+    const xs = (trace as { x?: number[] }).x;
+    const ys = (trace as { y?: number[] }).y;
+    if (!xs || !ys || xs.length === 0) continue;
+    hasData = true;
+
+    // Find data range for normalization
+    let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
+    for (let i = 0; i < xs.length; i++) {
+      if (xs[i] < xMin) xMin = xs[i];
+      if (xs[i] > xMax) xMax = xs[i];
+      if (ys[i] < yMin) yMin = ys[i];
+      if (ys[i] > yMax) yMax = ys[i];
+    }
+    const xRange = xMax - xMin || 1;
+    const yRange = yMax - yMin || 1;
+
+    for (let i = 0; i < xs.length; i++) {
+      const nx = (xs[i] - xMin) / xRange;
+      const ny = (ys[i] - yMin) / yRange;
+      const rightHalf = nx > 0.5;
+      const topHalf = ny > 0.5;
+      if (rightHalf && topHalf) counts[0]++;
+      else if (!rightHalf && topHalf) counts[1]++;
+      else if (rightHalf && !topHalf) counts[2]++;
+      else counts[3]++;
+    }
+  }
+
+  if (!hasData) return CORNER_CANDIDATES[0];
+  // Pick corner with fewest points
+  let minIdx = 0;
+  for (let i = 1; i < counts.length; i++) {
+    if (counts[i] < counts[minIdx]) minIdx = i;
+  }
+  return CORNER_CANDIDATES[minIdx];
+}
+
+function usePlotStyle() {
+  return {
+    lineWidth: useAppState((s) => s.lineWidth),
+    palette: useAppState((s) => s.palette),
+    showGrid: useAppState((s) => s.showGrid),
+    gridAlpha: useAppState((s) => s.gridAlpha),
+    fontFamily: useAppState((s) => s.fontFamily),
+    titleSize: useAppState((s) => s.titleSize),
+    labelSize: useAppState((s) => s.labelSize),
+    tickSize: useAppState((s) => s.tickSize),
+    legendSize: useAppState((s) => s.legendSize),
+    showLegend: useAppState((s) => s.showLegend),
+    legendPosition: useAppState((s) => s.legendPosition),
+    legendVisibleOnly: useAppState((s) => s.legendVisibleOnly),
+  };
+}
+
+function legendLayout(style: ReturnType<typeof usePlotStyle>, showForPlot?: boolean, traces?: Data[]) {
+  const show = showForPlot ?? true;
+  let pos: { x: number; y: number; xanchor: string; yanchor: string };
+  if (style.legendPosition === 'best' && traces && traces.length > 0) {
+    pos = bestLegendPosition(traces);
+  } else {
+    pos = LEGEND_POS_MAP[style.legendPosition] ?? CORNER_CANDIDATES[0];
+  }
+  return {
+    showlegend: style.showLegend && show,
+    legend: {
+      font: { family: style.fontFamily, size: style.legendSize },
+      x: pos.x, y: pos.y,
+      xanchor: pos.xanchor as 'left' | 'right' | 'center',
+      yanchor: pos.yanchor as 'top' | 'bottom' | 'middle',
+      bgcolor: 'rgba(255,255,255,0.8)',
+    },
+  };
+}
+
+function gridStyle(style: ReturnType<typeof usePlotStyle>) {
+  return { showgrid: style.showGrid, gridcolor: `rgba(0,0,0,${style.gridAlpha})` };
+}
+
+function getWellLineStyle(well: string, overrides: Map<string, unknown>) {
+  const ov = overrides.get(well) as { lineStyle?: string; lineWidth?: number } | undefined;
+  return { dash: ov?.lineStyle, width: ov?.lineWidth };
+}
+
+/**
+ * Compute a color map for wells that respects grouping and Tt ordering.
+ * - When threshold is enabled, palette is assigned in ascending Tt order (v1 parity).
+ * - Groups are sorted by mean Tt; ungrouped wells by individual Tt.
+ * - Wells/groups with no Tt are placed at the end.
+ * - Per-well style overrides take highest priority.
+ * - paletteReversed flips the color assignment order.
+ */
+function useGroupedColors(
+  wellsUsed: string[],
+  visibleWells: string[],
+  paletteName: string,
+  wellGroups: Map<string, string>,
+  wellStyleOverrides: Map<string, unknown>,
+  analysisResults?: Map<string, { tt?: number | null }>,
+  paletteReversed?: boolean,
+): Map<string, string> {
+  return useMemo(() => {
+    const colorMap = new Map<string, string>();
+    if (wellsUsed.length === 0) return colorMap;
+
+    // Build palette units: each group = 1 unit, each ungrouped well = 1 unit
+    const groupMembers = new Map<string, string[]>();
+    const ungrouped: string[] = [];
+    const seenGroups = new Set<string>();
+
+    for (const well of wellsUsed) {
+      const group = wellGroups.get(well);
+      if (group) {
+        if (!seenGroups.has(group)) {
+          seenGroups.add(group);
+          groupMembers.set(group, []);
+        }
+        groupMembers.get(group)!.push(well);
+      } else {
+        ungrouped.push(well);
+      }
+    }
+
+    // Build sortable units: [sortKey, wells[]]
+    const units: [number, string[]][] = [];
+
+    for (const [, members] of groupMembers) {
+      // Group sort key = mean Tt of members
+      let sum = 0, count = 0;
+      for (const w of members) {
+        const tt = analysisResults?.get(w)?.tt;
+        if (tt != null) { sum += tt; count++; }
+      }
+      units.push([count > 0 ? sum / count : Infinity, members]);
+    }
+    for (const well of ungrouped) {
+      const tt = analysisResults?.get(well)?.tt;
+      units.push([tt ?? Infinity, [well]]);
+    }
+
+    // Sort by Tt ascending (wells with no Tt go to end)
+    if (analysisResults && analysisResults.size > 0) {
+      units.sort((a, b) => a[0] - b[0]);
+    }
+
+    // Get palette colors
+    const nUnits = units.length;
+    let colors = getPaletteColors(paletteName, nUnits);
+    if (paletteReversed) colors = [...colors].reverse();
+
+    // Assign colors
+    for (let i = 0; i < units.length; i++) {
+      const color = colors[i % colors.length];
+      for (const well of units[i][1]) {
+        colorMap.set(well, color);
+      }
+    }
+
+    // Apply per-well style overrides (highest priority)
+    for (const [well, ov] of wellStyleOverrides.entries()) {
+      const override = ov as { color?: string } | undefined;
+      if (override?.color) colorMap.set(well, override.color);
+    }
+
+    return colorMap;
+  }, [wellsUsed, paletteName, wellGroups, wellStyleOverrides, analysisResults, paletteReversed]);
+}
+
+// Plot config: disable zoom drag, enable box select
+const PLOT_CONFIG: Partial<Plotly.Config> = {
+  responsive: true,
+  displayModeBar: true,
+  scrollZoom: true,
+  modeBarButtonsToRemove: ['zoom2d', 'pan2d', 'autoScale2d'] as string[],
+  editable: false,
+};
+
+// ── Amplification Plot ───────────────────────────────────────────────
+
+function AmplificationPlot() {
+  const experiments = useAppState((s) => s.experiments);
+  const idx = useAppState((s) => s.activeExperimentIndex);
+  const xAxisMode = useAppState((s) => s.xAxisMode);
+  const logScale = useAppState((s) => s.logScale);
+  const selectedWells = useAppState((s) => s.selectedWells);
+  const hiddenWells = useAppState((s) => s.hiddenWells);
+  const deactivatedWells = useAppState((s) => s.deactivatedWells);
+  const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
+  const setSelectedWells = useAppState((s) => s.setSelectedWells);
+  const selectOnly = useAppState((s) => s.selectOnly);
+  const deselectAll = useAppState((s) => s.deselectAll);
+  const toggleWellSelection = useAppState((s) => s.toggleWellSelection);
+  const hoveredWell = useAppState((s) => s.hoveredWell);
+  const setHoveredWell = useAppState((s) => s.setHoveredWell);
+  const baselineEnabled = useAppState((s) => s.baselineEnabled);
+  const baselineStart = useAppState((s) => s.baselineStart);
+  const baselineEnd = useAppState((s) => s.baselineEnd);
+  const showRawOverlay = useAppState((s) => s.showRawOverlay);
+  const thresholdEnabled = useAppState((s) => s.thresholdEnabled);
+  const thresholdRfu = useAppState((s) => s.thresholdRfu);
+  const setThresholdRfu = useAppState((s) => s.setThresholdRfu);
+  const showLegendAmp = useAppState((s) => s.showLegendAmp);
+  const paletteReversed = useAppState((s) => s.paletteReversed);
+  const style = usePlotStyle();
+  const analysisResults = useAnalysisResults();
+  const dragPreviewWells = useAppState((s) => s.dragPreviewWells);
+  const setDragPreviewWells = useAppState((s) => s.setDragPreviewWells);
+
+  const wellGroups = useAppState((s) => s.wellGroups);
+
+  const exp = experiments[idx];
+  const amp = exp?.amplification;
+
+  const visibleWells = useMemo(() => {
+    if (!exp) return [];
+    return exp.wellsUsed.filter((w) => !hiddenWells.has(w) && !deactivatedWells.has(w));
+  }, [exp, hiddenWells, deactivatedWells]);
+
+  const colorMap = useGroupedColors(
+    exp?.wellsUsed ?? [], visibleWells, style.palette, wellGroups, wellStyleOverrides,
+    analysisResults as Map<string, { tt?: number | null }>, paletteReversed
+  );
+
+  const traces = useMemo((): Data[] => {
+    if (!amp) {
+      return [];
+    }
+
+    const xData = xAxisMode === 'cycle' ? amp.cycle : xAxisMode === 'time_s' ? amp.timeS : amp.timeMin;
+    const result: Data[] = [];
+
+    if (baselineEnabled && showRawOverlay) {
+      for (const well of visibleWells) {
+        const color = colorMap.get(well) ?? '#999';
+        result.push({
+          x: xData, y: amp.wells[well],
+          type: 'scatter' as const, mode: 'lines' as const,
+          name: `${well} (raw)`,
+          line: { color, width: style.lineWidth * 0.5, dash: 'dot' },
+          opacity: 0.3, hoverinfo: 'skip' as const, showlegend: false,
+        });
+      }
+    }
+
+    for (const well of visibleWells) {
+      const color = colorMap.get(well) ?? '#999';
+      const lsOverride = getWellLineStyle(well, wellStyleOverrides);
+      const isSelected = selectedWells.size === 0 || selectedWells.has(well);
+      const isHovered = hoveredWell === well;
+      const isDragHighlighted = dragPreviewWells ? dragPreviewWells.has(well) : null;
+      const analysis = analysisResults.get(well);
+      const yData = (baselineEnabled && analysis?.correctedRfu) || amp.wells[well];
+      const showInLegend = !style.legendVisibleOnly || isSelected;
+
+      // During drag select: highlight wells inside box, grey out everything else
+      let lineWidth = lsOverride.width ?? (isSelected ? style.lineWidth : style.lineWidth * 0.6);
+      let opacity = isSelected ? 1.0 : 0.25;
+      if (isDragHighlighted === true) { lineWidth = style.lineWidth * 1.4; opacity = 1.0; }
+      else if (isDragHighlighted === false) { opacity = 0.15; }
+      if (isHovered) { lineWidth = Math.max(lineWidth, style.lineWidth * 1.6); }
+
+      result.push({
+        x: xData, y: yData,
+        type: 'scatter' as const, mode: 'lines' as const, name: well,
+        line: {
+          color,
+          width: lineWidth,
+          dash: lsOverride.dash as 'solid' | 'dash' | 'dot' | 'dashdot' | undefined,
+        },
+        opacity,
+        hoverinfo: 'name' as const, showlegend: showInLegend,
+      });
+    }
+    return result;
+  }, [amp, exp, xAxisMode, selectedWells, hiddenWells, deactivatedWells, style.lineWidth,
+      style.legendVisibleOnly, visibleWells, baselineEnabled, showRawOverlay,
+      analysisResults, wellStyleOverrides, colorMap, hoveredWell, dragPreviewWells]);
+
+  // Compute baseline zone x-axis boundaries
+  const baselineZoneBounds = useMemo(() => {
+    if (!baselineEnabled || !amp) return null;
+    const cycle = amp.cycle;
+    if (!cycle || cycle.length === 0) return null;
+    const xData = xAxisMode === 'cycle' ? cycle : xAxisMode === 'time_s' ? amp.timeS : amp.timeMin;
+    // baseline start/end are cycle numbers; find corresponding x values
+    const startIdx = Math.max(0, baselineStart - 1); // cycles are 1-based
+    const endIdx = Math.min(cycle.length - 1, baselineEnd - 1);
+    if (startIdx >= xData.length || endIdx < 0) return null;
+    return { x0: xData[startIdx], x1: xData[endIdx] };
+  }, [baselineEnabled, amp, xAxisMode, baselineStart, baselineEnd]);
+
+  const layout = useMemo((): Partial<Layout> => {
+    const title = exp?.experimentId ?? 'Amplification Plot';
+    const shapes: Partial<Shape>[] = [];
+
+    // Baseline zone shading
+    if (baselineZoneBounds) {
+      shapes.push({
+        type: 'rect',
+        x0: baselineZoneBounds.x0, x1: baselineZoneBounds.x1, xref: 'x',
+        y0: 0, y1: 1, yref: 'paper',
+        fillcolor: 'rgba(26, 115, 232, 0.06)',
+        line: { width: 0 },
+        layer: 'below',
+      });
+    }
+
+    // Threshold line (not Plotly-editable; dragged via custom mouse handler)
+    if (thresholdEnabled) {
+      shapes.push({
+        type: 'line', x0: 0, x1: 1, xref: 'paper',
+        y0: thresholdRfu, y1: thresholdRfu, yref: 'y',
+        line: { color: THRESHOLD_LINE_COLOR, width: 2, dash: 'dash' },
+      });
+    }
+    return {
+      title: { text: title, font: { family: style.fontFamily, size: style.titleSize } },
+      xaxis: {
+        title: { text: X_AXIS_LABELS[xAxisMode], font: { family: style.fontFamily, size: style.labelSize } },
+        tickfont: { family: style.fontFamily, size: style.tickSize },
+        ...gridStyle(style),
+      },
+      yaxis: {
+        title: { text: baselineEnabled ? 'RFU (corrected)' : 'RFU', font: { family: style.fontFamily, size: style.labelSize } },
+        type: logScale ? 'log' : 'linear',
+        tickfont: { family: style.fontFamily, size: style.tickSize },
+        ...gridStyle(style),
+      },
+      shapes,
+      dragmode: false as Layout['dragmode'],
+      autosize: true,
+      margin: { l: 70, r: 20, t: 50, b: 50 },
+      plot_bgcolor: 'white', paper_bgcolor: 'white',
+      ...legendLayout(style, showLegendAmp, traces),
+      datarevision: Date.now(),
+    };
+  }, [exp, xAxisMode, logScale, thresholdEnabled, thresholdRfu, style, baselineEnabled, baselineZoneBounds, showLegendAmp, traces]);
+  const rawOverlayCount = (baselineEnabled && showRawOverlay) ? visibleWells.length : 0;
+
+  // Refs for box selection data matching
+  const visibleWellsRef = useRef(visibleWells);
+  visibleWellsRef.current = visibleWells;
+  const ampRef = useRef(amp);
+  ampRef.current = amp;
+  const xAxisModeRef = useRef(xAxisMode);
+  xAxisModeRef.current = xAxisMode;
+  const baselineEnabledRef = useRef(baselineEnabled);
+  baselineEnabledRef.current = baselineEnabled;
+  const analysisResultsRef = useRef(analysisResults);
+  analysisResultsRef.current = analysisResults;
+
+  const matchWellsInBox = useCallback((x0: number, x1: number, y0: number, y1: number): Set<string> => {
+    const currentAmp = ampRef.current;
+    if (!currentAmp) return new Set();
+    const mode = xAxisModeRef.current;
+    const xData = mode === 'cycle' ? currentAmp.cycle : mode === 'time_s' ? currentAmp.timeS : currentAmp.timeMin;
+    const matched = new Set<string>();
+    for (const well of visibleWellsRef.current) {
+      const analysis = analysisResultsRef.current.get(well);
+      const yData = (baselineEnabledRef.current && analysis?.correctedRfu) || currentAmp.wells[well];
+      for (let i = 0; i < xData.length; i++) {
+        if (xData[i] >= x0 && xData[i] <= x1 && yData[i] >= y0 && yData[i] <= y1) {
+          matched.add(well);
+          break;
+        }
+      }
+    }
+    return matched;
+  }, []);
+
+  const handleBoxSelect = useCallback((x0: number, x1: number, y0: number, y1: number) => {
+    const matched = matchWellsInBox(x0, x1, y0, y1);
+    if (matched.size > 0) setSelectedWells(matched);
+  }, [setSelectedWells, matchWellsInBox]);
+
+  const handleDragMove = useCallback((x0: number, x1: number, y0: number, y1: number) => {
+    setDragPreviewWells(matchWellsInBox(x0, x1, y0, y1));
+  }, [matchWellsInBox]);
+
+  const handleDragEnd = useCallback(() => setDragPreviewWells(null), []);
+
+  const { containerRef: plotContainerRef, overlayRef: selectionOverlayRef, traceClickedRef } = useBoxSelect({
+    onSelect: handleBoxSelect,
+    onDragMove: handleDragMove,
+    onDragEnd: handleDragEnd,
+    onEmptyClick: deselectAll,
+    threshold: { enabled: thresholdEnabled, rfu: thresholdRfu, setRfu: setThresholdRfu },
+  });
+
+  const handleClick = useCallback((event: Readonly<PlotMouseEvent>) => {
+    if (!event.points.length || !visibleWells.length) return;
+    const browserEvent = event.event as MouseEvent | undefined;
+    if (browserEvent && browserEvent.button !== 0) return;
+    traceClickedRef.current = true; // suppress empty-click deselect
+    const traceIdx = event.points[0].curveNumber - rawOverlayCount;
+    if (traceIdx < 0 || traceIdx >= visibleWells.length) return;
+    const well = visibleWells[traceIdx];
+    if (browserEvent && (browserEvent.ctrlKey || browserEvent.metaKey)) {
+      toggleWellSelection(well);
+    } else {
+      selectOnly(well);
+    }
+  }, [visibleWells, rawOverlayCount, selectOnly, toggleWellSelection, traceClickedRef]);
+
+  const handleHover = useCallback((event: Readonly<PlotMouseEvent>) => {
+    if (!event.points.length) return;
+    const traceIdx = event.points[0].curveNumber - rawOverlayCount;
+    if (traceIdx >= 0 && traceIdx < visibleWells.length) {
+      setHoveredWell(visibleWells[traceIdx]);
+    }
+  }, [visibleWells, rawOverlayCount, setHoveredWell]);
+
+  const handleUnhover = useCallback(() => setHoveredWell(null), [setHoveredWell]);
+
+  return (
+    <div ref={plotContainerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
+      <Plot
+        data={traces} layout={layout}
+        useResizeHandler style={{ width: '100%', height: '100%' }}
+        config={PLOT_CONFIG}
+        onClick={handleClick}
+        onHover={handleHover}
+        onUnhover={handleUnhover}
+      />
+      <div ref={selectionOverlayRef} style={BOX_SELECT_OVERLAY_STYLE} />
+    </div>
+  );
+}
+
+// ── Melt Derivative Mini-Plot (shown below amp plot) ─────────────────
+
+function MeltDerivMini() {
+  const experiments = useAppState((s) => s.experiments);
+  const idx = useAppState((s) => s.activeExperimentIndex);
+  const selectedWells = useAppState((s) => s.selectedWells);
+  const hiddenWells = useAppState((s) => s.hiddenWells);
+  const deactivatedWells = useAppState((s) => s.deactivatedWells);
+  const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
+  const wellGroups = useAppState((s) => s.wellGroups);
+  const paletteReversed = useAppState((s) => s.paletteReversed);
+  const hoveredWell = useAppState((s) => s.hoveredWell);
+  const setHoveredWell = useAppState((s) => s.setHoveredWell);
+  const deselectAll = useAppState((s) => s.deselectAll);
+  const style = usePlotStyle();
+  const setSelectedWells = useAppState((s) => s.setSelectedWells);
+  const analysisResults = useAnalysisResults();
+  const dragPreviewWells = useAppState((s) => s.dragPreviewWells);
+  const setDragPreviewWells = useAppState((s) => s.setDragPreviewWells);
+
+  const exp = experiments[idx];
+  const melt = exp?.melt;
+
+  const visibleWells = useMemo(() => {
+    if (!exp) return [];
+    return exp.wellsUsed.filter((w) => !hiddenWells.has(w) && !deactivatedWells.has(w));
+  }, [exp, hiddenWells, deactivatedWells]);
+
+  const colorMap = useGroupedColors(
+    exp?.wellsUsed ?? [], visibleWells, style.palette, wellGroups, wellStyleOverrides,
+    analysisResults as Map<string, { tt?: number | null }>, paletteReversed
+  );
+
+  const hasDerivative = melt && Object.keys(melt.derivative).length > 0;
+
+  const traces = useMemo((): Data[] => {
+    if (!melt || !hasDerivative) return [];
+    const result: Data[] = [];
+    for (const well of visibleWells) {
+      const color = colorMap.get(well) ?? '#999';
+      const isSelected = selectedWells.size === 0 || selectedWells.has(well);
+      const isHovered = hoveredWell === well;
+      const isDragHighlighted = dragPreviewWells ? dragPreviewWells.has(well) : null;
+      const derData = melt.derivative[well];
+      if (!derData) continue;
+      let lineWidth = isSelected ? style.lineWidth : style.lineWidth * 0.6;
+      let opacity = isSelected ? 1.0 : 0.25;
+      if (isDragHighlighted === true) { lineWidth = style.lineWidth * 1.4; opacity = 1.0; }
+      else if (isDragHighlighted === false) { opacity = 0.15; }
+      if (isHovered) { lineWidth = Math.max(lineWidth, style.lineWidth * 1.6); }
+      result.push({
+        x: melt.temperatureC, y: derData,
+        type: 'scatter' as const, mode: 'lines' as const, name: well,
+        line: { color, width: lineWidth },
+        opacity,
+        hoverinfo: 'name' as const, showlegend: false,
+      });
+    }
+    return result;
+  }, [melt, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells]);
+
+  const layout = useMemo((): Partial<Layout> => {
+    return {
+      xaxis: {
+        title: { text: 'Temperature (°C)', font: { family: style.fontFamily, size: 9 } },
+        tickfont: { family: style.fontFamily, size: 8 },
+        ...gridStyle(style),
+      },
+      yaxis: {
+        title: { text: '-dF/dT', font: { family: style.fontFamily, size: 9 } },
+        tickfont: { family: style.fontFamily, size: 8 },
+        ...gridStyle(style),
+      },
+      dragmode: false as Layout['dragmode'],
+      autosize: true,
+      margin: { l: 60, r: 10, t: 10, b: 35 },
+      plot_bgcolor: 'white', paper_bgcolor: 'white',
+      showlegend: false,
+      datarevision: Date.now(),
+    };
+  }, [style, traces]);
+
+  // Box select on melt derivative
+  const visibleWellsRef = useRef(visibleWells);
+  visibleWellsRef.current = visibleWells;
+  const meltRef = useRef(melt);
+  meltRef.current = melt;
+
+  const matchWellsInBox = useCallback((x0: number, x1: number, y0: number, y1: number): Set<string> => {
+    const m = meltRef.current;
+    if (!m) return new Set();
+    const matched = new Set<string>();
+    for (const well of visibleWellsRef.current) {
+      const yData = m.derivative[well];
+      if (!yData) continue;
+      for (let i = 0; i < m.temperatureC.length; i++) {
+        if (m.temperatureC[i] >= x0 && m.temperatureC[i] <= x1 && yData[i] >= y0 && yData[i] <= y1) {
+          matched.add(well);
+          break;
+        }
+      }
+    }
+    return matched;
+  }, []);
+
+  const handleBoxSelect = useCallback((x0: number, x1: number, y0: number, y1: number) => {
+    const matched = matchWellsInBox(x0, x1, y0, y1);
+    if (matched.size > 0) setSelectedWells(matched);
+  }, [setSelectedWells, matchWellsInBox]);
+
+  const handleDragMove = useCallback((x0: number, x1: number, y0: number, y1: number) => {
+    setDragPreviewWells(matchWellsInBox(x0, x1, y0, y1));
+  }, [matchWellsInBox]);
+
+  const handleDragEnd = useCallback(() => setDragPreviewWells(null), []);
+
+  const { containerRef, overlayRef } = useBoxSelect({
+    onSelect: handleBoxSelect,
+    onDragMove: handleDragMove,
+    onDragEnd: handleDragEnd,
+    onEmptyClick: deselectAll,
+  });
+
+  const handleHover = useCallback((event: Readonly<PlotMouseEvent>) => {
+    if (!event.points.length) return;
+    const ci = event.points[0].curveNumber;
+    if (ci >= 0 && ci < visibleWells.length) setHoveredWell(visibleWells[ci]);
+  }, [visibleWells, setHoveredWell]);
+
+  const handleUnhover = useCallback(() => setHoveredWell(null), [setHoveredWell]);
+
+  if (!hasDerivative) return null;
+
+  return (
+    <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
+      <Plot
+        data={traces} layout={layout}
+        useResizeHandler style={{ width: '100%', height: '100%' }}
+        config={PLOT_CONFIG}
+        onHover={handleHover}
+        onUnhover={handleUnhover}
+      />
+      <div ref={overlayRef} style={BOX_SELECT_OVERLAY_STYLE} />
+    </div>
+  );
+}
+
+// ── Melt Plot (stacked subplots — full tab) ──────────────────────────
+
+function MeltPlot() {
+  const experiments = useAppState((s) => s.experiments);
+  const idx = useAppState((s) => s.activeExperimentIndex);
+  const selectedWells = useAppState((s) => s.selectedWells);
+  const hiddenWells = useAppState((s) => s.hiddenWells);
+  const deactivatedWells = useAppState((s) => s.deactivatedWells);
+  const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
+  const wellGroups = useAppState((s) => s.wellGroups);
+  const paletteReversed = useAppState((s) => s.paletteReversed);
+  const setSelectedWells = useAppState((s) => s.setSelectedWells);
+  const selectOnly = useAppState((s) => s.selectOnly);
+  const deselectAll = useAppState((s) => s.deselectAll);
+  const toggleWellSelection = useAppState((s) => s.toggleWellSelection);
+  const hoveredWell = useAppState((s) => s.hoveredWell);
+  const setHoveredWell = useAppState((s) => s.setHoveredWell);
+  const showLegendMelt = useAppState((s) => s.showLegendMelt);
+  const style = usePlotStyle();
+  const analysisResults = useAnalysisResults();
+  const dragPreviewWells = useAppState((s) => s.dragPreviewWells);
+  const setDragPreviewWells = useAppState((s) => s.setDragPreviewWells);
+
+  const exp = experiments[idx];
+  const melt = exp?.melt;
+
+  const visibleWells = useMemo(() => {
+    if (!exp) return [];
+    return exp.wellsUsed.filter((w) => !hiddenWells.has(w) && !deactivatedWells.has(w));
+  }, [exp, hiddenWells, deactivatedWells]);
+
+  const colorMap = useGroupedColors(
+    exp?.wellsUsed ?? [], visibleWells, style.palette, wellGroups, wellStyleOverrides,
+    analysisResults as Map<string, { tt?: number | null }>, paletteReversed
+  );
+
+  const hasDerivative = melt && Object.keys(melt.derivative).length > 0;
+
+  const traces = useMemo((): Data[] => {
+    if (!melt) return [];
+    const result: Data[] = [];
+
+    for (const well of visibleWells) {
+      const color = colorMap.get(well) ?? '#999';
+      const isSelected = selectedWells.size === 0 || selectedWells.has(well);
+      const isHovered = hoveredWell === well;
+      const isDragHighlighted = dragPreviewWells ? dragPreviewWells.has(well) : null;
+      const rfuData = melt.rfu[well];
+      if (!rfuData) continue;
+      const showInLegend = !style.legendVisibleOnly || isSelected;
+      let lineWidth = isSelected ? style.lineWidth : style.lineWidth * 0.6;
+      let opacity = isSelected ? 1.0 : 0.25;
+      if (isDragHighlighted === true) { lineWidth = style.lineWidth * 1.4; opacity = 1.0; }
+      else if (isDragHighlighted === false) { opacity = 0.15; }
+      if (isHovered) { lineWidth = Math.max(lineWidth, style.lineWidth * 1.6); }
+      result.push({
+        x: melt.temperatureC, y: rfuData,
+        type: 'scatter' as const, mode: 'lines' as const, name: well,
+        line: { color, width: lineWidth },
+        opacity,
+        hoverinfo: 'name' as const, yaxis: 'y', showlegend: showInLegend,
+      });
+    }
+
+    if (hasDerivative) {
+      for (const well of visibleWells) {
+        const color = colorMap.get(well) ?? '#999';
+        const isSelected = selectedWells.size === 0 || selectedWells.has(well);
+        const isHovered = hoveredWell === well;
+        const isDragHighlighted = dragPreviewWells ? dragPreviewWells.has(well) : null;
+        const derData = melt.derivative[well];
+        if (!derData) continue;
+        let lineWidth = isSelected ? style.lineWidth : style.lineWidth * 0.6;
+        let opacity = isSelected ? 1.0 : 0.25;
+        if (isDragHighlighted === true) { lineWidth = style.lineWidth * 1.4; opacity = 1.0; }
+        else if (isDragHighlighted === false) { opacity = 0.15; }
+        if (isHovered) { lineWidth = Math.max(lineWidth, style.lineWidth * 1.6); }
+        result.push({
+          x: melt.temperatureC, y: derData,
+          type: 'scatter' as const, mode: 'lines' as const, name: well,
+          line: { color, width: lineWidth },
+          opacity,
+          hoverinfo: 'name' as const, yaxis: 'y2', showlegend: false,
+        });
+      }
+    }
+    return result;
+  }, [melt, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells]);
+
+  const layout = useMemo((): Partial<Layout> => {
+    const title = exp?.experimentId ? `${exp.experimentId} — Melt` : 'Melt Curve';
+    const grid = gridStyle(style);
+    if (hasDerivative) {
+      return {
+        title: { text: title, font: { family: style.fontFamily, size: style.titleSize } },
+        xaxis: { title: { text: 'Temperature (°C)', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, ...grid },
+        yaxis: { title: { text: 'RFU', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, domain: [0.55, 1], ...grid },
+        yaxis2: { title: { text: '-dF/dT', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, domain: [0, 0.45], anchor: 'x', ...grid },
+        dragmode: false as Layout['dragmode'], autosize: true, margin: { l: 70, r: 20, t: 50, b: 50 },
+        plot_bgcolor: 'white', paper_bgcolor: 'white', ...legendLayout(style, showLegendMelt, traces),
+        datarevision: Date.now(),
+      };
+    }
+    return {
+      title: { text: title, font: { family: style.fontFamily, size: style.titleSize } },
+      xaxis: { title: { text: 'Temperature (°C)', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, ...grid },
+      yaxis: { title: { text: 'RFU', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, ...grid },
+      dragmode: false as Layout['dragmode'], autosize: true, margin: { l: 70, r: 20, t: 50, b: 50 },
+      plot_bgcolor: 'white', paper_bgcolor: 'white', ...legendLayout(style, showLegendMelt, traces),
+      datarevision: Date.now(),
+    };
+  }, [exp, style, hasDerivative, traces, showLegendMelt]);
+
+  // Box select on melt plot (uses RFU y-axis for matching)
+  const visibleWellsRef = useRef(visibleWells);
+  visibleWellsRef.current = visibleWells;
+  const meltRef = useRef(melt);
+  meltRef.current = melt;
+
+  const matchWellsInBox = useCallback((x0: number, x1: number, y0: number, y1: number): Set<string> => {
+    const m = meltRef.current;
+    if (!m) return new Set();
+    const matched = new Set<string>();
+    for (const well of visibleWellsRef.current) {
+      const rfuData = m.rfu[well];
+      if (rfuData) {
+        for (let i = 0; i < m.temperatureC.length; i++) {
+          if (m.temperatureC[i] >= x0 && m.temperatureC[i] <= x1 && rfuData[i] >= y0 && rfuData[i] <= y1) {
+            matched.add(well);
+            break;
+          }
+        }
+      }
+    }
+    return matched;
+  }, []);
+
+  const handleBoxSelect = useCallback((x0: number, x1: number, y0: number, y1: number) => {
+    const matched = matchWellsInBox(x0, x1, y0, y1);
+    if (matched.size > 0) setSelectedWells(matched);
+  }, [setSelectedWells, matchWellsInBox]);
+
+  const handleDragMove = useCallback((x0: number, x1: number, y0: number, y1: number) => {
+    setDragPreviewWells(matchWellsInBox(x0, x1, y0, y1));
+  }, [matchWellsInBox]);
+
+  const handleDragEnd = useCallback(() => setDragPreviewWells(null), []);
+
+  const { containerRef, overlayRef, traceClickedRef } = useBoxSelect({
+    onSelect: handleBoxSelect,
+    onDragMove: handleDragMove,
+    onDragEnd: handleDragEnd,
+    onEmptyClick: deselectAll,
+  });
+
+  const handleClick = useCallback((event: Readonly<PlotMouseEvent>) => {
+    if (!event.points.length || !visibleWells.length) return;
+    const browserEvent = event.event as MouseEvent | undefined;
+    if (browserEvent && browserEvent.button !== 0) return;
+    traceClickedRef.current = true;
+    const ci = event.points[0].curveNumber;
+    const wellIdx = ci < visibleWells.length ? ci : ci - visibleWells.length;
+    if (wellIdx < 0 || wellIdx >= visibleWells.length) return;
+    const well = visibleWells[wellIdx];
+    if (browserEvent && (browserEvent.ctrlKey || browserEvent.metaKey)) {
+      toggleWellSelection(well);
+    } else {
+      selectOnly(well);
+    }
+  }, [visibleWells, selectOnly, toggleWellSelection, traceClickedRef]);
+
+  const handleHover = useCallback((event: Readonly<PlotMouseEvent>) => {
+    if (!event.points.length) return;
+    const ci = event.points[0].curveNumber;
+    const wellIdx = ci < visibleWells.length ? ci : ci - visibleWells.length;
+    if (wellIdx >= 0 && wellIdx < visibleWells.length) setHoveredWell(visibleWells[wellIdx]);
+  }, [visibleWells, setHoveredWell]);
+
+  const handleUnhover = useCallback(() => setHoveredWell(null), [setHoveredWell]);
+
+  if (!melt) {
+    return <div className="flex items-center justify-center h-full text-muted-foreground text-sm">No melt data available</div>;
+  }
+
+  return (
+    <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
+      <Plot
+        data={traces} layout={layout}
+        useResizeHandler style={{ width: '100%', height: '100%' }}
+        config={PLOT_CONFIG}
+        onClick={handleClick}
+        onHover={handleHover}
+        onUnhover={handleUnhover}
+      />
+      <div ref={overlayRef} style={BOX_SELECT_OVERLAY_STYLE} />
+    </div>
+  );
+}
+
+// ── Doubling Time Plot ───────────────────────────────────────────────
+
+function DoublingTimePlot() {
+  const experiments = useAppState((s) => s.experiments);
+  const idx = useAppState((s) => s.activeExperimentIndex);
+  const hiddenWells = useAppState((s) => s.hiddenWells);
+  const deactivatedWells = useAppState((s) => s.deactivatedWells);
+  const xAxisMode = useAppState((s) => s.xAxisMode);
+  const showLegendDoubling = useAppState((s) => s.showLegendDoubling);
+  const paletteReversed = useAppState((s) => s.paletteReversed);
+  const style = usePlotStyle();
+  const analysisResults = useAnalysisResults();
+  const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
+
+  const wellGroups = useAppState((s) => s.wellGroups);
+
+  const exp = experiments[idx];
+
+  const dtVisibleWells = useMemo(() => {
+    if (!exp) return [];
+    return exp.wellsUsed.filter((w) => !hiddenWells.has(w) && !deactivatedWells.has(w));
+  }, [exp, hiddenWells, deactivatedWells]);
+
+  const colorMap = useGroupedColors(
+    exp?.wellsUsed ?? [], dtVisibleWells, style.palette, wellGroups, wellStyleOverrides,
+    analysisResults as Map<string, { tt?: number | null }>, paletteReversed
+  );
+
+  const data = useMemo(() => {
+    if (!exp) return { wells: [] as string[], tts: [] as number[], dts: [] as number[], colors: [] as string[] };
+    const wells: string[] = [], tts: number[] = [], dts: number[] = [], cs: string[] = [];
+    for (const well of dtVisibleWells) {
+      const r = analysisResults.get(well);
+      if (!r || r.tt == null || r.dt == null) continue;
+      wells.push(well); tts.push(r.tt); dts.push(r.dt);
+      cs.push(colorMap.get(well) ?? '#999');
+    }
+    return { wells, tts, dts, colors: cs };
+  }, [exp, dtVisibleWells, analysisResults, colorMap]);
+
+  const xLabel = xAxisMode === 'cycle' ? 'Ct' : 'Tt';
+
+  const traces = useMemo((): Data[] => {
+    if (data.wells.length === 0) return [];
+    return [{ x: data.tts, y: data.dts, type: 'scatter' as const, mode: 'markers+text' as const,
+      text: data.wells, textposition: 'top center' as const,
+      textfont: { size: 9, family: style.fontFamily },
+      marker: { color: data.colors, size: 8 }, hoverinfo: 'text' as const, showlegend: false }];
+  }, [data, style.fontFamily]);
+
+  const layout = useMemo((): Partial<Layout> => {
+    const title = exp?.experimentId ? `${exp.experimentId} — Doubling Time` : 'Doubling Time';
+    return {
+      title: { text: title, font: { family: style.fontFamily, size: style.titleSize } },
+      xaxis: { title: { text: `${xLabel} (${X_AXIS_LABELS[xAxisMode]})`, font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, ...gridStyle(style) },
+      yaxis: { title: { text: 'Doubling Time', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, ...gridStyle(style) },
+      autosize: true, margin: { l: 70, r: 20, t: 50, b: 50 },
+      plot_bgcolor: 'white', paper_bgcolor: 'white', ...legendLayout(style, showLegendDoubling, traces),
+      datarevision: Date.now(),
+    };
+  }, [exp, xAxisMode, xLabel, style, traces, showLegendDoubling]);
+
+  if (data.wells.length === 0) {
+    return <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+      {!exp ? 'No data loaded' : 'Enable threshold detection to calculate doubling times'}
+    </div>;
+  }
+
+  return (
+    <Plot data={traces} layout={layout}
+      useResizeHandler style={{ width: '100%', height: '100%' }}
+      config={{ responsive: true, displayModeBar: true, scrollZoom: true }} />
+  );
+}
+
+// ── Drag Resize Divider ──────────────────────────────────────────────
+
+function DragDivider({ onDrag }: { onDrag: (deltaY: number) => void }) {
+  const divRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef(false);
+  const lastY = useRef(0);
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!dragging.current) return;
+      e.preventDefault();
+      const delta = e.clientY - lastY.current;
+      lastY.current = e.clientY;
+      onDrag(delta);
+    };
+    const onMouseUp = () => {
+      if (dragging.current) {
+        dragging.current = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+  }, [onDrag]);
+
+  return (
+    <div
+      ref={divRef}
+      className="flex-shrink-0 flex items-center justify-center cursor-row-resize hover:bg-blue-100 active:bg-blue-200 transition-colors"
+      style={{ height: 7, borderTop: '1px solid #d0d0d0', borderBottom: '1px solid #d0d0d0' }}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        dragging.current = true;
+        lastY.current = e.clientY;
+        document.body.style.cursor = 'row-resize';
+        document.body.style.userSelect = 'none';
+      }}
+    >
+      {/* Three dots handle */}
+      <div className="flex gap-1">
+        <div className="w-1 h-1 rounded-full bg-gray-400" />
+        <div className="w-1 h-1 rounded-full bg-gray-400" />
+        <div className="w-1 h-1 rounded-full bg-gray-400" />
+      </div>
+    </div>
+  );
+}
+
+// ── Welcome Screen ──────────────────────────────────────────────────
+
+function WelcomeScreen() {
+  return (
+    <div className="flex-1 flex items-center justify-center p-8 text-sm text-muted-foreground select-none">
+      <div className="max-w-md space-y-6">
+        <div className="text-center space-y-1">
+          <h2 className="text-lg font-semibold text-foreground">SHARP Processor 2</h2>
+          <p>Open an experiment file to get started.</p>
+          <p className="text-xs">Use <kbd className="px-1 py-0.5 rounded bg-muted text-foreground font-mono text-[10px]">Ctrl+O</kbd> or drag a file onto this window.</p>
+        </div>
+
+        <div className="space-y-2">
+          <h3 className="text-xs font-semibold text-foreground uppercase tracking-wide">Supported Formats</h3>
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="border-b">
+                <th className="text-left py-1 pr-3 font-medium text-foreground">Instrument</th>
+                <th className="text-left py-1 font-medium text-foreground">Extension</th>
+              </tr>
+            </thead>
+            <tbody className="text-muted-foreground">
+              <tr className="border-b border-dashed"><td className="py-1 pr-3">SHARP universal</td><td className="py-1 font-mono">.sharp</td></tr>
+              <tr className="border-b border-dashed"><td className="py-1 pr-3">BioRad CFX96</td><td className="py-1 font-mono">.pcrd</td></tr>
+              <tr className="border-b border-dashed"><td className="py-1 pr-3">TianLong Gentier Mini</td><td className="py-1 font-mono">.tlpd</td></tr>
+              <tr className="border-b border-dashed"><td className="py-1 pr-3">ThermoFisher QuantStudio</td><td className="py-1 font-mono">.eds</td></tr>
+              <tr className="border-b border-dashed"><td className="py-1 pr-3">Agilent AriaMx</td><td className="py-1 font-mono">.amxd / .adxd</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex items-center gap-2 p-2 rounded bg-muted/50 text-xs">
+          <span className="text-foreground font-medium shrink-0">Tip:</span>
+          <span>Click the <strong className="text-foreground">MENU</strong> button on the right edge for quick actions like grouping, coloring, and per-well style overrides.</span>
+          <span className="text-lg ml-auto">&#8594;</span>
+        </div>
+
+        <div className="space-y-2">
+          <h3 className="text-xs font-semibold text-foreground uppercase tracking-wide">Export Options</h3>
+          <ul className="text-xs space-y-0.5 list-disc list-inside">
+            <li>Plot images (PNG, SVG, JPEG)</li>
+            <li>Amplification &amp; melt data as CSV</li>
+            <li>Results table as CSV</li>
+            <li>Save as <span className="font-mono">.sharp</span> (preserves edits to sample names, notes, and descriptions)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Plot Router ──────────────────────────────────────────────────────
+
+export function PlotArea() {
+  const plotTab = useAppState((s) => s.plotTab);
+  const { menu, onContextMenu, close } = useContextMenu();
+  const containerRef = useRef<HTMLDivElement>(null);
+  // Store the mini-plot height as a fraction (0-1). Default 25%.
+  const [miniRatio, setMiniRatio] = useState(0.25);
+
+  const handleDividerDrag = useCallback((deltaY: number) => {
+    if (!containerRef.current) return;
+    const totalH = containerRef.current.getBoundingClientRect().height;
+    if (totalH <= 0) return;
+    setMiniRatio((prev) => {
+      // Dragging down makes mini smaller, dragging up makes it bigger
+      const next = prev - deltaY / totalH;
+      return Math.max(0.1, Math.min(0.6, next)); // clamp 10%-60%
+    });
+  }, []);
+
+  const experiments = useAppState((s) => s.experiments);
+  const expIdx = useAppState((s) => s.activeExperimentIndex);
+  const hasExperiment = !!experiments[expIdx];
+  const hasMeltDerivative = useMemo(() => {
+    const exp = experiments[expIdx];
+    return exp?.melt && Object.keys(exp.melt.derivative).length > 0;
+  }, [experiments, expIdx]);
+
+  if (!hasExperiment) {
+    return <WelcomeScreen />;
+  }
+
+  return (
+    <div ref={containerRef} className="flex flex-col flex-1 min-h-0 h-full" onContextMenu={onContextMenu}>
+      <PlotErrorBoundary>
+        {plotTab === 'amplification' && (
+          <>
+            <div className="min-h-0" style={{ flex: hasMeltDerivative ? `${1 - miniRatio}` : '1' }}>
+              <AmplificationPlot />
+            </div>
+            {hasMeltDerivative && (
+              <>
+                <DragDivider onDrag={handleDividerDrag} />
+                <div className="min-h-0" style={{ flex: `${miniRatio}`, minHeight: 100 }}>
+                  <MeltDerivMini />
+                </div>
+              </>
+            )}
+          </>
+        )}
+        {plotTab === 'melt' && (
+          <div className="flex-1 min-h-0">
+            <MeltPlot />
+          </div>
+        )}
+        {plotTab === 'doubling' && (
+          <div className="flex-1 min-h-0">
+            <DoublingTimePlot />
+          </div>
+        )}
+      </PlotErrorBoundary>
+      {menu && <ContextMenu x={menu.x} y={menu.y} onClose={close} />}
+    </div>
+  );
+}
