@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { ExperimentData, XAxisMode, ContentType } from '../types/experiment';
+import type { DilutionConfig } from '../lib/analysis';
 import {
   DEFAULT_BASELINE_METHOD, DEFAULT_BASELINE_START, DEFAULT_BASELINE_END,
   DEFAULT_THRESHOLD_RFU, DEFAULT_LINE_WIDTH, DEFAULT_FONT_FAMILY,
@@ -15,6 +16,12 @@ export interface WellStyleOverride {
   lineStyle?: 'solid' | 'dash' | 'dot' | 'dashdot';
 }
 
+export interface WellBaselineOverride {
+  method?: 'horizontal' | 'linear';
+  start?: number;
+  end?: number;
+}
+
 /** State that is isolated per experiment tab */
 export interface ExperimentViewState {
   // Selection
@@ -24,6 +31,7 @@ export interface ExperimentViewState {
 
   // Per-well overrides
   wellStyleOverrides: Map<string, WellStyleOverride>;
+  wellBaselineOverrides: Map<string, WellBaselineOverride>;
   wellGroups: Map<string, string>;
   legendWells: Set<string>;
 
@@ -47,6 +55,9 @@ export interface ExperimentViewState {
   fittingEnabled: boolean;
   fitStartFraction: number;
   fitEndFraction: number;
+
+  // Dilution series (standard curve wizard)
+  dilutionConfig: DilutionConfig | null;
 
   // Style
   palette: string;
@@ -74,6 +85,7 @@ function defaultViewState(wellsUsed: string[] = []): ExperimentViewState {
     hiddenWells: new Set(),
     deactivatedWells: new Set(),
     wellStyleOverrides: new Map(),
+    wellBaselineOverrides: new Map(),
     wellGroups: new Map(),
     legendWells: new Set(),
     xAxisMode: 'time_min',
@@ -89,6 +101,7 @@ function defaultViewState(wellsUsed: string[] = []): ExperimentViewState {
     fittingEnabled: false,
     fitStartFraction: 0.10,
     fitEndFraction: 0.90,
+    dilutionConfig: null,
     palette: 'Tableau 10',
     paletteReversed: false,
     lineWidth: DEFAULT_LINE_WIDTH,
@@ -116,6 +129,7 @@ function snapshotViewState(state: AppState): ExperimentViewState {
     hiddenWells: state.hiddenWells,
     deactivatedWells: state.deactivatedWells,
     wellStyleOverrides: state.wellStyleOverrides,
+    wellBaselineOverrides: state.wellBaselineOverrides,
     wellGroups: state.wellGroups,
     legendWells: state.legendWells,
     xAxisMode: state.xAxisMode,
@@ -131,6 +145,7 @@ function snapshotViewState(state: AppState): ExperimentViewState {
     fittingEnabled: state.fittingEnabled,
     fitStartFraction: state.fitStartFraction,
     fitEndFraction: state.fitEndFraction,
+    dilutionConfig: state.dilutionConfig,
     palette: state.palette,
     paletteReversed: state.paletteReversed,
     lineWidth: state.lineWidth,
@@ -180,8 +195,11 @@ interface AppState extends ExperimentViewState {
   activateWells: (wells: string[]) => void;
   deactivateWells: (wells: string[]) => void;
   setWellContentType: (wells: string[], type: ContentType) => void;
+  setWellSampleName: (well: string, name: string) => void;
   setWellStyleOverride: (wells: string[], style: WellStyleOverride) => void;
   clearWellStyleOverrides: (wells: string[]) => void;
+  setWellBaselineOverride: (wells: string[], override: WellBaselineOverride) => void;
+  clearWellBaselineOverrides: (wells: string[]) => void;
   setWellGroup: (wells: string[], group: string) => void;
   removeWellGroup: (wells: string[]) => void;
   autoGroupBySample: () => void;
@@ -198,6 +216,8 @@ interface AppState extends ExperimentViewState {
   setShowRawOverlay: (on: boolean) => void;
   setThresholdEnabled: (on: boolean) => void;
   setThresholdRfu: (rfu: number) => void;
+  setDilutionConfig: (config: DilutionConfig | null) => void;
+  setDilutionStepEnabled: (stepIndex: number, enabled: boolean) => void;
   setPalette: (palette: string) => void;
   setLineWidth: (width: number) => void;
   setFontFamily: (font: string) => void;
@@ -374,6 +394,16 @@ export const useAppState = create<AppState>((set, get) => ({
       exps[state.activeExperimentIndex] = exp;
       return { experiments: exps };
     }),
+  setWellSampleName: (well, name) =>
+    set((state) => {
+      const exps = [...state.experiments];
+      const exp = { ...exps[state.activeExperimentIndex] };
+      const wellMap = { ...exp.wells };
+      if (wellMap[well]) wellMap[well] = { ...wellMap[well], sample: name };
+      exp.wells = wellMap;
+      exps[state.activeExperimentIndex] = exp;
+      return { experiments: exps };
+    }),
   setWellStyleOverride: (wells, style) =>
     set((state) => {
       const next = new Map(state.wellStyleOverrides);
@@ -387,6 +417,20 @@ export const useAppState = create<AppState>((set, get) => ({
       const next = new Map(state.wellStyleOverrides);
       for (const w of wells) next.delete(w);
       return { wellStyleOverrides: next };
+    }),
+  setWellBaselineOverride: (wells, override) =>
+    set((state) => {
+      const next = new Map(state.wellBaselineOverrides);
+      for (const w of wells) {
+        next.set(w, { ...next.get(w), ...override });
+      }
+      return { wellBaselineOverrides: next };
+    }),
+  clearWellBaselineOverrides: (wells) =>
+    set((state) => {
+      const next = new Map(state.wellBaselineOverrides);
+      for (const w of wells) next.delete(w);
+      return { wellBaselineOverrides: next };
     }),
   setWellGroup: (wells, group) =>
     set((state) => {
@@ -433,6 +477,15 @@ export const useAppState = create<AppState>((set, get) => ({
   setShowRawOverlay: (on) => set({ showRawOverlay: on }),
   setThresholdEnabled: (on) => set({ thresholdEnabled: on }),
   setThresholdRfu: (rfu) => set({ thresholdRfu: rfu }),
+  setDilutionConfig: (config) => set({ dilutionConfig: config }),
+  setDilutionStepEnabled: (stepIndex, enabled) =>
+    set((state) => {
+      if (!state.dilutionConfig) return {};
+      const steps = state.dilutionConfig.steps.map((s, i) =>
+        i === stepIndex ? { ...s, enabled } : s
+      );
+      return { dilutionConfig: { ...state.dilutionConfig, steps } };
+    }),
   setPalette: (palette) => set({ palette }),
   setLineWidth: (width) => set({ lineWidth: width }),
   setFontFamily: (font) => set({ fontFamily: font }),

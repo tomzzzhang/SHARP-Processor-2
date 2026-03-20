@@ -2,6 +2,7 @@ import JSZip from 'jszip';
 import type {
   ExperimentData, AmplificationData, MeltData, WellInfo, ContentType,
 } from '../types/experiment';
+import { inferPlateDimensions, getInstrumentPlateLayout, DEFAULT_PLATE_ROW_COUNT, DEFAULT_PLATE_COL_COUNT } from './constants';
 
 /** Parse a wide-format CSV string into { headers, rows } */
 function parseCSV(text: string): { headers: string[]; rows: number[][] } {
@@ -166,6 +167,27 @@ export async function loadSharpFile(
     metadata.experiment_id ??
     fileName.replace(/\.sharp$/i, '');
 
+  // Determine plate dimensions: explicit metadata > instrument lookup > infer from wells
+  const explicitRows = (metadata.plate_layout?.rows ?? metadata.instrument?.plate_rows) as number | undefined;
+  const explicitCols = (metadata.plate_layout?.cols ?? metadata.instrument?.plate_cols) as number | undefined;
+  let plateRows: number;
+  let plateCols: number;
+  if (explicitRows && explicitCols) {
+    plateRows = explicitRows;
+    plateCols = explicitCols;
+  } else {
+    const instrumentModel = (metadata.instrument?.model ?? '') as string;
+    const knownLayout = instrumentModel ? getInstrumentPlateLayout(instrumentModel) : null;
+    if (knownLayout) {
+      plateRows = knownLayout.rows;
+      plateCols = knownLayout.cols;
+    } else {
+      const inferred = inferPlateDimensions(wellsUsed);
+      plateRows = inferred.rows > 0 ? inferred.rows : DEFAULT_PLATE_ROW_COUNT;
+      plateCols = inferred.cols > 0 ? inferred.cols : DEFAULT_PLATE_COL_COUNT;
+    }
+  }
+
   return {
     experimentId,
     sourcePath: fileName,
@@ -174,6 +196,8 @@ export async function loadSharpFile(
     melt,
     wells,
     wellsUsed,
+    plateRows,
+    plateCols,
     formatVersion: metadata.format_version ?? '1.0',
     protocolType: metadata.protocol?.type ?? 'unknown',
     operator: metadata.run_info?.operator ?? '',

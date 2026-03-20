@@ -34,6 +34,8 @@ export interface ExperimentData {
   melt: MeltData | null;
   wells: Record<string, WellInfo>;
   wellsUsed: string[];
+  plateRows: number;
+  plateCols: number;
   formatVersion: string;
   protocolType: string;
   operator: string;

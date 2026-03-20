@@ -157,3 +157,44 @@ export const LEGEND_POSITIONS = [
 // Plate layout
 export const PLATE_ROWS = 'ABCDEFGH';
 export const PLATE_COLS = Array.from({ length: 12 }, (_, i) => i + 1);
+
+// Max supported plate dimensions (384-well)
+export const MAX_PLATE_ROW_LETTERS = 'ABCDEFGHIJKLMNOP';
+export const DEFAULT_PLATE_ROW_COUNT = 8;
+export const DEFAULT_PLATE_COL_COUNT = 12;
+
+export function getPlateRowLetters(count: number): string {
+  return MAX_PLATE_ROW_LETTERS.slice(0, count);
+}
+
+export function getPlateColNumbers(count: number): number[] {
+  return Array.from({ length: count }, (_, i) => i + 1);
+}
+
+/** Known instrument plate layouts (physical row×col) */
+export const INSTRUMENT_PLATE_LAYOUTS: Record<string, { rows: number; cols: number }> = {
+  'gentier mini': { rows: 2, cols: 8 },
+  'gentier 48': { rows: 6, cols: 8 },
+  'gentier 96': { rows: 8, cols: 12 },
+};
+
+/** Look up plate layout by instrument model name (case-insensitive) */
+export function getInstrumentPlateLayout(model: string): { rows: number; cols: number } | null {
+  return INSTRUMENT_PLATE_LAYOUTS[model.toLowerCase().trim()] ?? null;
+}
+
+/** Infer plate dimensions from well name list */
+export function inferPlateDimensions(wellNames: string[]): { rows: number; cols: number } {
+  let maxRow = 0;
+  let maxCol = 0;
+  for (const well of wellNames) {
+    const match = well.match(/^([A-P])(\d+)$/);
+    if (match) {
+      const rowIdx = match[1].charCodeAt(0) - 65;
+      const colNum = parseInt(match[2], 10);
+      if (rowIdx > maxRow) maxRow = rowIdx;
+      if (colNum > maxCol) maxCol = colNum;
+    }
+  }
+  return { rows: maxRow + 1, cols: maxCol };
+}
