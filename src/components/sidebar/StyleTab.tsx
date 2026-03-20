@@ -18,6 +18,7 @@ export function StyleTab() {
   const legendPosition = useAppState((s) => s.legendPosition);
   const legendVisibleOnly = useAppState((s) => s.legendVisibleOnly);
   const paletteReversed = useAppState((s) => s.paletteReversed);
+  const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
   const showGrid = useAppState((s) => s.showGrid);
   const gridAlpha = useAppState((s) => s.gridAlpha);
   const figureDpi = useAppState((s) => s.figureDpi);
@@ -36,6 +37,7 @@ export function StyleTab() {
   const setLegendPosition = useAppState((s) => s.setLegendPosition);
   const setLegendVisibleOnly = useAppState((s) => s.setLegendVisibleOnly);
   const reversePalette = useAppState((s) => s.reversePalette);
+  const setPaletteGroupColors = useAppState((s) => s.setPaletteGroupColors);
   const setShowGrid = useAppState((s) => s.setShowGrid);
   const setGridAlpha = useAppState((s) => s.setGridAlpha);
   const setFigureDpi = useAppState((s) => s.setFigureDpi);
@@ -62,15 +64,14 @@ export function StyleTab() {
             </optgroup>
           </select>
         </div>
-        <div className="flex items-center gap-2">
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox checked={paletteReversed} onCheckedChange={(v) => reversePalette()} />
-            Reversed
-          </label>
-          <Button variant="outline" size="sm" className="h-6 text-[10px]" onClick={reversePalette}>
-            Reverse
-          </Button>
-        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox checked={paletteReversed} onCheckedChange={(v) => reversePalette()} />
+          Reversed
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox checked={paletteGroupColors} onCheckedChange={(v) => setPaletteGroupColors(v === true)} />
+          Group coloring
+        </label>
       </fieldset>
 
       {/* Lines */}

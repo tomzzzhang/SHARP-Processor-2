@@ -89,7 +89,8 @@ export function detectThreshold(
   threshold: number,
 ): DetectionResult {
   const n = Math.min(xData.length, rfu.length);
-  if (n < 2) return { tt: null, call: 'invalid', endRfu: rfu[n - 1] ?? 0 };
+  if (n === 0) return { tt: null, call: 'invalid', endRfu: 0 };
+  if (n < 2) return { tt: null, call: 'invalid', endRfu: rfu[n - 1] };
 
   const endRfu = rfu[n - 1];
 
@@ -200,8 +201,6 @@ export function analyzeWell(
     fitEndFraction: number;
   },
 ): WellAnalysisResult {
-  const endRfu = rawRfu[rawRfu.length - 1] ?? 0;
-
   // Step 1: Baseline correction
   let rfu = rawRfu;
   let correctedRfu: number[] | null = null;
@@ -210,6 +209,8 @@ export function analyzeWell(
     rfu = bl.corrected;
     correctedRfu = bl.corrected;
   }
+
+  const endRfu = rfu[rfu.length - 1] ?? 0;
 
   // Step 2: Threshold detection
   let tt: number | null = null;
@@ -243,6 +244,7 @@ export interface DilutionConfig {
   highestConcentration: number;
   dilutionFactor: number;
   numSteps: number;
+  copiesExponent?: number;
   steps: DilutionStep[];
 }
 

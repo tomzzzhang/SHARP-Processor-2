@@ -7,6 +7,8 @@ export function WellsTab() {
   const selectAll = useAppState((s) => s.selectAll);
   const deselectAll = useAppState((s) => s.deselectAll);
   const selectByType = useAppState((s) => s.selectByType);
+  const selectShown = useAppState((s) => s.selectShown);
+  const selectHidden = useAppState((s) => s.selectHidden);
 
   return (
     <div className="flex flex-col h-full">
@@ -26,8 +28,8 @@ export function WellsTab() {
           <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => selectByType('Std')}>Std</Button>
         </div>
         <div className="flex gap-1">
-          <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={selectAll}>Shown</Button>
-          <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={deselectAll}>Hidden</Button>
+          <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={selectShown}>Shown</Button>
+          <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={selectHidden}>Hidden</Button>
         </div>
       </div>
 
