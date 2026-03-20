@@ -3,7 +3,9 @@ import Plotly from 'plotly.js-dist-min';
 import _createPlotlyComponent from 'react-plotly.js/factory';
 import { useAppState, type PlotTab } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
+import { analyzeDilutionSeries } from '@/lib/analysis';
 import { THRESHOLD_LINE_COLOR, getPaletteColors } from '@/lib/constants';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useBoxSelect, BOX_SELECT_OVERLAY_STYLE } from '@/hooks/useBoxSelect';
 import { ContextMenu, useContextMenu } from './ContextMenu';
 import type { Data, Layout, PlotMouseEvent, Shape } from 'plotly.js';
@@ -844,9 +846,204 @@ function MeltPlot() {
   );
 }
 
-// ── Doubling Time Plot ───────────────────────────────────────────────
+// ── Doubling Time / Standard Curve Tab ────────────────────────────────
 
-function DoublingTimePlot() {
+function formatConc(value: number): string {
+  if (value >= 1e6) return `${(value / 1e6).toFixed(2)}×10⁶`;
+  if (value >= 1e3) return `${(value / 1e3).toFixed(2)}×10³`;
+  if (value < 0.01) return value.toExponential(2);
+  return value.toFixed(2);
+}
+
+/** Dilution standard curve plot (Tt vs log₂(C) with error bars + fit line) */
+function DilutionPlot() {
+  const dilutionConfig = useAppState((s) => s.dilutionConfig);
+  const setDilutionStepEnabled = useAppState((s) => s.setDilutionStepEnabled);
+  const experiments = useAppState((s) => s.experiments);
+  const idx = useAppState((s) => s.activeExperimentIndex);
+  const xAxisMode = useAppState((s) => s.xAxisMode);
+  const style = usePlotStyle();
+  const analysisResults = useAnalysisResults();
+  const exp = experiments[idx];
+
+  // Build Tt map from analysis results
+  const ttByWell = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const [well, r] of analysisResults) {
+      if (r.tt != null) m.set(well, r.tt);
+    }
+    return m;
+  }, [analysisResults]);
+
+  const result = useMemo(() => {
+    if (!dilutionConfig) return null;
+    return analyzeDilutionSeries(dilutionConfig, ttByWell);
+  }, [dilutionConfig, ttByWell]);
+
+  const xLabel = xAxisMode === 'cycle' ? 'Ct' : 'Tt';
+  const unit = dilutionConfig?.unit ?? '';
+
+  const traces = useMemo((): Data[] => {
+    if (!result) return [];
+    const gs = result.groupStats;
+    const out: Data[] = [];
+
+    // Scatter with error bars
+    out.push({
+      x: gs.map((g) => g.log2Conc),
+      y: gs.map((g) => g.meanTt),
+      error_y: { type: 'data', array: gs.map((g) => g.semTt), visible: true, thickness: 1.5, width: 4 },
+      text: gs.map((g) => `n=${g.n}`),
+      textposition: 'top center' as const,
+      textfont: { size: 8, family: style.fontFamily },
+      type: 'scatter' as const,
+      mode: 'markers+text' as const,
+      marker: { color: '#4e79a7', size: 9 },
+      hovertext: gs.map((g) => `${formatConc(g.concentration)}${unit ? ' ' + unit : ''}\nMean ${xLabel}: ${g.meanTt.toFixed(2)}\n±SEM: ${g.semTt.toFixed(3)}\nn=${g.n}`),
+      hoverinfo: 'text' as const,
+      showlegend: false,
+    });
+
+    // Fit line
+    const xMin = Math.min(...gs.map((g) => g.log2Conc));
+    const xMax = Math.max(...gs.map((g) => g.log2Conc));
+    const pad = (xMax - xMin) * 0.05;
+    const fitX = [xMin - pad, xMax + pad];
+    const fitY = fitX.map((x) => result.slope * x + result.intercept);
+    out.push({
+      x: fitX, y: fitY, type: 'scatter' as const, mode: 'lines' as const,
+      line: { color: '#333', width: 1.5, dash: 'dash' },
+      showlegend: false, hoverinfo: 'skip' as const,
+    });
+
+    return out;
+  }, [result, style.fontFamily, xLabel, unit]);
+
+  const layout = useMemo((): Partial<Layout> => {
+    const title = exp?.experimentId ? `${exp.experimentId} — Standard Curve` : 'Standard Curve';
+    return {
+      title: { text: title, font: { family: style.fontFamily, size: style.titleSize } },
+      xaxis: {
+        title: { text: `log₂(Concentration${unit ? ', ' + unit : ''})`, font: { family: style.fontFamily, size: style.labelSize } },
+        tickfont: { family: style.fontFamily, size: style.tickSize }, ...gridStyle(style),
+      },
+      yaxis: {
+        title: { text: `${xLabel} (${X_AXIS_LABELS[xAxisMode]})`, font: { family: style.fontFamily, size: style.labelSize } },
+        tickfont: { family: style.fontFamily, size: style.tickSize }, ...gridStyle(style),
+      },
+      autosize: true, margin: { l: 70, r: 20, t: 50, b: 50 },
+      plot_bgcolor: 'white', paper_bgcolor: 'white',
+      datarevision: Date.now(),
+    };
+  }, [exp, xAxisMode, xLabel, style, unit]);
+
+  if (!result) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+        {!dilutionConfig
+          ? 'Use Tools → Doubling Time Wizard to configure a dilution series'
+          : 'Not enough data — assign wells with valid Tt values to at least 2 steps'}
+      </div>
+    );
+  }
+
+  const formatP = (p: number) => {
+    if (p < 0.0001) return '< 0.0001';
+    if (p < 0.001) return p.toExponential(2);
+    return p.toFixed(4);
+  };
+  const xUnit = X_AXIS_LABELS[xAxisMode];
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex-1 min-h-0">
+        <Plot data={traces} layout={layout}
+          useResizeHandler style={{ width: '100%', height: '100%' }}
+          config={{ responsive: true, displayModeBar: true, scrollZoom: true }} />
+      </div>
+
+      {/* Stats summary panel */}
+      <div className="shrink-0 border-t bg-muted/30 px-4 py-2">
+        <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+          <div className="text-sm font-semibold">
+            Doubling Time: <span className="text-primary font-bold text-base">{result.doublingTime.toFixed(3)}</span>
+            <span className="text-muted-foreground font-normal text-xs ml-1">
+              ± {result.doublingTimeSE.toFixed(3)} {xUnit}
+            </span>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            95% CI: [{result.doublingTime95CI[0].toFixed(3)}, {result.doublingTime95CI[1].toFixed(3)}]
+          </div>
+          <div className="text-xs">
+            <span className="text-muted-foreground">R² = </span>
+            <span className="font-mono">{result.rSquared.toFixed(4)}</span>
+          </div>
+          <div className="text-xs">
+            <span className="text-muted-foreground">Adj. R² = </span>
+            <span className="font-mono">{result.adjRSquared.toFixed(4)}</span>
+          </div>
+          <div className="text-xs">
+            <span className="text-muted-foreground">Slope = </span>
+            <span className="font-mono">{result.slope.toFixed(4)} ± {result.slopeSE.toFixed(4)}</span>
+          </div>
+          <div className="text-xs">
+            <span className="text-muted-foreground">F = </span>
+            <span className="font-mono">{result.fStatistic.toFixed(2)}</span>
+            <span className="text-muted-foreground ml-1">p = </span>
+            <span className={`font-mono ${result.pValue < 0.05 ? 'text-green-600 font-medium' : 'text-amber-600'}`}>
+              {formatP(result.pValue)}
+            </span>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            n = {result.nTotal} ({result.nSteps} steps)
+          </div>
+        </div>
+      </div>
+
+      {/* Per-step results table */}
+      <div className="shrink-0 border-t overflow-y-auto" style={{ maxHeight: 160 }}>
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 bg-background">
+            <tr className="text-muted-foreground border-b">
+              <th className="w-8 px-2 py-1 text-center">On</th>
+              <th className="px-2 py-1 text-left">Step</th>
+              <th className="px-2 py-1 text-right">Concentration</th>
+              <th className="px-2 py-1 text-right">log₂(C)</th>
+              <th className="px-2 py-1 text-right">Mean {xLabel}</th>
+              <th className="px-2 py-1 text-right">±SEM</th>
+              <th className="px-2 py-1 text-right">n</th>
+            </tr>
+          </thead>
+          <tbody>
+            {dilutionConfig!.steps.map((step, i) => {
+              const gs = result.groupStats.find((g) => Math.abs(g.concentration - step.concentration) < 1e-10);
+              return (
+                <tr key={i} className={`border-b last:border-b-0 ${!step.enabled ? 'opacity-40' : ''}`}>
+                  <td className="px-2 py-0.5 text-center">
+                    <Checkbox
+                      checked={step.enabled}
+                      onCheckedChange={(v) => setDilutionStepEnabled(i, v === true)}
+                      className="h-3.5 w-3.5"
+                    />
+                  </td>
+                  <td className="px-2 py-0.5">{i + 1}</td>
+                  <td className="px-2 py-0.5 text-right font-mono">{formatConc(step.concentration)}{unit ? ` ${unit}` : ''}</td>
+                  <td className="px-2 py-0.5 text-right font-mono">{Math.log2(step.concentration).toFixed(2)}</td>
+                  <td className="px-2 py-0.5 text-right font-mono">{gs ? gs.meanTt.toFixed(2) : '—'}</td>
+                  <td className="px-2 py-0.5 text-right font-mono">{gs ? gs.semTt.toFixed(3) : '—'}</td>
+                  <td className="px-2 py-0.5 text-right">{gs ? gs.n : step.wells.length > 0 ? '0*' : '—'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/** Per-well Tt vs Dt scatter (fallback when no dilution config) */
+function PerWellDoublingPlot() {
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
   const hiddenWells = useAppState((s) => s.hiddenWells);
@@ -857,7 +1054,6 @@ function DoublingTimePlot() {
   const style = usePlotStyle();
   const analysisResults = useAnalysisResults();
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
-
   const wellGroups = useAppState((s) => s.wellGroups);
 
   const exp = experiments[idx];
@@ -917,6 +1113,12 @@ function DoublingTimePlot() {
       useResizeHandler style={{ width: '100%', height: '100%' }}
       config={{ responsive: true, displayModeBar: true, scrollZoom: true }} />
   );
+}
+
+/** Routes between dilution standard curve and per-well scatter */
+function DoublingTimePlot() {
+  const dilutionConfig = useAppState((s) => s.dilutionConfig);
+  return dilutionConfig ? <DilutionPlot /> : <PerWellDoublingPlot />;
 }
 
 // ── Drag Resize Divider ──────────────────────────────────────────────

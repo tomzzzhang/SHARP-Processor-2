@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useAppState } from '@/hooks/useAppState';
 import { MAIN_PALETTE_NAMES, GRADIENT_PALETTE_NAMES, CONTENT_DISPLAY, getPaletteColors } from '@/lib/constants';
 import type { ContentType } from '@/types/experiment';
@@ -23,6 +23,35 @@ const LINE_STYLES: { value: 'solid' | 'dash' | 'dot' | 'dashdot'; label: string 
   { value: 'dot', label: 'Dotted' },
   { value: 'dashdot', label: 'Dash-Dot' },
 ];
+
+/** Viewport-aware submenu wrapper — flips left if it would overflow right edge */
+function SubMenu({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  const subRef = useRef<HTMLDivElement>(null);
+  const [flipX, setFlipX] = useState(false);
+  const [adjustY, setAdjustY] = useState(0);
+
+  useLayoutEffect(() => {
+    if (!subRef.current) return;
+    const rect = subRef.current.getBoundingClientRect();
+    setFlipX(rect.right > window.innerWidth);
+    if (rect.bottom > window.innerHeight) {
+      setAdjustY(window.innerHeight - rect.bottom - 4);
+    }
+  }, []);
+
+  return (
+    <div
+      ref={subRef}
+      className={`absolute bg-background border rounded-md shadow-lg py-1 ${className}`}
+      style={{
+        ...(flipX ? { right: '100%' } : { left: '100%' }),
+        top: adjustY,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
 
 export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -54,11 +83,20 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
     return () => document.removeEventListener('mousedown', handler);
   }, [onClose]);
 
-  // Adjust position so menu stays on screen
+  // Dynamically clamp menu position to viewport after measuring
+  const [pos, setPos] = useState({ left: x, top: y });
+  useLayoutEffect(() => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    const left = x + rect.width > window.innerWidth ? window.innerWidth - rect.width - 4 : x;
+    const top = y + rect.height > window.innerHeight ? window.innerHeight - rect.height - 4 : y;
+    setPos({ left: Math.max(0, left), top: Math.max(0, top) });
+  }, [x, y]);
+
   const style: React.CSSProperties = {
     position: 'fixed',
-    left: Math.min(x, window.innerWidth - 220),
-    top: Math.min(y, window.innerHeight - 400),
+    left: pos.left,
+    top: pos.top,
     zIndex: 100,
   };
 
@@ -67,6 +105,19 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
       key={label}
       className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-40 disabled:cursor-default"
       disabled={disabled}
+      onClick={() => { action(); onClose(); }}
+    >
+      {label}
+    </button>
+  );
+
+  // Plain item that clears any open submenu when hovered
+  const itemWithHover = (label: string, action: () => void, disabled = false) => (
+    <button
+      key={label}
+      className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-40 disabled:cursor-default"
+      disabled={disabled}
+      onMouseEnter={() => setSubmenu(null)}
       onClick={() => { action(); onClose(); }}
     >
       {label}
@@ -122,27 +173,26 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
       </div>
 
       {/* Activation */}
-      {item('Activate', () => activateWells(wells), n === 0)}
-      {item('Deactivate', () => deactivateWells(wells), n === 0)}
+      {itemWithHover('Activate', () => activateWells(wells), n === 0)}
+      {itemWithHover('Deactivate', () => deactivateWells(wells), n === 0)}
       {sep('s1')}
 
       {/* Visibility */}
-      {item('Show', () => showWells(wells), n === 0)}
-      {item('Hide', () => hideWells(wells), n === 0)}
-      {item('Deselect All', deselectAll)}
+      {itemWithHover('Show', () => showWells(wells), n === 0)}
+      {itemWithHover('Hide', () => hideWells(wells), n === 0)}
+      {itemWithHover('Deselect All', deselectAll)}
       {sep('s2')}
 
       {/* Sample Type submenu */}
       <div
         className="relative"
         onMouseEnter={() => setSubmenu('type')}
-        onMouseLeave={() => setSubmenu(null)}
       >
         <button className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-40" disabled={n === 0}>
           Sample Type &rarr;
         </button>
         {submenu === 'type' && n > 0 && (
-          <div className="absolute left-full top-0 bg-background border rounded-md shadow-lg py-1 min-w-[120px]">
+          <SubMenu className="min-w-[120px]">
             {CONTENT_TYPES.map(({ value, label }) => (
               <button
                 key={value}
@@ -152,29 +202,28 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
                 {label}
               </button>
             ))}
-          </div>
+          </SubMenu>
         )}
       </div>
       {sep('s3')}
 
-      {/* Grouping */}
-      {item('Group...', handleGroupPrompt, n === 0)}
-      {item('Remove from Group', () => removeWellGroup(wells), n === 0)}
-      {item('Auto-Group by Sample', () => { autoGroupBySample(); onClose(); })}
+      {/* Grouping — plain items clear submenu on hover */}
+      {itemWithHover('Group...', handleGroupPrompt, n === 0)}
+      {itemWithHover('Remove from Group', () => removeWellGroup(wells), n === 0)}
+      {itemWithHover('Auto-Group by Sample', () => { autoGroupBySample(); onClose(); })}
       {sep('s4')}
 
       {/* Style */}
-      {item('Color...', handleColorPick, n === 0)}
+      {itemWithHover('Color...', handleColorPick, n === 0)}
       <div
         className="relative"
         onMouseEnter={() => setSubmenu('linestyle')}
-        onMouseLeave={() => setSubmenu(null)}
       >
         <button className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-40" disabled={n === 0}>
           Line Style &rarr;
         </button>
         {submenu === 'linestyle' && n > 0 && (
-          <div className="absolute left-full top-0 bg-background border rounded-md shadow-lg py-1 min-w-[100px]">
+          <SubMenu className="min-w-[100px]">
             {LINE_STYLES.map(({ value, label }) => (
               <button
                 key={value}
@@ -184,32 +233,28 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
                 {label}
               </button>
             ))}
-          </div>
+          </SubMenu>
         )}
       </div>
-      {item('Clear Style Overrides', () => clearWellStyleOverrides(wells), n === 0)}
-      {item('Reverse Colors', reverseSelectionColors, n === 0)}
+      {itemWithHover('Clear Style Overrides', () => clearWellStyleOverrides(wells), n === 0)}
+      {itemWithHover('Reverse Colors', reverseSelectionColors, n === 0)}
       {sep('s5')}
 
       {/* Palette submenu */}
       <div
         className="relative"
         onMouseEnter={() => setSubmenu('palette')}
-        onMouseLeave={() => { if (submenu !== 'gradients') setSubmenu(null); }}
       >
         <button className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent">
           Palette &rarr;
         </button>
         {(submenu === 'palette' || submenu === 'gradients') && (
-          <div
-            className="absolute left-full top-0 bg-background border rounded-md shadow-lg py-1 min-w-[120px]"
-            onMouseEnter={() => { if (submenu !== 'gradients') setSubmenu('palette'); }}
-            onMouseLeave={() => setSubmenu(null)}
-          >
+          <SubMenu className="min-w-[120px]">
             {MAIN_PALETTE_NAMES.map((p) => (
               <button
                 key={p}
                 className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent"
+                onMouseEnter={() => setSubmenu('palette')}
                 onClick={() => { applyPaletteToSelection(p); onClose(); }}
               >
                 {p}
@@ -219,16 +264,12 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
             <div
               className="relative"
               onMouseEnter={() => setSubmenu('gradients')}
-              onMouseLeave={() => setSubmenu('palette')}
             >
               <button className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent">
                 Gradients &rarr;
               </button>
               {submenu === 'gradients' && (
-                <div
-                  className="absolute left-full top-0 bg-background border rounded-md shadow-lg py-1 min-w-[100px]"
-                  onMouseLeave={() => setSubmenu('palette')}
-                >
+                <SubMenu className="min-w-[100px]">
                   {GRADIENT_PALETTE_NAMES.map((p) => (
                     <button
                       key={p}
@@ -238,17 +279,17 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
                       {p}
                     </button>
                   ))}
-                </div>
+                </SubMenu>
               )}
             </div>
-          </div>
+          </SubMenu>
         )}
       </div>
       {sep('s6')}
 
       {/* Legend */}
-      {item('Add to Legend', () => addToLegend(wells), n === 0)}
-      {item('Remove from Legend', () => removeFromLegend(wells), n === 0)}
+      {itemWithHover('Add to Legend', () => addToLegend(wells), n === 0)}
+      {itemWithHover('Remove from Legend', () => removeFromLegend(wells), n === 0)}
     </div>
   );
 }
