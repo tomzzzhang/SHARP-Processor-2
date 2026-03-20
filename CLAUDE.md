@@ -1,12 +1,10 @@
 # CLAUDE.md — SHARP Processor 2
 
-**Last Updated:** 2026-03-21 PST
+**Last Updated:** 2026-03-20 PST
 
 ## Project Overview
 
 SHARP Processor 2 — a modern desktop app for qPCR/isothermal amplification data analysis. This is a ground-up rewrite of the v1 PyQt6+matplotlib app using **Tauri 2 + React + TypeScript + Plotly.js**.
-
-See `HANDOFF.md` for the full context, feature list, and architecture plan from v1.
 
 ## Tech Stack
 
@@ -102,6 +100,82 @@ build.bat                    # Double-click build launcher
 | 19 | Welcome screen + .sharp export | **Done** | Informative welcome screen (format table, tips), melt CSV export, save as .sharp (preserves edited metadata/sample names) |
 | 20 | Multi-experiment tabs + menu parity | **Done** | Experiment tab bar (closable, visible when >1), per-experiment isolated state (view, analysis, style settings). File/Edit/View/Tools/Export menu structure matching v1 |
 
+## Instrument File Formats & Encryption
+
+The Python sidecar (`scripts/parse_instrument.py`) calls the v1 parser to handle encrypted/proprietary instrument files. Key details for each format:
+
+### BioRad CFX96 (.pcrd)
+- **Structure:** Nested ZIP → inner `datafile.pcrd` entry is ZipCrypto encrypted → UTF-8 XML
+- **Password:** `SecureCompressDecompressKeyiQ5V4Files!!##$$`
+- **Source:** Hardcoded in `C:\Program Files (x86)\Bio-Rad\CFX\BioRad.Common.dll` (`FileCryptor` class)
+- **XML root:** `<experimentalData2>` — contains plate setup, protocol, fluorescence data (PAr blobs), per-cycle timestamps, RunInfo (66 KV pairs), event log
+- **PAr data:** 2592 semicolon-separated floats per plate read: 108 wells × 4 stats × 6 channels. Channel 0 = FAM/SYBR. Index: `c*432 + w*4 + stat`. Wells 0-95 = data (A1-H12), 96-107 = reference (skip)
+- **Plate layout:** Always 96-well (8×12), defined by `plateSetup2` XML section
+- **Full reverse engineering notes:** `PCRD_FORMAT.md` in v1 repo
+
+### TianLong Gentier (.tlpd)
+- **Structure:** Password-protected ZIP archive
+- **Password:** `82218051`
+- **Contents:** INI-style text files (`experiment_data`, `run_method`, `coefficient`)
+- **AmpData:** Hex-encoded uint16 LE fluorescence values, 16 wells per cycle
+- **MeltData:** Same hex format, temperatures derived from protocol step definitions
+- **Step definitions:** 26-byte hex blobs — temp at offset +2 (uint16 LE, hundredths °C), hold time at +10, read flag at +14
+- **Well count:** 16 (always), model is `InstrumentTypeName` from `FileInfo` section (e.g., `"Gentier mini"`)
+- **Physical layout:** 2 rows × 8 columns (not stored in file — must be mapped by instrument model lookup)
+- **Time reconstruction:** `TempData` section contains real 1-second resolution instrument telemetry
+
+### ThermoFisher QuantStudio (.eds)
+- **Structure:** ZIP archive (unencrypted)
+- **Two formats:** Modern (JSON-based `.quant` files) and legacy (XML-based)
+- **Fluorescence:** Rn (normalized) values; per-cycle timestamps from `.quant` files
+- **Plate layout:** 96-well (8×12)
+
+### Agilent AriaMx (.amxd / .adxd)
+- **Structure:** Double-encrypted: outer PGP TAR (.amxd) → inner PGP TAR (.SPM) → XML files
+- **GPG key:** ID `3F1AF07D202BF668`, empty passphrase. Must be imported: `gpg --import ariamx_key.asc`
+- **Fluorescence:** Hex-encoded 1160-byte binary packets in `InstrumentData.xml`. Header 8 bytes; 6 channels × 96 wells × 2 bytes (uint16 LE). Channel order: CY5(0), ROX(1), HEX(2), FAM(3), SYBR(4), CY3(5)
+- **Primary channel:** Auto-detected from first packet (non-ROX channel with most non-zero wells)
+- **Plate layout:** 96-well (8×12)
+- **Requires:** GPG on PATH with AriaMx key imported
+
+### Instrument Plate Layouts
+
+Physical plate dimensions are NOT stored in most instrument files. The app uses this priority chain:
+1. Explicit `plate_layout` in `.sharp` metadata (if present)
+2. Instrument model lookup (`constants.ts:INSTRUMENT_PLATE_LAYOUTS`)
+3. Inferred from well names in data (max row letter + max column number)
+4. Default: 8×12 (standard 96-well)
+
+Known instrument layouts:
+| Instrument | Model | Wells | Layout |
+|------------|-------|-------|--------|
+| TianLong | Gentier Mini | 16 | 2×8 |
+| TianLong | Gentier 48 | 48 | 6×8 |
+| TianLong | Gentier 96 | 96 | 8×12 |
+| BioRad | CFX96 | 96 | 8×12 |
+| ThermoFisher | QuantStudio | 96 | 8×12 |
+| Agilent | AriaMx | 96 | 8×12 |
+
+## .sharp File Format (Quick Reference)
+
+ZIP archive (rename to `.zip` to open) containing:
+
+| File | Required | Description |
+|------|----------|-------------|
+| `metadata.json` | Yes | Instrument info, protocol, per-well results, data summary |
+| `amplification.csv` | Yes | Wide format: `cycle, time_s, time_min, A1, B1, ...` (RFU) |
+| `melt_rfu.csv` | No | Wide format: `temperature_C, A1, B1, ...` |
+| `melt_derivative.csv` | No | Wide format: `temperature_C, A1, B1, ...` (-dF/dT) |
+| `parsing_log.json` | No | Append-only parse history |
+
+**metadata.json key sections:** `format_version` (currently "1.0"), `instrument` (manufacturer, model, serial), `run_info` (operator, notes, timestamps), `protocol` (type, temp, cycles, melt config), `wells` (per-well: sample, content, Cq, melt peaks), `data_summary` (wells_used, cycle count), `plate_layout` (rows, cols — added by v2), `time_reconstruction` (source, cycle duration stats)
+
+**Well name format:** `{row_letter}{column_number}`, no zero-padding. E.g., `A1`, `B3`, `H12`. Sorted row-first.
+
+**Experiment types:** `sharp` (isothermal 65°C), `unwinding` (~37°C), `standard_pcr` (thermal cycling), `fast_pcr`, `isothermal`, `unknown`
+
+**Full spec:** `SHARP_FORMAT.md` in v1 repo
+
 ## Known Issues / Workarounds
 
 - **react-plotly.js CJS interop:** `react-plotly.js` and its factory are CJS. With Vite + `esModuleInterop`, we use `plotly.js-dist-min` + `createPlotlyComponent` factory with a runtime `.default` fallback to handle the namespace object. See `PlotArea.tsx`.
@@ -126,10 +200,11 @@ If working with the Python sidecar (parser), use the `sharp` conda environment:
 
 ## Key References
 
-- `HANDOFF.md` — complete feature spec, architecture, and implementation priority from v1
 - v1 source: `C:\Users\Tom\OneDrive - SHARP Diagnostics\SHARP data processor\Unwinding data processing\`
 - v1 design doc: `PROCESSOR_DESIGN.md` (in v1 repo)
-- .sharp format spec: `SHARP_FORMAT.md` (in v1 repo)
+- v1 .sharp format spec: `SHARP_FORMAT.md` (in v1 repo)
+- v1 BioRad reverse engineering: `PCRD_FORMAT.md` (in v1 repo)
+- v1 user guide: `PROCESSOR_GUIDE.md` (in v1 repo)
 
 ## Documentation Timestamps (MANDATORY)
 

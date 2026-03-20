@@ -1,7 +1,69 @@
 import { useAppState } from '@/hooks/useAppState';
 import { Checkbox } from '@/components/ui/checkbox';
-import { useMemo } from 'react';
+import { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import { CONTENT_DISPLAY, getPaletteColors } from '@/lib/constants';
+import type { ContentType } from '@/types/experiment';
+
+const CONTENT_TYPES: ContentType[] = ['Unkn', 'Neg Ctrl', 'Pos Ctrl', 'Std', 'NPC', 'Neg', ''];
+
+function InlineEdit({ value, onCommit }: { value: string; onCommit: (v: string) => void }) {
+  const [text, setText] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { inputRef.current?.focus(); inputRef.current?.select(); }, []);
+
+  const commit = useCallback(() => {
+    const trimmed = text.trim();
+    if (trimmed !== value) onCommit(trimmed);
+    else onCommit(value); // signal done without change
+  }, [text, value, onCommit]);
+
+  return (
+    <input
+      ref={inputRef}
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        if (e.key === 'Escape') { e.preventDefault(); onCommit(value); }
+      }}
+      className="w-full h-5 px-0.5 text-xs border border-primary rounded-sm bg-background outline-none"
+      onClick={(e) => e.stopPropagation()}
+    />
+  );
+}
+
+function ContentTypeSelect({
+  value,
+  onChange,
+  onClose,
+}: {
+  value: ContentType;
+  onChange: (t: ContentType) => void;
+  onClose: () => void;
+}) {
+  const selectRef = useRef<HTMLSelectElement>(null);
+
+  useEffect(() => { selectRef.current?.focus(); }, []);
+
+  return (
+    <select
+      ref={selectRef}
+      value={value}
+      onChange={(e) => { onChange(e.target.value as ContentType); onClose(); }}
+      onBlur={onClose}
+      className="h-5 text-xs border border-primary rounded-sm bg-background outline-none cursor-pointer"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {CONTENT_TYPES.map((ct) => (
+        <option key={ct} value={ct}>
+          {CONTENT_DISPLAY[ct] || ct || '(none)'}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 export function WellList() {
   const experiments = useAppState((s) => s.experiments);
@@ -15,7 +77,12 @@ export function WellList() {
   const palette = useAppState((s) => s.palette);
   const wellGroups = useAppState((s) => s.wellGroups);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
+  const setWellSampleName = useAppState((s) => s.setWellSampleName);
+  const setWellContentType = useAppState((s) => s.setWellContentType);
   const exp = experiments[idx];
+
+  const [editingWell, setEditingWell] = useState<string | null>(null);
+  const [typeEditWell, setTypeEditWell] = useState<string | null>(null);
 
   // Build color map respecting groups (same logic as plots)
   const colorMap = useMemo(() => {
@@ -92,11 +159,42 @@ export function WellList() {
                 <td className="px-1 py-0 font-medium" style={{ color }}>
                   {well}
                 </td>
-                <td className="px-1 py-0 truncate max-w-[120px]">
-                  {info?.sample ?? ''}
+                <td
+                  className="px-1 py-0 truncate max-w-[120px] cursor-text hover:border-b hover:border-dashed hover:border-muted-foreground/50"
+                  onClick={(e) => { e.stopPropagation(); setEditingWell(well); }}
+                  title="Click to edit"
+                >
+                  {editingWell === well ? (
+                    <InlineEdit
+                      value={info?.sample ?? ''}
+                      onCommit={(v) => {
+                        if (v !== (info?.sample ?? '')) setWellSampleName(well, v);
+                        setEditingWell(null);
+                      }}
+                    />
+                  ) : (
+                    info?.sample ?? ''
+                  )}
                 </td>
-                <td className="px-1 py-0">
-                  {displayType}
+                <td
+                  className="px-1 py-0 cursor-pointer hover:bg-accent/60 rounded-sm group/type"
+                  onClick={(e) => { e.stopPropagation(); setTypeEditWell(typeEditWell === well ? null : well); }}
+                  title="Click to change type"
+                >
+                  {typeEditWell === well ? (
+                    <ContentTypeSelect
+                      value={info?.content ?? ''}
+                      onChange={(t) => setWellContentType([well], t)}
+                      onClose={() => setTypeEditWell(null)}
+                    />
+                  ) : (
+                    <span className="flex items-center gap-0.5">
+                      {displayType}
+                      <svg className="w-2.5 h-2.5 opacity-0 group-hover/type:opacity-40 shrink-0" viewBox="0 0 10 6" fill="currentColor">
+                        <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </span>
+                  )}
                 </td>
                 <td className="px-1 py-0 truncate max-w-[80px] text-muted-foreground">
                   {wellGroups.get(well) ?? ''}

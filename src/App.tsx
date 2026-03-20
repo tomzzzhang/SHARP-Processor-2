@@ -8,6 +8,7 @@ import { Sidebar } from './components/Sidebar';
 import { PlotArea } from './components/PlotArea';
 import { QuickStylePanel } from './components/QuickStylePanel';
 import { ResultsTable } from './components/ResultsTable';
+import { DilutionWizard } from './components/DilutionWizard';
 import { XAxisBar } from './components/XAxisBar';
 import { PlotTabs } from './components/PlotTabs';
 import { useAppState } from './hooks/useAppState';
@@ -19,6 +20,7 @@ function App() {
   const [dragOver, setDragOver] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showWizard, setShowWizard] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const [tableHeight, setTableHeight] = useState(160);
   const sidebarDragging = useRef(false);
@@ -115,7 +117,7 @@ function App() {
   return (
     <div className="flex flex-col h-screen select-none">
       {/* Menu bar */}
-      <MenuBar />
+      <MenuBar onOpenWizard={() => setShowWizard(true)} />
 
       {/* Experiment tab bar (shown when >1 experiment loaded) */}
       {experiments.length > 1 && (
@@ -235,6 +237,9 @@ function App() {
         </div>
       </div>
       </div>
+
+      {/* Dilution wizard modal */}
+      {showWizard && <DilutionWizard onClose={() => setShowWizard(false)} />}
     </div>
   );
 }

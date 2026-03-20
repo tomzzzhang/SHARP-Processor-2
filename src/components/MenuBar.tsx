@@ -76,7 +76,7 @@ function MenuDropdown({ menu, isOpen, onOpen, onClose }: {
   );
 }
 
-export function MenuBar() {
+export function MenuBar({ onOpenWizard }: { onOpenWizard?: () => void } = {}) {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const loadExperiment = useAppState((s) => s.loadExperiment);
   const experiments = useAppState((s) => s.experiments);
@@ -168,7 +168,7 @@ export function MenuBar() {
     {
       label: 'Tools',
       items: [
-        { label: 'Doubling Time Wizard...', action: () => setPlotTab('doubling'), disabled: !hasData },
+        { label: 'Doubling Time Wizard...', action: () => onOpenWizard?.(), disabled: !hasData },
       ],
     },
     {
