@@ -287,7 +287,7 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
                 onChange={(e) => setSelectionPaletteGroupColors(e.target.checked)}
                 className="h-3 w-3"
               />
-              Color groups same
+              Group coloring
             </label>
             {MAIN_PALETTE_NAMES.map((p) => (
               <button
