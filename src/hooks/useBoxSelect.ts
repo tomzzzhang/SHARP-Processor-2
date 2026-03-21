@@ -217,6 +217,6 @@ export function useBoxSelect(options: BoxSelectOptions) {
 /** JSX for the selection overlay div — place inside the container with position:relative */
 export const BOX_SELECT_OVERLAY_STYLE: React.CSSProperties = {
   position: 'absolute', display: 'none', pointerEvents: 'none', zIndex: 10,
-  border: '1px solid rgba(26, 115, 232, 0.8)',
-  backgroundColor: 'rgba(26, 115, 232, 0.1)',
+  border: '1px solid rgba(170, 32, 38, 0.8)',
+  backgroundColor: 'rgba(170, 32, 38, 0.1)',
 };

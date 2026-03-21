@@ -227,7 +227,7 @@ export function WellGrid() {
           const bgColor = !isUsed
             ? WELL_EMPTY_COLOR
             : isHidden
-              ? '#d0d0d0'
+              ? 'var(--muted-foreground)'
               : traceColor ?? WELL_EMPTY_COLOR;
 
           let cellOpacity = isHidden ? 0.5 : isUsed ? 1 : 0.4;
@@ -237,14 +237,14 @@ export function WellGrid() {
           return (
             <div
               key={well}
-              className={`relative transition-opacity ${isUsed ? 'cursor-pointer' : 'cursor-default'}`}
+              className={`relative transition-all duration-100 ${isUsed ? 'cursor-pointer' : 'cursor-default'}`}
               style={{
                 width: CELL_SIZE, height: CELL_SIZE,
                 backgroundColor: bgColor,
-                border: `${isSelected ? 2 : isDragHighlighted === true ? 2 : 1}px solid ${isSelected ? WELL_SELECTED_BORDER : isDragHighlighted === true ? '#1a73e8' : '#ccc'}`,
-                borderRadius: 2,
+                border: `${isSelected ? 2 : isDragHighlighted === true ? 2 : 1}px solid ${isSelected ? WELL_SELECTED_BORDER : isDragHighlighted === true ? WELL_SELECTED_BORDER : 'var(--border)'}`,
+                borderRadius: 3,
                 opacity: cellOpacity,
-                outline: isHovered ? '2px solid #1a73e8' : 'none',
+                outline: isHovered ? `2px solid ${WELL_SELECTED_BORDER}` : 'none',
                 outlineOffset: 1,
                 zIndex: isHovered ? 2 : undefined,
               }}
@@ -275,8 +275,8 @@ export function WellGrid() {
             top: dragRect.y,
             width: dragRect.w,
             height: dragRect.h,
-            border: '1.5px dashed #1a73e8',
-            backgroundColor: 'rgba(26, 115, 232, 0.08)',
+            border: `1.5px dashed ${WELL_SELECTED_BORDER}`,
+            backgroundColor: 'rgba(170, 32, 38, 0.07)',
             pointerEvents: 'none',
             zIndex: 10,
           }}

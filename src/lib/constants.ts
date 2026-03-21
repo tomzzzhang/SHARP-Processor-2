@@ -20,6 +20,20 @@ export const PASTEL = [
   '#fffacd', '#b4d7a8', '#f5c6cb', '#d4e5f7', '#e2c6a4',
 ];
 
+// SHARP brand palette — derived from logo gradient + complementary warm/cool accents
+export const SHARP_PALETTE = [
+  '#d81f27', // brand bright red
+  '#2a2d30', // near-black charcoal
+  '#aa2026', // brand medium red
+  '#4e8098', // steel blue (complement)
+  '#7d2126', // dark maroon
+  '#d4945a', // warm amber
+  '#4f2125', // deepest maroon
+  '#6b8f71', // sage green (complement)
+  '#c45b5e', // salmon red
+  '#8c7a6b', // warm taupe
+];
+
 // Continuous palette generator — sample N evenly-spaced colors from a gradient
 function interpolateGradient(stops: [number, number, number][], n: number): string[] {
   if (n <= 0) return [];
@@ -60,6 +74,7 @@ const GRADIENT_STOPS: Record<string, [number, number, number][]> = {
 
 // Discrete palettes (fixed color lists)
 export const PALETTES: Record<string, string[]> = {
+  'SHARP': SHARP_PALETTE,
   'Tableau 10': TABLEAU_10,
   'Colorblind Safe': COLORBLIND_SAFE,
   'Paired': PAIRED,
@@ -88,11 +103,11 @@ export function getPaletteColors(name: string, n: number): string[] {
   return TABLEAU_10;
 }
 
-// Well grid colors
-export const WELL_EMPTY_COLOR = '#e8e8e8';
+// Well grid colors — using CSS vars for theme awareness where possible
+export const WELL_EMPTY_COLOR = 'var(--border)';
 export const WELL_HIDDEN_COLOR = '#c0c8d0';
 export const WELL_ACTIVE_COLOR = '#d0e8ff';
-export const WELL_SELECTED_BORDER = '#1a73e8';
+export const WELL_SELECTED_BORDER = '#aa2026';
 export const WELL_HOVER_COLOR = '#b3d4fc';
 export const WELL_NTC_COLOR = '#ffe0e0';
 export const WELL_NPC_COLOR = '#fff3e0';
@@ -123,7 +138,7 @@ export const INACTIVE_INDICATOR_COLOR = '#333333';
 
 // Typography defaults
 export const DEFAULT_LINE_WIDTH = 1.8;
-export const DEFAULT_FONT_FAMILY = 'Arial';
+export const DEFAULT_FONT_FAMILY = 'Geist Variable, Arial, sans-serif';
 export const DEFAULT_TITLE_SIZE = 12;
 export const DEFAULT_LABEL_SIZE = 10;
 export const DEFAULT_TICK_SIZE = 9;

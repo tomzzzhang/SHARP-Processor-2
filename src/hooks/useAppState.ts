@@ -112,7 +112,7 @@ function defaultViewState(wellsUsed: string[] = []): ExperimentViewState {
     fitStartFraction: 0.10,
     fitEndFraction: 0.90,
     dilutionConfig: null,
-    palette: 'Tableau 10',
+    palette: 'SHARP',
     paletteReversed: false,
     paletteGroupColors: false,
     selectionPaletteGroupColors: true,
@@ -701,3 +701,8 @@ export const useAppState = create<AppState>((set, get) => ({
   setFigureDpi: (dpi) => set({ figureDpi: dpi }),
   setShowDilutionWizard: (show) => set({ showDilutionWizard: show }),
 }));
+
+// Dev: expose store for debugging
+if (import.meta.env.DEV) {
+  (window as unknown as Record<string, unknown>).__STORE__ = useAppState;
+}

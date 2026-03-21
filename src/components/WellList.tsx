@@ -161,7 +161,7 @@ export function WellList() {
                   {well}
                 </td>
                 <td
-                  className="px-1 py-0 truncate max-w-[120px] cursor-text hover:border-b hover:border-dashed hover:border-muted-foreground/50"
+                  className="px-1 py-0 truncate max-w-[120px] cursor-text hover:border-b hover:border-dashed hover:border-muted-foreground/50 transition-all duration-100"
                   onClick={(e) => { e.stopPropagation(); setEditingWell(well); }}
                   title="Click to edit"
                 >

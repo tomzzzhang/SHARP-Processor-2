@@ -49,32 +49,39 @@
 }
 
 :root {
+    /* SHARP brand palette (from logo gradient) */
+    --brand-red: #d81f27;
+    --brand-red-mid: #aa2026;
+    --brand-red-dark: #7d2126;
+    --brand-red-deep: #4f2125;
+    --brand-black: #212224;
+
     --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
+    --foreground: #212224;
     --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
+    --card-foreground: #212224;
     --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
+    --popover-foreground: #212224;
+    --primary: oklch(0.22 0.015 25);
     --primary-foreground: oklch(0.985 0 0);
     --secondary: oklch(0.97 0 0);
     --secondary-foreground: oklch(0.205 0 0);
     --muted: oklch(0.97 0 0);
     --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
+    --accent: oklch(0.97 0.006 25);
     --accent-foreground: oklch(0.205 0 0);
     --destructive: oklch(0.577 0.245 27.325);
     --border: oklch(0.922 0 0);
     --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
+    --ring: oklch(0.55 0.18 25);
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
     --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
+    --sidebar: oklch(0.985 0.004 25);
+    --sidebar-foreground: #212224;
     --sidebar-primary: oklch(0.205 0 0);
     --sidebar-primary-foreground: oklch(0.985 0 0);
     --sidebar-accent: oklch(0.97 0 0);
@@ -83,38 +90,100 @@
     --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* Classic greyscale theme — neutral accent, no brand colors */
+.theme-classic {
+    --brand-red: #555;
+    --brand-red-mid: #444;
+    --brand-red-dark: #333;
+    --brand-red-deep: #222;
+    --brand-black: #111;
+
+    --foreground: oklch(0.145 0 0);
+    --primary: oklch(0.205 0 0);
+    --ring: oklch(0.708 0 0);
+    --accent: oklch(0.97 0 0);
+    --sidebar: oklch(0.985 0 0);
+    --sidebar-foreground: oklch(0.145 0 0);
+}
+
+/* SHARP Dark theme — Material Design dark theme principles + SHARP brand
+   Base surface #121212, elevation via white overlays (5–16%),
+   desaturated brand red for text/accents, high-emphasis text at 87% white.
+   See: m2.material.io/design/color/dark-theme.html */
+.theme-sharp-dark {
+    /* Desaturated brand palette — lighter tones for dark bg legibility */
+    --brand-red: #ef9a9d;           /* 200-tone — primary text accent, passes 4.5:1 on all surfaces */
+    --brand-red-mid: #e57373;       /* 300-tone — hover/pressed states */
+    --brand-red-dark: #ef9a9d;      /* Same as primary — used for headings/labels on dark bg */
+    --brand-red-deep: #7a3035;      /* Deep maroon — subtle tints only */
+    --brand-black: rgba(255, 255, 255, 0.87); /* High-emphasis text (Material: 87% white) */
+
+    --background: #121212;                     /* Material recommended surface */
+    --foreground: rgba(255, 255, 255, 0.87);   /* High-emphasis text */
+    --card: #1e1e1e;                           /* 01dp elevation ≈ #121212 + 5% white */
+    --card-foreground: rgba(255, 255, 255, 0.87);
+    --popover: #2c2c2c;                        /* 08dp elevation ≈ #121212 + 12% white */
+    --popover-foreground: rgba(255, 255, 255, 0.87);
+    --primary: rgba(255, 255, 255, 0.87);      /* High-emphasis */
+    --primary-foreground: #121212;
+    --secondary: #1e1e1e;                      /* 01dp surface */
+    --secondary-foreground: rgba(255, 255, 255, 0.87);
+    --muted: #1e1e1e;
+    --muted-foreground: rgba(255, 255, 255, 0.60); /* Medium-emphasis (Material: 60%) */
+    --accent: #252525;                         /* 02dp elevation ≈ #121212 + 7% white */
+    --accent-foreground: rgba(255, 255, 255, 0.87);
+    --destructive: #cf6679;                    /* Material dark error color */
+    --border: rgba(255, 255, 255, 0.12);       /* Material divider opacity */
+    --input: rgba(255, 255, 255, 0.12);
+    --ring: #ef9a9d;                           /* Desaturated brand red focus ring */
+    --chart-1: rgba(255, 255, 255, 0.87);
+    --chart-2: rgba(255, 255, 255, 0.60);
+    --chart-3: rgba(255, 255, 255, 0.38);
+    --chart-4: rgba(255, 255, 255, 0.24);
+    --chart-5: rgba(255, 255, 255, 0.12);
+    --sidebar: #1a1a1a;                        /* Between 00dp and 01dp — subtle distinction */
+    --sidebar-foreground: rgba(255, 255, 255, 0.87);
+    --sidebar-primary: #ef9a9d;                /* Desaturated brand red */
+    --sidebar-primary-foreground: #121212;
+    --sidebar-accent: #252525;
+    --sidebar-accent-foreground: rgba(255, 255, 255, 0.87);
+    --sidebar-border: rgba(255, 255, 255, 0.12);
+    --sidebar-ring: #ef9a9d;
+}
+
+/* Generic dark fallback — Material-aligned base (overridden by .theme-sharp-dark) */
 .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --background: #121212;
+    --foreground: rgba(255, 255, 255, 0.87);
+    --card: #1e1e1e;
+    --card-foreground: rgba(255, 255, 255, 0.87);
+    --popover: #2c2c2c;
+    --popover-foreground: rgba(255, 255, 255, 0.87);
+    --primary: rgba(255, 255, 255, 0.87);
+    --primary-foreground: #121212;
+    --secondary: #1e1e1e;
+    --secondary-foreground: rgba(255, 255, 255, 0.87);
+    --muted: #1e1e1e;
+    --muted-foreground: rgba(255, 255, 255, 0.60);
+    --accent: #252525;
+    --accent-foreground: rgba(255, 255, 255, 0.87);
+    --destructive: #cf6679;
+    --border: rgba(255, 255, 255, 0.12);
+    --input: rgba(255, 255, 255, 0.12);
+    --ring: rgba(255, 255, 255, 0.60);
+    --chart-1: rgba(255, 255, 255, 0.87);
+    --chart-2: rgba(255, 255, 255, 0.60);
+    --chart-3: rgba(255, 255, 255, 0.38);
+    --chart-4: rgba(255, 255, 255, 0.24);
+    --chart-5: rgba(255, 255, 255, 0.12);
+    --sidebar: #1a1a1a;
+    --sidebar-foreground: rgba(255, 255, 255, 0.87);
+    --sidebar-primary: #ef9a9d;
+    --sidebar-primary-foreground: #121212;
+    --sidebar-accent: #252525;
+    --sidebar-accent-foreground: rgba(255, 255, 255, 0.87);
+    --sidebar-border: rgba(255, 255, 255, 0.12);
+    --sidebar-ring: rgba(255, 255, 255, 0.60);
 }
 
 @layer base {
@@ -127,4 +196,6 @@
   html {
     @apply font-sans;
     }
+
+
 }
