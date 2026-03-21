@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useAppState } from './useAppState';
-import { analyzeWell, type WellAnalysisResult } from '@/lib/analysis';
+import { analyzeWell, savitzkyGolaySmooth, type WellAnalysisResult } from '@/lib/analysis';
 
 /**
  * Reactively compute analysis results for all wells in the active experiment.
@@ -20,6 +20,8 @@ export function useAnalysisResults(): Map<string, WellAnalysisResult> {
   const fitStartFraction = useAppState((s) => s.fitStartFraction);
   const fitEndFraction = useAppState((s) => s.fitEndFraction);
   const wellBaselineOverrides = useAppState((s) => s.wellBaselineOverrides);
+  const smoothingEnabled = useAppState((s) => s.smoothingEnabled);
+  const smoothingWindow = useAppState((s) => s.smoothingWindow);
 
   const exp = experiments[idx];
 
@@ -46,8 +48,13 @@ export function useAnalysisResults(): Map<string, WellAnalysisResult> {
     };
 
     for (const well of exp.wellsUsed) {
-      const rawRfu = amp.wells[well];
+      let rawRfu = amp.wells[well];
       if (!rawRfu) continue;
+
+      // Apply smoothing to raw data before analysis
+      if (smoothingEnabled) {
+        rawRfu = savitzkyGolaySmooth(rawRfu, smoothingWindow);
+      }
 
       // Merge per-well baseline overrides if present
       const override = wellBaselineOverrides.get(well);
@@ -66,5 +73,5 @@ export function useAnalysisResults(): Map<string, WellAnalysisResult> {
     return results;
   }, [exp, xAxisMode, baselineEnabled, baselineMethod, baselineStart, baselineEnd,
       thresholdEnabled, thresholdRfu, fittingEnabled, fitStartFraction, fitEndFraction,
-      wellBaselineOverrides]);
+      wellBaselineOverrides, smoothingEnabled, smoothingWindow]);
 }

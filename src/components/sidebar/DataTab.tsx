@@ -1,9 +1,12 @@
 import { useCallback, useRef, useState } from 'react';
+import { readFile } from '@tauri-apps/plugin-fs';
 import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { Button } from '@/components/ui/button';
 import { loadSharpFile } from '@/lib/sharp-loader';
+import { isInstrumentFile, isSupportedFile, loadInstrumentFile } from '@/lib/instrument-loader';
 import { exportPlotImage, exportDataCsv, exportResultsCsv, exportMeltCsv, exportAsSharp } from '@/lib/export';
+import { getRecentFiles, addRecentFile } from '@/lib/recent-files';
 
 export function DataTab() {
   const experiments = useAppState((s) => s.experiments);
@@ -87,7 +90,25 @@ export function DataTab() {
     }
   }, [exp]);
 
+  const openFilePath = useCallback(async (filePath: string) => {
+    if (!isSupportedFile(filePath)) return;
+    try {
+      let experiment;
+      if (isInstrumentFile(filePath)) {
+        experiment = await loadInstrumentFile(filePath);
+      } else {
+        const bytes = await readFile(filePath);
+        experiment = await loadSharpFile(bytes.buffer as ArrayBuffer, filePath.split(/[/\\]/).pop()!);
+      }
+      addRecentFile(filePath);
+      loadExperiment(experiment, filePath);
+    } catch (err) {
+      showStatus(`Failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [loadExperiment]);
+
   if (!exp) {
+    const recentFiles = getRecentFiles();
     return (
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">
@@ -98,18 +119,40 @@ export function DataTab() {
           className="w-full"
           onClick={() => fileInputRef.current?.click()}
         >
-          Open .sharp file...
+          Load file...
         </Button>
         <input
           ref={fileInputRef}
           type="file"
-          accept=".sharp"
+          accept=".sharp,.pcrd,.tlpd,.eds,.amxd,.adxd"
           className="hidden"
           onChange={(e) => handleFileSelect(e.target.files)}
         />
         <p className="text-xs text-muted-foreground text-center">
-          or drag & drop a .sharp file anywhere
+          or drag & drop a file anywhere
         </p>
+        <p className="text-xs text-muted-foreground text-center">
+          .sharp · .pcrd · .tlpd · .eds · .amxd
+        </p>
+
+        {recentFiles.length > 0 && (
+          <div className="pt-2 border-t">
+            <h3 className="text-xs font-semibold text-muted-foreground mb-2">Recent Files</h3>
+            <div className="space-y-0.5">
+              {recentFiles.map((f, i) => (
+                <button
+                  key={i}
+                  className="w-full text-left px-2 py-1.5 text-xs rounded hover:bg-accent transition-colors truncate"
+                  title={f.path}
+                  onClick={() => openFilePath(f.path)}
+                >
+                  <span className="font-medium">{f.name}</span>
+                  <span className="text-muted-foreground ml-1.5">{f.format}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -129,14 +172,14 @@ export function DataTab() {
       <div>
         <h3 className="text-sm font-semibold mb-1">Experiment Notes</h3>
         <textarea
-          className="w-full h-24 text-sm border rounded p-2 resize-none bg-background"
+          className="w-full h-24 text-sm border rounded-md p-2 resize-none bg-background"
           placeholder="Add notes..."
           defaultValue={exp.notes}
         />
       </div>
 
       {/* Export */}
-      <fieldset className="border rounded p-3 space-y-2">
+      <fieldset className="border rounded-md p-3 space-y-2">
         <legend className="text-sm font-semibold px-1">Export Plot</legend>
         <div className="flex gap-1">
           <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => handleExportPlot('png')}>PNG</Button>
@@ -145,7 +188,7 @@ export function DataTab() {
         </div>
       </fieldset>
 
-      <fieldset className="border rounded p-3 space-y-2">
+      <fieldset className="border rounded-md p-3 space-y-2">
         <legend className="text-sm font-semibold px-1">Export Data</legend>
         <div className="flex gap-1">
           <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={handleExportData}>Data CSV</Button>
@@ -156,7 +199,7 @@ export function DataTab() {
         )}
       </fieldset>
 
-      <fieldset className="border rounded p-3 space-y-2">
+      <fieldset className="border rounded-md p-3 space-y-2">
         <legend className="text-sm font-semibold px-1">Save</legend>
         <Button variant="outline" size="sm" className="w-full h-7 text-xs" onClick={handleSaveSharp}>Save as .sharp</Button>
       </fieldset>

@@ -176,6 +176,70 @@ export function fitDoublingTime(
   return { doublingTime, k, rSquared };
 }
 
+// ── Savitzky-Golay Smoothing ─────────────────────────────────────────
+
+/**
+ * Savitzky-Golay smoothing filter (polynomial order 2).
+ * Preserves peak shape and height better than moving average.
+ * @param data - input signal
+ * @param windowSize - must be odd, >= 5
+ * @returns smoothed signal (same length)
+ */
+export function savitzkyGolaySmooth(data: number[], windowSize: number): number[] {
+  const n = data.length;
+  if (n < 5 || windowSize < 5) return [...data];
+
+  // Ensure odd window
+  let w = windowSize;
+  if (w % 2 === 0) w++;
+  if (w > n) w = n % 2 === 0 ? n - 1 : n;
+  if (w < 5) return [...data];
+
+  const half = (w - 1) / 2;
+
+  // Precompute SG coefficients for quadratic (order 2) fit
+  // For each position in the window [-half..half], the weight is:
+  //   c_i = A + B*i + C*i^2
+  // where A, B, C come from the normal equations of least-squares polynomial fit.
+  // For smoothing (0th derivative), we only need the weights that estimate y(0).
+  const coeffs = sgCoeffs(half);
+
+  const result = new Array<number>(n);
+
+  // Interior points: full convolution
+  for (let i = half; i < n - half; i++) {
+    let sum = 0;
+    for (let j = -half; j <= half; j++) {
+      sum += coeffs[j + half] * data[i + j];
+    }
+    result[i] = sum;
+  }
+
+  // Edge points: copy original (no distortion at boundaries)
+  for (let i = 0; i < half; i++) result[i] = data[i];
+  for (let i = n - half; i < n; i++) result[i] = data[i];
+
+  return result;
+}
+
+/** Compute Savitzky-Golay coefficients for quadratic smoothing */
+function sgCoeffs(half: number): number[] {
+  const m = half;
+  const w = 2 * m + 1;
+
+  // For polynomial order 2 smoothing, the closed-form weights are:
+  // c_i = (3*m*(m+1) - 1 - 5*i^2) / ((2*m+3)*(2*m+1)*(2*m-1)/3)
+  // This is the standard SG formula for quadratic/cubic smoothing, 0th derivative.
+  const denom = ((2 * m + 3) * (2 * m + 1) * (2 * m - 1)) / 3;
+  const a = 3 * m * (m + 1) - 1;
+
+  const coeffs = new Array<number>(w);
+  for (let i = -m; i <= m; i++) {
+    coeffs[i + m] = (a - 5 * i * i) / denom;
+  }
+  return coeffs;
+}
+
 // ── Full Analysis Pipeline ───────────────────────────────────────────
 
 export interface WellAnalysisResult {

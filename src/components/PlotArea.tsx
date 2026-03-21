@@ -3,7 +3,7 @@ import Plotly from 'plotly.js-dist-min';
 import _createPlotlyComponent from 'react-plotly.js/factory';
 import { useAppState, type PlotTab } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
-import { analyzeDilutionSeries } from '@/lib/analysis';
+import { analyzeDilutionSeries, savitzkyGolaySmooth } from '@/lib/analysis';
 import { THRESHOLD_LINE_COLOR, getPaletteColors } from '@/lib/constants';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useBoxSelect, BOX_SELECT_OVERLAY_STYLE } from '@/hooks/useBoxSelect';
@@ -524,6 +524,9 @@ function MeltDerivMini() {
   const analysisResults = useAnalysisResults();
   const dragPreviewWells = useAppState((s) => s.dragPreviewWells);
   const setDragPreviewWells = useAppState((s) => s.setDragPreviewWells);
+  const smoothingEnabled = useAppState((s) => s.smoothingEnabled);
+  const smoothingWindow = useAppState((s) => s.smoothingWindow);
+  const smoothingMeltDerivative = useAppState((s) => s.smoothingMeltDerivative);
 
   const exp = experiments[idx];
   const melt = exp?.melt;
@@ -541,6 +544,7 @@ function MeltDerivMini() {
 
   const hasDerivative = melt && Object.keys(melt.derivative).length > 0;
 
+  const smoothMeltDeriv = smoothingEnabled && smoothingMeltDerivative;
   const traces = useMemo((): Data[] => {
     if (!melt || !hasDerivative) return [];
     const result: Data[] = [];
@@ -549,8 +553,9 @@ function MeltDerivMini() {
       const isSelected = selectedWells.size === 0 || selectedWells.has(well);
       const isHovered = hoveredWell === well;
       const isDragHighlighted = dragPreviewWells ? dragPreviewWells.has(well) : null;
-      const derData = melt.derivative[well];
+      let derData = melt.derivative[well];
       if (!derData) continue;
+      if (smoothMeltDeriv) derData = savitzkyGolaySmooth(derData, smoothingWindow);
       let lineWidth = isSelected ? style.lineWidth : style.lineWidth * 0.6;
       let opacity = isSelected ? 1.0 : 0.25;
       if (isDragHighlighted === true) { lineWidth = style.lineWidth * 1.4; opacity = 1.0; }
@@ -565,7 +570,7 @@ function MeltDerivMini() {
       });
     }
     return result;
-  }, [melt, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells]);
+  }, [melt, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells, smoothMeltDeriv, smoothingWindow]);
 
   const layout = useMemo((): Partial<Layout> => {
     return {
@@ -691,6 +696,9 @@ function MeltPlot() {
   const analysisResults = useAnalysisResults();
   const dragPreviewWells = useAppState((s) => s.dragPreviewWells);
   const setDragPreviewWells = useAppState((s) => s.setDragPreviewWells);
+  const smoothingEnabled = useAppState((s) => s.smoothingEnabled);
+  const smoothingWindow = useAppState((s) => s.smoothingWindow);
+  const smoothingMeltDerivative = useAppState((s) => s.smoothingMeltDerivative);
 
   const exp = experiments[idx];
   const melt = exp?.melt;
@@ -707,6 +715,7 @@ function MeltPlot() {
   );
 
   const hasDerivative = melt && Object.keys(melt.derivative).length > 0;
+  const smoothMeltDeriv = smoothingEnabled && smoothingMeltDerivative;
 
   const traces = useMemo((): Data[] => {
     if (!melt) return [];
@@ -740,8 +749,9 @@ function MeltPlot() {
         const isSelected = selectedWells.size === 0 || selectedWells.has(well);
         const isHovered = hoveredWell === well;
         const isDragHighlighted = dragPreviewWells ? dragPreviewWells.has(well) : null;
-        const derData = melt.derivative[well];
+        let derData = melt.derivative[well];
         if (!derData) continue;
+        if (smoothMeltDeriv) derData = savitzkyGolaySmooth(derData, smoothingWindow);
         let lineWidth = isSelected ? style.lineWidth : style.lineWidth * 0.6;
         let opacity = isSelected ? 1.0 : 0.25;
         if (isDragHighlighted === true) { lineWidth = style.lineWidth * 1.4; opacity = 1.0; }
@@ -757,7 +767,7 @@ function MeltPlot() {
       }
     }
     return result;
-  }, [melt, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells]);
+  }, [melt, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells, smoothMeltDeriv, smoothingWindow]);
 
   const layout = useMemo((): Partial<Layout> => {
     const title = exp?.experimentId ? `${exp.experimentId} — Melt` : 'Melt Curve';
