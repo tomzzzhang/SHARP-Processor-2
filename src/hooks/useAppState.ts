@@ -51,6 +51,11 @@ export interface ExperimentViewState {
   thresholdEnabled: boolean;
   thresholdRfu: number;
 
+  // Analysis - Smoothing
+  smoothingEnabled: boolean;
+  smoothingWindow: number;  // odd, 5-21
+  smoothingMeltDerivative: boolean;
+
   // Analysis - Fitting
   fittingEnabled: boolean;
   fitStartFraction: number;
@@ -100,6 +105,9 @@ function defaultViewState(wellsUsed: string[] = []): ExperimentViewState {
     showRawOverlay: false,
     thresholdEnabled: false,
     thresholdRfu: DEFAULT_THRESHOLD_RFU,
+    smoothingEnabled: false,
+    smoothingWindow: 7,
+    smoothingMeltDerivative: true,
     fittingEnabled: false,
     fitStartFraction: 0.10,
     fitEndFraction: 0.90,
@@ -146,6 +154,9 @@ function snapshotViewState(state: AppState): ExperimentViewState {
     showRawOverlay: state.showRawOverlay,
     thresholdEnabled: state.thresholdEnabled,
     thresholdRfu: state.thresholdRfu,
+    smoothingEnabled: state.smoothingEnabled,
+    smoothingWindow: state.smoothingWindow,
+    smoothingMeltDerivative: state.smoothingMeltDerivative,
     fittingEnabled: state.fittingEnabled,
     fitStartFraction: state.fitStartFraction,
     fitEndFraction: state.fitEndFraction,
@@ -172,10 +183,20 @@ function snapshotViewState(state: AppState): ExperimentViewState {
   };
 }
 
+interface UndoEntry {
+  snapshot: ExperimentViewState;
+  description: string;
+}
+
+const MAX_UNDO_DEPTH = 50;
+
 interface AppState extends ExperimentViewState {
   // Data
   experiments: ExperimentData[];
   activeExperimentIndex: number;
+
+  // Source file paths (index → file path that was opened)
+  sourceFilePaths: Map<number, string>;
 
   // Transient (not per-experiment)
   hoveredWell: string | null;
@@ -185,8 +206,21 @@ interface AppState extends ExperimentViewState {
   // Per-experiment state snapshots (index → snapshot)
   _experimentSnapshots: Map<number, ExperimentViewState>;
 
+  // Undo/redo stacks (per experiment)
+  _undoStacks: Map<number, UndoEntry[]>;
+  _redoStacks: Map<number, UndoEntry[]>;
+  _restoringSnapshot: boolean;
+
   // Actions
-  loadExperiment: (data: ExperimentData) => void;
+  loadExperiment: (data: ExperimentData, sourcePath?: string) => void;
+  getActiveSourcePath: () => string | undefined;
+  pushUndo: (description: string) => void;
+  undo: () => void;
+  redo: () => void;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
+  getUndoDescription: () => string | undefined;
+  getRedoDescription: () => string | undefined;
   switchExperiment: (index: number) => void;
   removeExperiment: (index: number) => void;
   setSelectedWells: (wells: Set<string>) => void;
@@ -225,6 +259,9 @@ interface AppState extends ExperimentViewState {
   setShowRawOverlay: (on: boolean) => void;
   setThresholdEnabled: (on: boolean) => void;
   setThresholdRfu: (rfu: number) => void;
+  setSmoothingEnabled: (on: boolean) => void;
+  setSmoothingWindow: (window: number) => void;
+  setSmoothingMeltDerivative: (on: boolean) => void;
   setFittingEnabled: (on: boolean) => void;
   setFitStartFraction: (fraction: number) => void;
   setFitEndFraction: (fraction: number) => void;
@@ -256,7 +293,11 @@ interface AppState extends ExperimentViewState {
 export const useAppState = create<AppState>((set, get) => ({
   experiments: [],
   activeExperimentIndex: 0,
+  sourceFilePaths: new Map(),
   _experimentSnapshots: new Map(),
+  _undoStacks: new Map(),
+  _redoStacks: new Map(),
+  _restoringSnapshot: false,
   hoveredWell: null,
   dragPreviewWells: null,
   showDilutionWizard: false,
@@ -264,9 +305,10 @@ export const useAppState = create<AppState>((set, get) => ({
   // Spread default view state as initial top-level fields
   ...defaultViewState(),
 
-  loadExperiment: (data) =>
+  loadExperiment: (data, sourcePath?) =>
     set((state) => {
       const snapshots = new Map(state._experimentSnapshots);
+      const paths = new Map(state.sourceFilePaths);
       // Save current experiment's view state before switching
       if (state.experiments.length > 0) {
         snapshots.set(state.activeExperimentIndex, snapshotViewState(state));
@@ -274,15 +316,90 @@ export const useAppState = create<AppState>((set, get) => ({
       const newIndex = state.experiments.length;
       const newView = defaultViewState(data.wellsUsed);
       snapshots.set(newIndex, newView);
+      if (sourcePath) paths.set(newIndex, sourcePath);
       return {
         experiments: [...state.experiments, data],
         activeExperimentIndex: newIndex,
+        sourceFilePaths: paths,
         _experimentSnapshots: snapshots,
         hoveredWell: null,
         dragPreviewWells: null,
         ...newView,
       };
     }),
+
+  getActiveSourcePath: () => {
+    const state = get();
+    return state.sourceFilePaths.get(state.activeExperimentIndex);
+  },
+
+  pushUndo: (description) => {
+    const state = get();
+    if (state._restoringSnapshot || state.experiments.length === 0) return;
+    const idx = state.activeExperimentIndex;
+    const undoStacks = new Map(state._undoStacks);
+    const redoStacks = new Map(state._redoStacks);
+    const stack = [...(undoStacks.get(idx) ?? [])];
+    stack.push({ snapshot: snapshotViewState(state), description });
+    if (stack.length > MAX_UNDO_DEPTH) stack.shift();
+    undoStacks.set(idx, stack);
+    redoStacks.set(idx, []); // clear redo on new action
+    set({ _undoStacks: undoStacks, _redoStacks: redoStacks });
+  },
+
+  undo: () => {
+    const state = get();
+    const idx = state.activeExperimentIndex;
+    const undoStack = [...(state._undoStacks.get(idx) ?? [])];
+    if (undoStack.length === 0) return;
+    const entry = undoStack.pop()!;
+    const redoStack = [...(state._redoStacks.get(idx) ?? [])];
+    redoStack.push({ snapshot: snapshotViewState(state), description: entry.description });
+    const undoStacks = new Map(state._undoStacks);
+    const redoStacks = new Map(state._redoStacks);
+    undoStacks.set(idx, undoStack);
+    redoStacks.set(idx, redoStack);
+    set({ _restoringSnapshot: true, _undoStacks: undoStacks, _redoStacks: redoStacks, ...entry.snapshot });
+    set({ _restoringSnapshot: false });
+  },
+
+  redo: () => {
+    const state = get();
+    const idx = state.activeExperimentIndex;
+    const redoStack = [...(state._redoStacks.get(idx) ?? [])];
+    if (redoStack.length === 0) return;
+    const entry = redoStack.pop()!;
+    const undoStack = [...(state._undoStacks.get(idx) ?? [])];
+    undoStack.push({ snapshot: snapshotViewState(state), description: entry.description });
+    const undoStacks = new Map(state._undoStacks);
+    const redoStacks = new Map(state._redoStacks);
+    undoStacks.set(idx, undoStack);
+    redoStacks.set(idx, redoStack);
+    set({ _restoringSnapshot: true, _undoStacks: undoStacks, _redoStacks: redoStacks, ...entry.snapshot });
+    set({ _restoringSnapshot: false });
+  },
+
+  canUndo: () => {
+    const state = get();
+    return (state._undoStacks.get(state.activeExperimentIndex)?.length ?? 0) > 0;
+  },
+
+  canRedo: () => {
+    const state = get();
+    return (state._redoStacks.get(state.activeExperimentIndex)?.length ?? 0) > 0;
+  },
+
+  getUndoDescription: () => {
+    const state = get();
+    const stack = state._undoStacks.get(state.activeExperimentIndex);
+    return stack?.length ? stack[stack.length - 1].description : undefined;
+  },
+
+  getRedoDescription: () => {
+    const state = get();
+    const stack = state._redoStacks.get(state.activeExperimentIndex);
+    return stack?.length ? stack[stack.length - 1].description : undefined;
+  },
 
   switchExperiment: (index) =>
     set((state) => {
@@ -307,10 +424,15 @@ export const useAppState = create<AppState>((set, get) => ({
       if (state.experiments.length <= 1) return {}; // Don't remove the last one
       const experiments = state.experiments.filter((_, i) => i !== index);
       const snapshots = new Map<number, ExperimentViewState>();
-      // Re-index snapshots (skip removed, shift down higher indices)
+      const paths = new Map<number, string>();
+      // Re-index snapshots and source paths (skip removed, shift down higher indices)
       for (const [i, snap] of state._experimentSnapshots) {
         if (i < index) snapshots.set(i, snap);
         else if (i > index) snapshots.set(i - 1, snap);
+      }
+      for (const [i, p] of state.sourceFilePaths) {
+        if (i < index) paths.set(i, p);
+        else if (i > index) paths.set(i - 1, p);
       }
 
       // Determine new active index
@@ -322,6 +444,7 @@ export const useAppState = create<AppState>((set, get) => ({
         return {
           experiments,
           activeExperimentIndex: newActive,
+          sourceFilePaths: paths,
           _experimentSnapshots: snapshots,
           hoveredWell: null,
           dragPreviewWells: null,
@@ -333,6 +456,7 @@ export const useAppState = create<AppState>((set, get) => ({
       return {
         experiments,
         activeExperimentIndex: newActive,
+        sourceFilePaths: paths,
         _experimentSnapshots: snapshots,
         hoveredWell: null,
         dragPreviewWells: null,
@@ -383,38 +507,49 @@ export const useAppState = create<AppState>((set, get) => ({
     const wells = exp.wellsUsed.filter((w) => state.hiddenWells.has(w));
     set({ selectedWells: new Set(wells) });
   },
-  toggleWellHidden: (well) =>
+  toggleWellHidden: (well) => {
+    get().pushUndo('Toggle visibility');
     set((state) => {
       const next = new Set(state.hiddenWells);
       if (next.has(well)) next.delete(well);
       else next.add(well);
       return { hiddenWells: next };
-    }),
-  showWells: (wells) =>
+    });
+  },
+  showWells: (wells) => {
+    get().pushUndo('Show wells');
     set((state) => {
       const next = new Set(state.hiddenWells);
       for (const w of wells) next.delete(w);
       return { hiddenWells: next };
-    }),
-  hideWells: (wells) =>
+    });
+  },
+  hideWells: (wells) => {
+    get().pushUndo('Hide wells');
     set((state) => {
       const next = new Set(state.hiddenWells);
       for (const w of wells) next.add(w);
       return { hiddenWells: next };
-    }),
-  activateWells: (wells) =>
+    });
+  },
+  activateWells: (wells) => {
+    get().pushUndo('Activate wells');
     set((state) => {
       const next = new Set(state.deactivatedWells);
       for (const w of wells) next.delete(w);
       return { deactivatedWells: next };
-    }),
-  deactivateWells: (wells) =>
+    });
+  },
+  deactivateWells: (wells) => {
+    get().pushUndo('Deactivate wells');
     set((state) => {
       const next = new Set(state.deactivatedWells);
       for (const w of wells) next.add(w);
       return { deactivatedWells: next };
-    }),
-  setWellContentType: (wells, type) =>
+    });
+  },
+  setWellContentType: (wells, type) => {
+    get().pushUndo('Set content type');
     set((state) => {
       const exps = [...state.experiments];
       const exp = { ...exps[state.activeExperimentIndex] };
@@ -425,8 +560,10 @@ export const useAppState = create<AppState>((set, get) => ({
       exp.wells = wellMap;
       exps[state.activeExperimentIndex] = exp;
       return { experiments: exps };
-    }),
-  setWellSampleName: (well, name) =>
+    });
+  },
+  setWellSampleName: (well, name) => {
+    get().pushUndo('Set sample name');
     set((state) => {
       const exps = [...state.experiments];
       const exp = { ...exps[state.activeExperimentIndex] };
@@ -435,50 +572,64 @@ export const useAppState = create<AppState>((set, get) => ({
       exp.wells = wellMap;
       exps[state.activeExperimentIndex] = exp;
       return { experiments: exps };
-    }),
-  setWellStyleOverride: (wells, style) =>
+    });
+  },
+  setWellStyleOverride: (wells, style) => {
+    get().pushUndo('Set well style');
     set((state) => {
       const next = new Map(state.wellStyleOverrides);
       for (const w of wells) {
         next.set(w, { ...next.get(w), ...style });
       }
       return { wellStyleOverrides: next };
-    }),
-  clearWellStyleOverrides: (wells) =>
+    });
+  },
+  clearWellStyleOverrides: (wells) => {
+    get().pushUndo('Clear well styles');
     set((state) => {
       const next = new Map(state.wellStyleOverrides);
       for (const w of wells) next.delete(w);
       return { wellStyleOverrides: next };
-    }),
-  setWellBaselineOverride: (wells, override) =>
+    });
+  },
+  setWellBaselineOverride: (wells, override) => {
+    get().pushUndo('Set well baseline');
     set((state) => {
       const next = new Map(state.wellBaselineOverrides);
       for (const w of wells) {
         next.set(w, { ...next.get(w), ...override });
       }
       return { wellBaselineOverrides: next };
-    }),
-  clearWellBaselineOverrides: (wells) =>
+    });
+  },
+  clearWellBaselineOverrides: (wells) => {
+    get().pushUndo('Clear well baselines');
     set((state) => {
       const next = new Map(state.wellBaselineOverrides);
       for (const w of wells) next.delete(w);
       return { wellBaselineOverrides: next };
-    }),
-  setWellGroup: (wells, group) =>
+    });
+  },
+  setWellGroup: (wells, group) => {
+    get().pushUndo('Set group');
     set((state) => {
       const next = new Map(state.wellGroups);
       for (const w of wells) next.set(w, group);
       return { wellGroups: next };
-    }),
-  removeWellGroup: (wells) =>
+    });
+  },
+  removeWellGroup: (wells) => {
+    get().pushUndo('Remove group');
     set((state) => {
       const next = new Map(state.wellGroups);
       for (const w of wells) next.delete(w);
       return { wellGroups: next };
-    }),
+    });
+  },
   autoGroupBySample: () => {
     const exp = get().experiments[get().activeExperimentIndex];
     if (!exp) return;
+    get().pushUndo('Auto-group by sample');
     const next = new Map<string, string>();
     for (const w of exp.wellsUsed) {
       const sample = exp.wells[w]?.sample;
@@ -486,29 +637,36 @@ export const useAppState = create<AppState>((set, get) => ({
     }
     set({ wellGroups: next });
   },
-  addToLegend: (wells) =>
+  addToLegend: (wells) => {
+    get().pushUndo('Add to legend');
     set((state) => {
       const next = new Set(state.legendWells);
       for (const w of wells) next.add(w);
       return { legendWells: next };
-    }),
-  removeFromLegend: (wells) =>
+    });
+  },
+  removeFromLegend: (wells) => {
+    get().pushUndo('Remove from legend');
     set((state) => {
       const next = new Set(state.legendWells);
       for (const w of wells) next.delete(w);
       return { legendWells: next };
-    }),
+    });
+  },
   setHoveredWell: (well) => set({ hoveredWell: well }),
   setDragPreviewWells: (wells) => set({ dragPreviewWells: wells }),
   setXAxisMode: (mode) => set({ xAxisMode: mode }),
   setLogScale: (on) => set({ logScale: on }),
   setPlotTab: (tab) => set({ plotTab: tab }),
-  setBaselineEnabled: (on) => set({ baselineEnabled: on }),
-  setBaselineMethod: (method) => set({ baselineMethod: method }),
+  setBaselineEnabled: (on) => { get().pushUndo('Toggle baseline'); set({ baselineEnabled: on }); },
+  setBaselineMethod: (method) => { get().pushUndo('Change baseline method'); set({ baselineMethod: method }); },
   setBaselineZone: (start, end) => set({ baselineStart: start, baselineEnd: end }),
   setShowRawOverlay: (on) => set({ showRawOverlay: on }),
-  setThresholdEnabled: (on) => set({ thresholdEnabled: on }),
+  setThresholdEnabled: (on) => { get().pushUndo('Toggle threshold'); set({ thresholdEnabled: on }); },
   setThresholdRfu: (rfu) => set({ thresholdRfu: rfu }),
+  setSmoothingEnabled: (on) => { get().pushUndo('Toggle smoothing'); set({ smoothingEnabled: on }); },
+  setSmoothingWindow: (window) => set({ smoothingWindow: window }),
+  setSmoothingMeltDerivative: (on) => set({ smoothingMeltDerivative: on }),
   setFittingEnabled: (on) => set({ fittingEnabled: on }),
   setFitStartFraction: (fraction) => set({ fitStartFraction: fraction }),
   setFitEndFraction: (fraction) => set({ fitEndFraction: fraction }),
@@ -521,23 +679,23 @@ export const useAppState = create<AppState>((set, get) => ({
       );
       return { dilutionConfig: { ...state.dilutionConfig, steps } };
     }),
-  setPalette: (palette) => set({ palette }),
+  setPalette: (palette) => { get().pushUndo('Change palette'); set({ palette }); },
   setLineWidth: (width) => set({ lineWidth: width }),
   setFontFamily: (font) => set({ fontFamily: font }),
   setTitleSize: (size) => set({ titleSize: size }),
   setLabelSize: (size) => set({ labelSize: size }),
   setTickSize: (size) => set({ tickSize: size }),
   setLegendSize: (size) => set({ legendSize: size }),
-  setShowLegend: (on) => set({ showLegend: on }),
+  setShowLegend: (on) => { get().pushUndo('Toggle legend'); set({ showLegend: on }); },
   setShowLegendAmp: (on) => set({ showLegendAmp: on }),
   setShowLegendMelt: (on) => set({ showLegendMelt: on }),
   setShowLegendDoubling: (on) => set({ showLegendDoubling: on }),
   setLegendPosition: (pos) => set({ legendPosition: pos }),
   setLegendVisibleOnly: (on) => set({ legendVisibleOnly: on }),
-  setPaletteReversed: (reversed) => set({ paletteReversed: reversed }),
-  setPaletteGroupColors: (on) => set({ paletteGroupColors: on }),
+  setPaletteReversed: (reversed) => { get().pushUndo('Reverse palette'); set({ paletteReversed: reversed }); },
+  setPaletteGroupColors: (on) => { get().pushUndo('Toggle group colors'); set({ paletteGroupColors: on }); },
   setSelectionPaletteGroupColors: (on) => set({ selectionPaletteGroupColors: on }),
-  reversePalette: () => set((state) => ({ paletteReversed: !state.paletteReversed })),
+  reversePalette: () => { get().pushUndo('Reverse palette'); set((state) => ({ paletteReversed: !state.paletteReversed })); },
   setShowGrid: (on) => set({ showGrid: on }),
   setGridAlpha: (alpha) => set({ gridAlpha: alpha }),
   setFigureDpi: (dpi) => set({ figureDpi: dpi }),

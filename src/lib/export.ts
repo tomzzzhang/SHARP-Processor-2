@@ -186,19 +186,12 @@ export async function exportMeltCsv(
 // ── .sharp Export ────────────────────────────────────────────────────
 
 /**
- * Export the current experiment as a .sharp file (ZIP archive).
- * Preserves user edits to sample names, notes, descriptions, and content types.
+ * Build a .sharp ZIP archive from experiment data.
+ * Shared by both saveSession (quick save) and exportAsSharp (save as).
  */
-export async function exportAsSharp(exp: ExperimentData): Promise<string | null> {
-  const filePath = await save({
-    defaultPath: `${exp.experimentId}.sharp`,
-    filters: [{ name: 'SHARP File', extensions: ['sharp'] }],
-  });
-  if (!filePath) return null;
-
+async function buildSharpZip(exp: ExperimentData): Promise<Uint8Array> {
   const zip = new JSZip();
 
-  // Build metadata.json from current experiment state
   const metadata: Record<string, unknown> = {
     ...(exp.metadata ?? {}),
     format_version: exp.formatVersion || '1.0',
@@ -219,7 +212,6 @@ export async function exportAsSharp(exp: ExperimentData): Promise<string | null>
     wells: {} as Record<string, unknown>,
   };
 
-  // Write per-well metadata (sample, content, cq, etc.)
   const wellsMeta: Record<string, unknown> = {};
   for (const [wellName, info] of Object.entries(exp.wells)) {
     wellsMeta[wellName] = {
@@ -232,10 +224,8 @@ export async function exportAsSharp(exp: ExperimentData): Promise<string | null>
     };
   }
   metadata.wells = wellsMeta;
-
   zip.file('metadata.json', JSON.stringify(metadata, null, 2));
 
-  // Build amplification.csv
   if (exp.amplification) {
     const amp = exp.amplification;
     const ampHeaders = ['cycle', 'time_s', 'time_min', ...exp.wellsUsed];
@@ -251,7 +241,6 @@ export async function exportAsSharp(exp: ExperimentData): Promise<string | null>
     zip.file('amplification.csv', [ampHeaders.join(','), ...ampRows].join('\n'));
   }
 
-  // Build melt_rfu.csv
   if (exp.melt && Object.keys(exp.melt.rfu).length > 0) {
     const melt = exp.melt;
     const meltWells = exp.wellsUsed.filter((w) => w in melt.rfu);
@@ -264,7 +253,6 @@ export async function exportAsSharp(exp: ExperimentData): Promise<string | null>
     zip.file('melt_rfu.csv', [rfuHeaders.join(','), ...rfuRows].join('\n'));
   }
 
-  // Build melt_derivative.csv
   if (exp.melt && Object.keys(exp.melt.derivative).length > 0) {
     const melt = exp.melt;
     const meltWells = exp.wellsUsed.filter((w) => w in melt.derivative);
@@ -277,8 +265,31 @@ export async function exportAsSharp(exp: ExperimentData): Promise<string | null>
     zip.file('melt_derivative.csv', [derivHeaders.join(','), ...derivRows].join('\n'));
   }
 
-  // Generate ZIP and write
-  const zipBlob = await zip.generateAsync({ type: 'uint8array' });
-  await writeFile(filePath, zipBlob);
+  return zip.generateAsync({ type: 'uint8array' });
+}
+
+/**
+ * Quick save — writes to the given path without a dialog.
+ * Used for Ctrl+S when the file was already saved/opened as .sharp.
+ */
+export async function saveSession(exp: ExperimentData, filePath: string): Promise<string> {
+  const zipData = await buildSharpZip(exp);
+  await writeFile(filePath, zipData);
+  return filePath;
+}
+
+/**
+ * Export the current experiment as a .sharp file (ZIP archive).
+ * Preserves user edits to sample names, notes, descriptions, and content types.
+ */
+export async function exportAsSharp(exp: ExperimentData): Promise<string | null> {
+  const filePath = await save({
+    defaultPath: `${exp.experimentId}.sharp`,
+    filters: [{ name: 'SHARP File', extensions: ['sharp'] }],
+  });
+  if (!filePath) return null;
+
+  const zipData = await buildSharpZip(exp);
+  await writeFile(filePath, zipData);
   return filePath;
 }
