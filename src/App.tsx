@@ -214,8 +214,8 @@ function App() {
           <QuickStylePanel />
         </div>
 
-        {/* Results table resize handle + table (hidden on doubling time tab or when no data) */}
-        {plotTab !== 'doubling' && experiments.length > 0 && (
+        {/* Results table resize handle + table */}
+        {experiments.length > 0 && (
           <>
             <div
               className="flex-shrink-0 flex items-center justify-center cursor-row-resize hover:bg-accent active:bg-border transition-colors"

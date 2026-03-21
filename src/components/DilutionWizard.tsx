@@ -330,8 +330,8 @@ function MiniWellGrid({
             top: Math.min(dragRect.y1, dragRect.y2),
             width: Math.abs(dragRect.x2 - dragRect.x1),
             height: Math.abs(dragRect.y2 - dragRect.y1),
-            border: '1.5px dashed #aa2026',
-            backgroundColor: 'rgba(170, 32, 38, 0.07)',
+            border: '1.5px dashed var(--brand-red-mid)',
+            backgroundColor: 'color-mix(in srgb, var(--brand-red-mid) 7%, transparent)',
             pointerEvents: 'none',
             zIndex: 10,
           }}
