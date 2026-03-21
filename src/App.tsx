@@ -14,6 +14,7 @@ import { PlotTabs } from './components/PlotTabs';
 import { useAppState } from './hooks/useAppState';
 import { loadSharpFile } from './lib/sharp-loader';
 import { isInstrumentFile, isSupportedFile, loadInstrumentFile } from './lib/instrument-loader';
+import { addRecentFile } from './lib/recent-files';
 
 function App() {
   const loadExperiment = useAppState((s) => s.loadExperiment);
@@ -74,7 +75,8 @@ function App() {
         const bytes = await fs.readFile(filePath);
         experiment = await loadSharpFile(bytes.buffer as ArrayBuffer, filePath.split(/[/\\]/).pop()!);
       }
-      loadExperiment(experiment);
+      addRecentFile(filePath);
+      loadExperiment(experiment, filePath);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -153,7 +155,7 @@ function App() {
       {/* Drag overlay */}
       {dragOver && (
         <div className="fixed inset-0 z-50 bg-primary/10 border-4 border-dashed border-primary flex items-center justify-center pointer-events-none">
-          <div className="bg-background rounded-lg shadow-lg p-8 text-center">
+          <div className="bg-background rounded-md shadow-lg p-8 text-center">
             <p className="text-lg font-semibold">Drop experiment file to load</p>
             <p className="text-xs text-muted-foreground mt-1">.sharp · .pcrd · .tlpd · .eds · .amxd</p>
           </div>
@@ -162,9 +164,10 @@ function App() {
 
       {/* Loading overlay */}
       {loading && (
-        <div className="fixed inset-0 z-50 bg-background/50 flex items-center justify-center">
-          <div className="bg-background rounded-lg shadow-lg p-6 text-center">
-            <p className="text-sm">Loading experiment...</p>
+        <div className="fixed inset-0 z-50 bg-background/60 backdrop-blur-sm flex items-center justify-center">
+          <div className="bg-background rounded-md shadow-lg p-6 text-center flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-3 border-muted-foreground/30 border-t-primary rounded-full animate-spin" />
+            <p className="text-sm text-muted-foreground">Loading experiment...</p>
           </div>
         </div>
       )}

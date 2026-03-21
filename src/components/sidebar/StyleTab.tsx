@@ -2,6 +2,7 @@ import { useAppState } from '@/hooks/useAppState';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { FONT_FAMILIES, LEGEND_POSITIONS, MAIN_PALETTE_NAMES, GRADIENT_PALETTE_NAMES } from '@/lib/constants';
+import { CollapsibleSection } from './CollapsibleSection';
 
 export function StyleTab() {
   const palette = useAppState((s) => s.palette);
@@ -43,10 +44,8 @@ export function StyleTab() {
   const setFigureDpi = useAppState((s) => s.setFigureDpi);
 
   return (
-    <div className="space-y-4">
-      {/* Colors */}
-      <fieldset className="border rounded p-3 space-y-2">
-        <legend className="text-sm font-semibold px-1">Colors</legend>
+    <div className="space-y-3">
+      <CollapsibleSection title="Colors & Lines">
         <div className="flex items-center gap-2 text-sm">
           <span className="text-muted-foreground">Palette:</span>
           <select
@@ -65,36 +64,32 @@ export function StyleTab() {
           </select>
         </div>
         <label className="flex items-center gap-2 text-sm">
-          <Checkbox checked={paletteReversed} onCheckedChange={(v) => reversePalette()} />
+          <Checkbox checked={paletteReversed} onCheckedChange={() => reversePalette()} />
           Reversed
         </label>
         <label className="flex items-center gap-2 text-sm">
           <Checkbox checked={paletteGroupColors} onCheckedChange={(v) => setPaletteGroupColors(v === true)} />
           Group coloring
         </label>
-      </fieldset>
 
-      {/* Lines */}
-      <fieldset className="border rounded p-3 space-y-2">
-        <legend className="text-sm font-semibold px-1">Lines</legend>
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">Width:</span>
-          <input
-            type="number"
-            min={0.3}
-            max={5.0}
-            step={0.1}
-            value={lineWidth}
-            onChange={(e) => setLineWidth(Number(e.target.value))}
-            className="w-16 h-7 border rounded px-1 text-sm text-center"
-          />
-          <span className="text-muted-foreground">pt</span>
+        <div className="border-t pt-2 mt-1">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Line width:</span>
+            <input
+              type="number"
+              min={0.3}
+              max={5.0}
+              step={0.1}
+              value={lineWidth}
+              onChange={(e) => setLineWidth(Number(e.target.value))}
+              className="w-16 h-7 border rounded px-1 text-sm text-center"
+            />
+            <span className="text-muted-foreground">pt</span>
+          </div>
         </div>
-      </fieldset>
+      </CollapsibleSection>
 
-      {/* Typography */}
-      <fieldset className="border rounded p-3 space-y-2">
-        <legend className="text-sm font-semibold px-1">Typography</legend>
+      <CollapsibleSection title="Typography" defaultOpen={false}>
         <div className="flex items-center gap-2 text-sm">
           <span className="text-muted-foreground">Font:</span>
           <select
@@ -107,7 +102,7 @@ export function StyleTab() {
             ))}
           </select>
         </div>
-        <div className="text-sm text-muted-foreground">Sizes:</div>
+        <div className="text-xs text-muted-foreground font-medium">Sizes:</div>
         <div className="grid grid-cols-2 gap-2 text-sm">
           <div className="flex items-center gap-1">
             <span>Title:</span>
@@ -134,11 +129,9 @@ export function StyleTab() {
               className="w-12 h-7 border rounded px-1 text-center text-sm" />
           </div>
         </div>
-      </fieldset>
+      </CollapsibleSection>
 
-      {/* Legend */}
-      <fieldset className="border rounded p-3 space-y-2">
-        <legend className="text-sm font-semibold px-1">Legend</legend>
+      <CollapsibleSection title="Legend">
         <label className="flex items-center gap-2 text-sm">
           <Checkbox checked={showLegend} onCheckedChange={(v) => setShowLegend(v === true)} />
           Show legend
@@ -173,11 +166,9 @@ export function StyleTab() {
           <Checkbox checked={legendVisibleOnly} onCheckedChange={(v) => setLegendVisibleOnly(v === true)} />
           Visible wells only
         </label>
-      </fieldset>
+      </CollapsibleSection>
 
-      {/* Grid */}
-      <fieldset className="border rounded p-3 space-y-2">
-        <legend className="text-sm font-semibold px-1">Grid</legend>
+      <CollapsibleSection title="Grid & Export" defaultOpen={false}>
         <label className="flex items-center gap-2 text-sm">
           <Checkbox checked={showGrid} onCheckedChange={(v) => setShowGrid(v === true)} />
           Show grid lines
@@ -194,35 +185,31 @@ export function StyleTab() {
             className="w-16 h-7 border rounded px-1 text-sm text-center"
           />
         </div>
-      </fieldset>
 
-      {/* Figure */}
-      <fieldset className="border rounded p-3 space-y-2">
-        <legend className="text-sm font-semibold px-1">Figure</legend>
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">DPI:</span>
-          <input
-            type="number"
-            min={72}
-            max={600}
-            step={50}
-            value={figureDpi}
-            onChange={(e) => setFigureDpi(Number(e.target.value))}
-            className="w-16 h-7 border rounded px-1 text-sm text-center"
-          />
-          <span className="text-xs text-muted-foreground">(for export)</span>
+        <div className="border-t pt-2 mt-1">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">DPI:</span>
+            <input
+              type="number"
+              min={72}
+              max={600}
+              step={50}
+              value={figureDpi}
+              onChange={(e) => setFigureDpi(Number(e.target.value))}
+              className="w-16 h-7 border rounded px-1 text-sm text-center"
+            />
+            <span className="text-xs text-muted-foreground">(for export)</span>
+          </div>
         </div>
-      </fieldset>
+      </CollapsibleSection>
 
-      {/* Presets */}
-      <fieldset className="border rounded p-3 space-y-2">
-        <legend className="text-sm font-semibold px-1">Presets</legend>
+      <CollapsibleSection title="Presets" defaultOpen={false}>
         <div className="flex gap-1">
           <Button variant="outline" size="sm" className="flex-1 h-7 text-xs">Save...</Button>
           <Button variant="outline" size="sm" className="flex-1 h-7 text-xs">Load...</Button>
           <Button variant="outline" size="sm" className="flex-1 h-7 text-xs">Reset</Button>
         </div>
-      </fieldset>
+      </CollapsibleSection>
     </div>
   );
 }

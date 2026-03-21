@@ -576,7 +576,7 @@ export function DilutionWizard({ onClose }: DilutionWizardProps) {
   return (
     <div
       ref={panelRef}
-      className="bg-background border rounded-lg shadow-xl w-[640px] max-h-[90vh] overflow-y-auto"
+      className="bg-background border rounded-md shadow-xl w-[640px] max-h-[90vh] overflow-y-auto"
       style={panelStyle}
     >
       {/* Draggable title bar */}
