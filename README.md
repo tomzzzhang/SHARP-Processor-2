@@ -5,160 +5,214 @@
 <h1 align="center">SHARP Processor 2</h1>
 
 <p align="center">
-  Desktop app for qPCR and isothermal amplification data analysis.<br/>
-  Built with <strong>Tauri 2 + React + TypeScript + Plotly.js</strong> — a ground-up rewrite of the <a href="https://github.com/tomzzzhang/SHARP-data-processor">v1 PyQt6 app</a>.
+  Desktop app for visualizing and analyzing qPCR &amp; isothermal amplification data.<br/>
+  No programming required — just download, install, and open your data files.
+</p>
+
+<p align="center">
+  <a href="https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest">
+    <img src="https://img.shields.io/github/v/release/tomzzzhang/SHARP-Processor-2?label=Download&style=for-the-badge&color=c42a30" alt="Download latest release" />
+  </a>
 </p>
 
 ---
 
-## Quick Start (Windows)
+## Download & Install
 
-1. Go to [**Releases**](https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest)
-2. Download the installer (`.exe` or `.msi`)
-3. Run the installer — or extract the portable ZIP
-4. Double-click **SHARP Processor 2**
+1. Click the **Download** button above (or go to the [Releases](https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest) page)
+2. Download **`SHARP Processor 2_x64-setup.exe`**
+3. Double-click the installer and follow the prompts
+4. Open **SHARP Processor 2** from the Start Menu or desktop shortcut
 
-No Python, no setup. Everything is bundled.
+> **Windows may show a SmartScreen warning** the first time you run the app ("Windows protected your PC"). This is normal for new apps that haven't been code-signed yet. Click **"More info"** → **"Run anyway"** to proceed.
 
-To load data: drag a file onto the window, or use **File > Open**.
+---
 
-## Supported Instruments
+## Opening Your Data
 
-| Instrument | Extension | Notes |
-|---|---|---|
-| BioRad CFX96 | `.pcrd` | Encrypted ZIP, auto-decrypted |
-| TianLong Gentier | `.tlpd` | Password-protected ZIP |
-| ThermoFisher QuantStudio | `.eds` | ZIP with JSON/XML |
-| Agilent AriaMx | `.amxd` / `.adxd` | Double-encrypted PGP (requires GPG) |
-| SHARP | `.sharp` | Universal archive format |
+**Drag and drop** any supported file onto the app window, or go to **File → Open**.
 
-All instrument files are parsed into the same `.sharp` format via a bundled Python sidecar.
+| Instrument | File type you'll have |
+|---|---|
+| BioRad CFX96 | `.pcrd` |
+| TianLong Gentier (Mini / 48 / 96) | `.tlpd` |
+| ThermoFisher QuantStudio | `.eds` |
+| Agilent AriaMx | `.amxd` or `.adxd` |
+| Previously saved SHARP files | `.sharp` |
 
-## Features
+You don't need to export from your instrument software first — SHARP Processor reads the raw instrument files directly.
 
-### Data Visualization
-- **Amplification curves** — cycle, seconds, or minutes x-axis with log scale toggle
-- **Melt curves** — raw RFU and negative derivative (-dF/dT) as stacked subplots
-- **Melt derivative mini-plot** — shown below the amplification chart for quick reference
-- **Doubling time scatter** — Tt vs doubling time per well, or dilution standard curve
-- **Interactive plots** — box-select wells on any chart, click traces to select
+You can open multiple experiments at the same time. Each one gets its own tab.
 
-### Well Management
-- **96-well plate grid** — click, Ctrl+click, Shift+click, and rubber-band drag selection
-- **Automatic plate layouts** — 16-well (Gentier Mini), 48-well, and 96-well configurations
-- **Well list** with editable sample names, content types, and group assignments
-- **Context menu** — right-click for classification, grouping, color/style, visibility, baseline overrides
-- **Quick Style Panel** — expandable right-side drawer for fast well styling
+---
 
-### Analysis
-- **Baseline correction** — horizontal or linear, configurable zone with draggable boundaries
-- **Per-well baseline overrides** — customize baseline for individual wells
-- **Threshold detection** — draggable threshold line on amplification plot, automatic Tt/Ct calculation
-- **Call determination** — positive/negative/invalid based on threshold crossing and endpoint RFU
-- **Doubling time fitting** — log-linear exponential fit with configurable fit region
-- **Doubling Time Wizard** — dilution series setup with drag-to-assign well groups and standard curve fitting
+## What You Can Do
 
-### Style & Themes
-- **3 themes** — SHARP (brand colors), Classic (greyscale), SHARP Dark (Material Design dark theme)
-- **11+ color palettes** — SHARP, Tableau 10, Colorblind Safe, Paired, Pastel, plus scientific gradients (Viridis, Magma, Inferno, Plasma, Turbo) and single-hue ramps
-- **Colors assigned by detection time** — earliest Tt gets first palette color
-- **Auto-group by sample** name with shared group colors
-- **Style controls** — line width, fonts, legend (position, visible-only filter), grid opacity, export DPI
+### View amplification curves
+See all your wells plotted together. Switch the x-axis between **Cycle**, **Seconds**, or **Minutes**. Toggle **Log Scale** for a logarithmic view.
 
-### Export
-- **Plot images** — PNG, SVG, JPEG at configurable DPI
-- **Data CSV** — amplification data for visible wells
-- **Melt CSV** — melt curve data for visible wells
-- **Results CSV** — detection results table (Well, Sample, Content, Tt, Doubling Time, Call, End RFU)
-- **Save as .sharp** — preserves edited metadata, sample names, and well assignments
+### View melt curves
+Switch to the **Melt** tab to see raw fluorescence and the negative derivative (−dF/dT) side by side. A small melt derivative preview also appears below the amplification chart.
 
-### General
-- **Multi-experiment tabs** — load multiple files, each with isolated analysis state
-- **Undo/Redo** for most actions
-- **Resizable panels** — drag sidebar and plot boundaries
-- **Drag-and-drop** file loading with format auto-detection
-- **Recent files** menu
-- **Session save** — Ctrl+S saves back to `.sharp` with current state
+### Select wells
+- **Click** a well on the 96-well plate grid to select it
+- **Ctrl+Click** to add wells to your selection
+- **Click and drag** on the plate grid to select a rectangular region
+- **Click a curve** on the plot to select that well
+- **Drag a box** on the plot to select all wells in that region
+- Use the toolbar buttons to quickly select **All**, **Samples**, **NTCs**, **Standards**, etc.
+
+Selecting a well highlights it everywhere — on the grid, in the well list, on the plot, and in the results table.
+
+### Correct baselines
+Turn on **Baseline Correction** in the Analysis panel. Choose **Horizontal** (flat) or **Linear** (slope-corrected). Adjust the fitting zone by changing the start and end cycle numbers, or drag the shaded region on the plot.
+
+### Set a detection threshold
+Enable **Threshold Detection** to see a red dashed line on your amplification plot. Drag it up or down to set your threshold level. The app calculates **Tt** (time-to-threshold), **doubling time**, and a **positive/negative call** for each well.
+
+### Measure doubling time
+Switch to the **Doubling Time** tab for exponential growth fitting results. The app fits the log-linear growth region of each curve and reports the doubling time with confidence intervals.
+
+### Change colors and styles
+- Right-click any well or curve to change its **color**, **line style**, or **line width**
+- Assign wells to **groups** — grouped wells automatically share colors
+- Choose from **18 color palettes** including colorblind-safe options
+- Switch between **3 themes**: Classic (greyscale), SHARP (brand red), or SHARP Dark
+
+### Export your results
+Go to **Export** in the menu bar:
+- **Plot image** — save as PNG, SVG, or JPEG at any resolution
+- **Amplification CSV** — raw or baseline-corrected fluorescence data
+- **Melt CSV** — melt curve data
+- **Results CSV** — detection results table (Tt, doubling time, call, end RFU)
+- **Save as .sharp** — save the experiment with your edits (sample names, well types, etc.)
+
+---
 
 ## Keyboard Shortcuts
 
-| Shortcut | Action |
+| Shortcut | What it does |
 |---|---|
-| `Ctrl+O` | Open file |
-| `Ctrl+S` | Save |
-| `Ctrl+Z` | Undo |
-| `Ctrl+Shift+Z` | Redo |
+| `Ctrl+O` | Open a file |
 | `Ctrl+A` | Select all wells |
-| `Ctrl+H` | Toggle visibility of selected wells |
-| `Ctrl+G` | Group selected wells |
-| `Ctrl+Shift+G` | Ungroup selected wells |
-| `Ctrl+Shift+E` | Export plot as PNG |
+| `Ctrl+H` | Show/hide selected wells on the plot |
 
-## .sharp File Format
+---
 
-Each `.sharp` file is a ZIP archive containing:
+## Supported Instruments
 
-| File | Required | Description |
-|---|---|---|
-| `metadata.json` | Yes | Instrument info, protocol, per-well results, plate layout |
-| `amplification.csv` | Yes | Wide format: `cycle, time_s, time_min, A1, B1, ...` |
-| `melt_rfu.csv` | No | Wide format: `temperature_C, A1, B1, ...` |
-| `melt_derivative.csv` | No | Wide format: `temperature_C, A1, B1, ...` (-dF/dT) |
+| Instrument | Model(s) | Wells | File type |
+|---|---|---|---|
+| BioRad | CFX96 | 96 | `.pcrd` |
+| TianLong | Gentier Mini | 16 | `.tlpd` |
+| TianLong | Gentier 48 | 48 | `.tlpd` |
+| TianLong | Gentier 96 | 96 | `.tlpd` |
+| ThermoFisher | QuantStudio | 96 | `.eds` |
+| Agilent | AriaMx | 96 | `.amxd` / `.adxd` |
 
-See the v1 repo's [`SHARP_FORMAT.md`](https://github.com/tomzzzhang/SHARP-data-processor/blob/main/SHARP_FORMAT.md) for the full specification.
+> **Note for AriaMx users:** `.amxd` files use PGP encryption. You'll need [GPG](https://gnupg.org/download/) installed with the AriaMx key imported. Contact us if you need help setting this up.
 
-## Development
+---
 
-### Prerequisites
+## Upgrading from SHARP Processor v1
 
-- **Node.js** 24+
-- **Rust** 1.94+ with VS 2022 Build Tools (C++ workload)
-- **Python** 3.13 in the `sharp` conda environment (for instrument file parsing)
+SHARP Processor 2 is a complete rewrite with a modern interface. If you used the original [SHARP Processor](https://github.com/tomzzzhang/SHARP-data-processor), here's what's new:
 
-### Setup
+- **Faster** — native desktop app (no Python startup delay)
+- **Interactive plots** — click and drag directly on curves (powered by Plotly.js)
+- **Multiple experiments** — open several files in tabs
+- **Modern UI** — resizable panels, dark theme, brand styling
+- **Same file format** — your `.sharp` files from v1 work in v2
 
-```bash
-npm install
-```
+---
 
-### Run
+## About the .sharp File Format
 
-```bash
-# Windows — set CARGO_TARGET_DIR to avoid OneDrive sync on Rust target/
-set CARGO_TARGET_DIR=C:\tauri-build-cache
-npx tauri dev
+A `.sharp` file is just a ZIP archive containing your experiment data in open formats (CSV + JSON). You can rename it to `.zip` and open it with any ZIP tool to access:
 
-# Or double-click dev.bat
-```
+- `amplification.csv` — fluorescence readings per cycle for each well
+- `melt_rfu.csv` — melt curve fluorescence (if available)
+- `melt_derivative.csv` — melt derivative data (if available)
+- `metadata.json` — instrument info, protocol settings, well assignments, and results
 
-### Build
+---
 
-```bash
-npx tauri build
+## Need Help?
 
-# Or double-click build.bat
-```
+- Open an issue on [GitHub](https://github.com/tomzzzhang/SHARP-Processor-2/issues)
+- Check the in-app help: **Help → User Guide**
 
-Produces NSIS installer (`.exe`) and MSI package in `src-tauri/target/release/bundle/`.
+---
+
+## Architecture
+
+SHARP Processor 2 is a ground-up rewrite of the [original SHARP Processor](https://github.com/tomzzzhang/SHARP-data-processor) (Python + PyQt6 + matplotlib). Key improvements:
+
+- **Native desktop performance** — Tauri 2 (Rust) shell with a React frontend, no Python startup delay
+- **Interactive charts** — Plotly.js replaces matplotlib for click-to-select, box-select, and drag-to-adjust
+- **Multi-experiment tabs** — open several files simultaneously, each with isolated analysis state
+- **Modern UI** — resizable panels, three themes (including dark mode), 18 color palettes
+
+Your `.sharp` files from v1 work in v2 without any changes.
 
 ### Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Shell | Tauri 2.x (Rust) |
+| Desktop shell | Tauri 2.x (Rust) |
 | Frontend | React 18, TypeScript, Vite 8 |
 | Styling | Tailwind CSS v4, shadcn/ui |
-| Charts | Plotly.js (via react-plotly.js) |
-| State | Zustand |
-| Parsing | Python sidecar (bundled) |
+| Charts | Plotly.js (react-plotly.js) |
+| State management | Zustand |
+| Instrument parsing | Python sidecar (bundled) |
 
-## Documentation
+### Instrument File Parsing
 
-- [`CLAUDE.md`](CLAUDE.md) — Developer guide, project structure, and implementation notes
-- [v1 Processor Design](https://github.com/tomzzzhang/SHARP-data-processor/blob/main/PROCESSOR_DESIGN.md) — Architecture reference
-- [v1 .sharp Format Spec](https://github.com/tomzzzhang/SHARP-data-processor/blob/main/SHARP_FORMAT.md) — File format specification
-- [v1 BioRad .pcrd Notes](https://github.com/tomzzzhang/SHARP-data-processor/blob/main/PCRD_FORMAT.md) — Reverse engineering documentation
+Instrument files (`.pcrd`, `.tlpd`, `.eds`, `.amxd`) use proprietary and encrypted formats. SHARP Processor includes a bundled Python sidecar that handles decryption and conversion:
 
-## License
+- **BioRad `.pcrd`** — ZipCrypto-encrypted ZIP containing XML fluorescence data
+- **TianLong `.tlpd`** — password-protected ZIP with hex-encoded uint16 fluorescence
+- **ThermoFisher `.eds`** — ZIP with JSON (modern) or XML (legacy) quantification data
+- **Agilent `.amxd`** — double-encrypted PGP TAR archives with binary fluorescence packets
 
-Proprietary — SHARP Diagnostics.
+All formats are parsed into the universal `.sharp` archive format for consistent downstream analysis.
+
+## Development
+
+### Prerequisites
+
+- Node.js 24+
+- Rust 1.94+ with VS 2022 Build Tools (C++ desktop workload)
+- Python 3.13 in the `sharp` conda environment (for instrument file parsing sidecar)
+
+### Setup & Run
+
+```bash
+npm install
+
+# Windows — set CARGO_TARGET_DIR to avoid OneDrive sync on Rust target/
+set CARGO_TARGET_DIR=C:\tauri-build-cache
+npx tauri dev
+```
+
+Or double-click `dev.bat`.
+
+### Build Release Installers
+
+```bash
+npx tauri build
+```
+
+Or double-click `build.bat`. Produces NSIS (`.exe`) and MSI installers in `target/release/bundle/`.
+
+### Documentation
+
+- [`CLAUDE.md`](CLAUDE.md) — Developer guide, architecture, implementation notes
+- [v1 .sharp Format Spec](https://github.com/tomzzzhang/SHARP-data-processor/blob/main/SHARP_FORMAT.md)
+- [v1 .pcrd Reverse Engineering](https://github.com/tomzzzhang/SHARP-data-processor/blob/main/PCRD_FORMAT.md)
+
+---
+
+<p align="center">
+  <sub>SHARP Diagnostics</sub>
+</p>
