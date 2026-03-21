@@ -1,9 +1,31 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { Button } from '@/components/ui/button';
 import { MAIN_PALETTE_NAMES, GRADIENT_PALETTE_NAMES, getPaletteColors } from '@/lib/constants';
 import type { ContentType } from '@/types/experiment';
+
+function PanelSection({ title, defaultOpen = true, children }: { title: string; defaultOpen?: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="space-y-0.5">
+      <button
+        type="button"
+        className="w-full flex items-center justify-between text-[10px] font-semibold text-foreground/70 uppercase cursor-pointer hover:text-foreground transition-colors"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span>{title}</span>
+        <svg
+          className={`h-2.5 w-2.5 transition-transform duration-150 ${open ? '' : '-rotate-90'}`}
+          viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+        >
+          <path d="M3 4.5 L6 7.5 L9 4.5" />
+        </svg>
+      </button>
+      {open && children}
+    </div>
+  );
+}
 
 const CONTENT_TYPES: { value: ContentType; label: string }[] = [
   { value: 'Unkn', label: 'Sample' },
@@ -126,7 +148,7 @@ export function QuickStylePanel() {
         title={expanded ? 'Collapse panel' : 'Expand panel'}
       >
         <span
-          className="text-[10px] font-bold text-muted-foreground tracking-widest"
+          className="text-[10px] font-bold text-[var(--brand-red-dark)] tracking-widest"
           style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}
         >
           MENU
@@ -142,23 +164,20 @@ export function QuickStylePanel() {
           </div>
 
           {/* Activation */}
-          <div className="space-y-0.5">
-            <div className="text-[10px] font-medium text-muted-foreground uppercase">Activation</div>
+          <PanelSection title="Activation">
             {btn('Activate', () => activateWells(wells), n === 0)}
             {btn('Deactivate', () => deactivateWells(wells), n === 0)}
-          </div>
+          </PanelSection>
 
           {/* Visibility */}
-          <div className="space-y-0.5">
-            <div className="text-[10px] font-medium text-muted-foreground uppercase">Visibility</div>
+          <PanelSection title="Visibility">
             {btn('Show', () => showWells(wells), n === 0)}
             {btn('Hide', () => hideWells(wells), n === 0)}
             {btn('Deselect All', deselectAll)}
-          </div>
+          </PanelSection>
 
           {/* Sample Type */}
-          <div className="space-y-0.5">
-            <div className="text-[10px] font-medium text-muted-foreground uppercase">Sample Type</div>
+          <PanelSection title="Sample Type">
             <select
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value as ContentType)}
@@ -169,27 +188,24 @@ export function QuickStylePanel() {
               ))}
             </select>
             {btn('Apply Type', () => setWellContentType(wells, selectedType), n === 0)}
-          </div>
+          </PanelSection>
 
           {/* Grouping */}
-          <div className="space-y-0.5">
-            <div className="text-[10px] font-medium text-muted-foreground uppercase">Grouping</div>
+          <PanelSection title="Grouping">
             {btn('Group...', handleGroup, n === 0)}
             {btn('Ungroup', () => removeWellGroup(wells), n === 0)}
             {btn('Auto-Group by Sample', autoGroupBySample)}
-          </div>
+          </PanelSection>
 
           {/* Style */}
-          <div className="space-y-0.5">
-            <div className="text-[10px] font-medium text-muted-foreground uppercase">Style</div>
+          <PanelSection title="Style">
             {btn('Color...', handleColorPick, n === 0)}
             {btn('Reverse Colors', reverseSelectionColors, n === 0)}
             {btn('Clear Overrides', () => clearWellStyleOverrides(wells), n === 0)}
-          </div>
+          </PanelSection>
 
           {/* Palette */}
-          <div className="space-y-0.5">
-            <div className="text-[10px] font-medium text-muted-foreground uppercase">Palette</div>
+          <PanelSection title="Palette" defaultOpen={false}>
             <label className="flex items-center gap-1.5 text-[10px] py-0.5 cursor-pointer">
               <input
                 type="checkbox"
@@ -221,14 +237,13 @@ export function QuickStylePanel() {
                 </button>
               ))}
             </div>
-          </div>
+          </PanelSection>
 
           {/* Legend */}
-          <div className="space-y-0.5">
-            <div className="text-[10px] font-medium text-muted-foreground uppercase">Legend</div>
+          <PanelSection title="Legend">
             {btn('Add to Legend', () => addToLegend(wells), n === 0)}
             {btn('Remove from Legend', () => removeFromLegend(wells), n === 0)}
-          </div>
+          </PanelSection>
         </div>
       )}
     </div>

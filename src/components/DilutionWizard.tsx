@@ -282,7 +282,7 @@ function MiniWellGrid({
 
             const bg = !isUsed ? WELL_EMPTY_COLOR
               : assignedStep != null ? stepColors[assignedStep % stepColors.length]
-              : '#f0f0f0';
+              : 'var(--muted)';
 
             // During drag: highlight wells in selection box, grey out others
             let opacity = isUsed ? 1 : 0.3;
@@ -330,8 +330,8 @@ function MiniWellGrid({
             top: Math.min(dragRect.y1, dragRect.y2),
             width: Math.abs(dragRect.x2 - dragRect.x1),
             height: Math.abs(dragRect.y2 - dragRect.y1),
-            border: '1.5px dashed #3b82f6',
-            backgroundColor: 'rgba(59, 130, 246, 0.08)',
+            border: '1.5px dashed #aa2026',
+            backgroundColor: 'rgba(170, 32, 38, 0.07)',
             pointerEvents: 'none',
             zIndex: 10,
           }}

@@ -24,7 +24,7 @@ export function XAxisBar() {
             name="x-axis"
             checked={xAxisMode === value}
             onChange={() => setXAxisMode(value)}
-            className="accent-primary"
+            style={{ accentColor: 'var(--brand-red-dark)' }}
           />
           {label}
         </label>

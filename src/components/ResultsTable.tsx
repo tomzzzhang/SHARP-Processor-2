@@ -1,13 +1,13 @@
 import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { useDragSelect } from '@/hooks/useDragSelect';
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState, useCallback, useRef } from 'react';
 import { CONTENT_DISPLAY, getPaletteColors } from '@/lib/constants';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 
-const SEL_BG = '#e5e7eb'; // selection highlight (gray-200)
+const SEL_BG = 'var(--accent)'; // selection highlight — theme-aware
 
 const CALL_COLORS: Record<string, string> = {
   positive: '#22c55e',
@@ -64,22 +64,33 @@ function compareRows(a: RowData, b: RowData, key: SortKey, dir: SortDir): number
   return dir === 'desc' ? -cmp : cmp;
 }
 
-function SortableHeader({ label, sortKey, currentKey, currentDir, onSort, className }: {
+function SortableHeader({ label, sortKey, currentKey, currentDir, onSort, className, width, onResize }: {
   label: string;
   sortKey: SortKey;
   currentKey: SortKey;
   currentDir: SortDir;
   onSort: (key: SortKey) => void;
   className?: string;
+  width?: number;
+  onResize?: (startX: number) => void;
 }) {
   const isActive = currentKey === sortKey;
   const arrow = isActive ? (currentDir === 'asc' ? ' ▲' : ' ▼') : '';
   return (
     <TableHead
-      className={`py-1 cursor-pointer select-none hover:text-foreground transition-colors ${className ?? ''} ${isActive ? 'text-foreground' : ''}`}
+      className={`py-1 cursor-pointer select-none hover:text-foreground transition-colors relative ${className ?? ''} ${isActive ? 'text-[var(--brand-red-dark)]' : ''}`}
+      style={width ? { width, minWidth: width, maxWidth: width } : undefined}
       onClick={() => onSort(sortKey)}
     >
       {label}{arrow}
+      {onResize && (
+        <div
+          className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-10 flex items-center justify-center"
+          onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); onResize(e.clientX); }}
+        >
+          <div className="w-[2px] h-3 border-x border-border/50" />
+        </div>
+      )}
     </TableHead>
   );
 }
@@ -102,6 +113,36 @@ export function ResultsTable() {
 
   const [sortKey, setSortKey] = useState<SortKey>('well');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+
+  // Column resize state
+  const DEFAULT_WIDTHS: Record<SortKey, number> = { well: 56, sample: 120, content: 64, tt: 56, call: 48, endRfu: 80 };
+  const [colWidths, setColWidths] = useState<Record<SortKey, number>>(DEFAULT_WIDTHS);
+  const resizingCol = useRef<SortKey | null>(null);
+  const resizeStartX = useRef(0);
+  const resizeStartW = useRef(0);
+
+  const startResize = useCallback((col: SortKey) => (startX: number) => {
+    resizingCol.current = col;
+    resizeStartX.current = startX;
+    resizeStartW.current = colWidths[col];
+    const onMove = (e: MouseEvent) => {
+      if (!resizingCol.current) return;
+      const delta = e.clientX - resizeStartX.current;
+      const newW = Math.max(32, resizeStartW.current + delta);
+      setColWidths((prev) => ({ ...prev, [resizingCol.current!]: newW }));
+    };
+    const onUp = () => {
+      resizingCol.current = null;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [colWidths]);
 
   const handleSort = useCallback((key: SortKey) => {
     if (key === sortKey) {
@@ -168,7 +209,7 @@ export function ResultsTable() {
         tt: analysis?.tt ?? null,
         dt: analysis?.dt ?? null,
         call: analysis?.call ?? 'unset',
-        endRfu: analysis?.endRfu ?? info?.endRfu,
+        endRfu: analysis?.endRfu ?? info?.endRfu ?? undefined,
         color: colorMap.get(well) ?? '#999',
       });
     }
@@ -185,15 +226,15 @@ export function ResultsTable() {
 
   return (
     <div className="p-2">
-      <Table>
+      <Table style={{ tableLayout: 'fixed' }}>
         <TableHeader>
-          <TableRow className="text-xs">
-            <SortableHeader label="Well" sortKey="well" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="w-14" />
-            <SortableHeader label="Sample" sortKey="sample" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-            <SortableHeader label="Content" sortKey="content" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="w-16" />
-            <SortableHeader label={ttLabel} sortKey="tt" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="text-right w-16" />
-            <SortableHeader label="Call" sortKey="call" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="w-12 text-center" />
-            <SortableHeader label="End RFU" sortKey="endRfu" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="text-right w-20" />
+          <TableRow className="text-xs" style={{ backgroundColor: 'rgba(125, 33, 38, 0.05)' }}>
+            <SortableHeader label="Well" sortKey="well" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} width={colWidths.well} onResize={startResize('well')} />
+            <SortableHeader label="Sample" sortKey="sample" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} width={colWidths.sample} onResize={startResize('sample')} />
+            <SortableHeader label="Content" sortKey="content" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} width={colWidths.content} onResize={startResize('content')} />
+            <SortableHeader label={ttLabel} sortKey="tt" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="text-right" width={colWidths.tt} onResize={startResize('tt')} />
+            <SortableHeader label="Call" sortKey="call" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="text-center" width={colWidths.call} onResize={startResize('call')} />
+            <SortableHeader label="End RFU" sortKey="endRfu" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="text-right" />
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -206,12 +247,10 @@ export function ResultsTable() {
           ) : (
             rows.map((row, i) => {
               const isSelected = selectedWells.has(row.well);
-              const isPositive = row.call === 'positive';
-              const isInvalid = row.call === 'invalid';
               const cellBg = isSelected
                 ? SEL_BG
                 : i % 2 === 1
-                  ? '#f5f5f5'
+                  ? 'var(--muted)'
                   : undefined;
 
               return (
@@ -221,9 +260,9 @@ export function ResultsTable() {
                   onMouseDown={(e) => onRowMouseDown(e, row.well)}
                   onMouseEnter={() => onRowMouseEnter(row.well)}
                 >
-                  <TableCell className="py-0.5 font-medium" style={{ color: row.color, backgroundColor: cellBg, borderLeft: isSelected ? '2.5px solid #555' : undefined }}>{row.well}</TableCell>
-                  <TableCell className="py-0.5" style={{ backgroundColor: cellBg }}>{row.sample}</TableCell>
-                  <TableCell className="py-0.5" style={{ backgroundColor: cellBg }}>{row.displayType}</TableCell>
+                  <TableCell className="py-0.5 font-medium overflow-hidden text-ellipsis whitespace-nowrap" style={{ color: row.color, backgroundColor: cellBg, borderLeft: isSelected ? '2.5px solid #aa2026' : undefined }}>{row.well}</TableCell>
+                  <TableCell className="py-0.5 overflow-hidden text-ellipsis whitespace-nowrap" style={{ backgroundColor: cellBg }}>{row.sample}</TableCell>
+                  <TableCell className="py-0.5 overflow-hidden text-ellipsis whitespace-nowrap" style={{ backgroundColor: cellBg }}>{row.displayType}</TableCell>
                   <TableCell className="py-0.5 text-right" style={{ backgroundColor: cellBg }}>
                     {row.tt != null ? row.tt.toFixed(2) : '—'}
                   </TableCell>

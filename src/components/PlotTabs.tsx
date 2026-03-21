@@ -17,7 +17,7 @@ export function PlotTabs() {
           key={value}
           className={`px-4 py-1.5 text-sm font-medium border-b-2 transition-colors ${
             plotTab === value
-              ? 'border-primary text-foreground'
+              ? 'border-[var(--brand-red-mid)] text-[var(--brand-red-dark)]'
               : 'border-transparent text-muted-foreground hover:text-foreground'
           }`}
           onClick={() => setPlotTab(value)}

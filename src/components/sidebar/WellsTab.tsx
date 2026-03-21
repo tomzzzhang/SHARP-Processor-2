@@ -3,10 +3,10 @@ import { useAppState } from '@/hooks/useAppState';
 import { WellGrid } from '../WellGrid';
 import { WellList } from '../WellList';
 import { Button } from '@/components/ui/button';
+import { CollapsibleSection } from './CollapsibleSection';
 
 export function WellsTab() {
   const selectAll = useAppState((s) => s.selectAll);
-  const deselectAll = useAppState((s) => s.deselectAll);
   const selectByType = useAppState((s) => s.selectByType);
   const selectShown = useAppState((s) => s.selectShown);
   const selectHidden = useAppState((s) => s.selectHidden);
@@ -29,50 +29,52 @@ export function WellsTab() {
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full p-3 space-y-2">
       {/* Plate grid */}
-      <div className="p-3 pb-1">
-        <h3 className="text-xs font-semibold mb-1 text-muted-foreground uppercase tracking-wide">Plate</h3>
-        <WellGrid />
+      <div>
+        <h3 className="text-xs font-semibold mb-1 text-[var(--brand-red-dark)] uppercase tracking-wide">Plate</h3>
+        <div className="flex justify-center">
+          <WellGrid />
+        </div>
       </div>
 
       {/* Selection toolbar */}
-      <div className="px-3 py-1 space-y-1 border-b">
-        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Select</h3>
-        <div className="flex gap-1">
-          <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={selectAll}>All</Button>
-          <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => selectByType('Unkn')}>Samp</Button>
-          <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => selectByType('Neg Ctrl')}>NTC</Button>
-          <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => selectByType('Std')}>Std</Button>
+      <CollapsibleSection title="Select">
+        <div className="space-y-1">
+          <div className="flex gap-1">
+            <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={selectAll}>All</Button>
+            <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => selectByType('Unkn')}>Samp</Button>
+            <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => selectByType('Neg Ctrl')}>NTC</Button>
+            <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => selectByType('Std')}>Std</Button>
+          </div>
+          <div className="flex gap-1">
+            <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={selectShown}>Shown</Button>
+            <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={selectHidden}>Hidden</Button>
+            <select
+              value=""
+              onChange={(e) => {
+                if (e.target.value) handleSelectGroup(e.target.value);
+                e.target.value = '';
+              }}
+              disabled={groupNames.length === 0}
+              className="flex-1 h-7 text-xs border rounded-md px-1 bg-background text-foreground disabled:opacity-40"
+              title="Select all wells in a group"
+            >
+              <option value="" disabled>Group…</option>
+              {groupNames.map((g) => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+            </select>
+          </div>
         </div>
-        <div className="flex gap-1">
-          <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={selectShown}>Shown</Button>
-          <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={selectHidden}>Hidden</Button>
-          <select
-            value=""
-            onChange={(e) => {
-              if (e.target.value) handleSelectGroup(e.target.value);
-              e.target.value = '';
-            }}
-            disabled={groupNames.length === 0}
-            className="flex-1 h-7 text-xs border rounded-md px-1 bg-background text-foreground disabled:opacity-40"
-            title="Select all wells in a group"
-          >
-            <option value="" disabled>Group…</option>
-            {groupNames.map((g) => (
-              <option key={g} value={g}>{g}</option>
-            ))}
-          </select>
-        </div>
-      </div>
+      </CollapsibleSection>
 
       {/* Well list */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="px-3 py-1">
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Wells</h3>
+      <CollapsibleSection title="Wells">
+        <div className="-mx-3 -mb-3">
+          <WellList />
         </div>
-        <WellList />
-      </div>
+      </CollapsibleSection>
     </div>
   );
 }
