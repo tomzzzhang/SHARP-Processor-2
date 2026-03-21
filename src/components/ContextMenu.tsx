@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
-import { MAIN_PALETTE_NAMES, GRADIENT_PALETTE_NAMES, CONTENT_DISPLAY, getPaletteColors } from '@/lib/constants';
+import { MAIN_PALETTE_NAMES, GRADIENT_PALETTE_NAMES, getPaletteColors } from '@/lib/constants';
 import type { ContentType } from '@/types/experiment';
 
 interface ContextMenuProps {
@@ -104,17 +104,6 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
     top: pos.top,
     zIndex: 100,
   };
-
-  const item = (label: string, action: () => void, disabled = false) => (
-    <button
-      key={label}
-      className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-40 disabled:cursor-default"
-      disabled={disabled}
-      onClick={() => { action(); onClose(); }}
-    >
-      {label}
-    </button>
-  );
 
   // Plain item that clears any open submenu when hovered
   const itemWithHover = (label: string, action: () => void, disabled = false) => (

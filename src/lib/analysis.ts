@@ -402,7 +402,7 @@ export function analyzeDilutionSeries(
 
   // Sum of squares
   const meanY = sumY / n;
-  const meanX = sumX / n;
+  // const meanX = sumX / n;  // available if needed
   let ssTot = 0, ssRes = 0;
   for (let i = 0; i < n; i++) {
     const predicted = slope * allLog2[i] + intercept;
@@ -452,7 +452,7 @@ export function analyzeDilutionSeries(
 }
 
 /** Approximate t-critical value for two-tailed test at significance level alpha per tail */
-function tCriticalApprox(alpha: number, df: number): number {
+function tCriticalApprox(_alpha: number, df: number): number {
   // For large df, t → z. For small df, use a lookup with interpolation.
   if (df >= 120) return 1.96;
   // Common t-critical values at alpha=0.025 (95% CI)

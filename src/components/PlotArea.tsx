@@ -1,7 +1,7 @@
 import { Component, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Plotly from 'plotly.js-dist-min';
 import _createPlotlyComponent from 'react-plotly.js/factory';
-import { useAppState, type PlotTab } from '@/hooks/useAppState';
+import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { analyzeDilutionSeries, savitzkyGolaySmooth } from '@/lib/analysis';
 import { THRESHOLD_LINE_COLOR, getPaletteColors } from '@/lib/constants';
@@ -43,10 +43,6 @@ function usePlotTheme() {
   return { plotBg: bg, isDark };
 }
 
-/** Convenience wrapper — returns just the bg color string */
-function usePlotBg(): string {
-  return usePlotTheme().plotBg;
-}
 
 class PlotErrorBoundary extends Component<
   { children: ReactNode },
@@ -200,7 +196,7 @@ function getWellLineStyle(well: string, overrides: Map<string, unknown>) {
  * - paletteReversed flips the color assignment order.
  */
 function useGroupedColors(
-  wellsUsed: string[],
+  _wellsUsed: string[],
   visibleWells: string[],
   paletteName: string,
   wellGroups: Map<string, string>,
@@ -280,7 +276,7 @@ const PLOT_CONFIG: Partial<Plotly.Config> = {
   responsive: true,
   displayModeBar: true,
   scrollZoom: true,
-  modeBarButtonsToRemove: ['zoom2d', 'pan2d', 'autoScale2d'] as string[],
+  modeBarButtonsToRemove: ['zoom2d', 'pan2d', 'autoScale2d'] as Plotly.ModeBarDefaultButtons[],
   editable: false,
 };
 
@@ -970,7 +966,7 @@ function DilutionPlot() {
       textposition: 'top center' as const,
       textfont: { size: 8, family: style.fontFamily },
       type: 'scatter' as const,
-      mode: 'markers+text' as const,
+      mode: 'text+markers' as const,
       marker: { color: '#4e79a7', size: 9 },
       hovertext: gs.map((g) => `${formatConc(g.concentration)}${unit ? ' ' + unit : ''}\nMean ${xLabel}: ${g.meanTt.toFixed(2)}\n±SEM: ${g.semTt.toFixed(3)}\nn=${g.n}`),
       hoverinfo: 'text' as const,
@@ -1151,7 +1147,7 @@ function PerWellDoublingPlot() {
 
   const traces = useMemo((): Data[] => {
     if (data.wells.length === 0) return [];
-    return [{ x: data.tts, y: data.dts, type: 'scatter' as const, mode: 'markers+text' as const,
+    return [{ x: data.tts, y: data.dts, type: 'scatter' as const, mode: 'text+markers' as const,
       text: data.wells, textposition: 'top center' as const,
       textfont: { size: 9, family: style.fontFamily },
       marker: { color: data.colors, size: 8 }, hoverinfo: 'text' as const, showlegend: false }];

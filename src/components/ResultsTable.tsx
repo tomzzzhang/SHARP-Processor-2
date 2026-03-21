@@ -209,7 +209,7 @@ export function ResultsTable() {
         tt: analysis?.tt ?? null,
         dt: analysis?.dt ?? null,
         call: analysis?.call ?? 'unset',
-        endRfu: analysis?.endRfu ?? info?.endRfu,
+        endRfu: analysis?.endRfu ?? info?.endRfu ?? undefined,
         color: colorMap.get(well) ?? '#999',
       });
     }
@@ -247,8 +247,6 @@ export function ResultsTable() {
           ) : (
             rows.map((row, i) => {
               const isSelected = selectedWells.has(row.well);
-              const isPositive = row.call === 'positive';
-              const isInvalid = row.call === 'invalid';
               const cellBg = isSelected
                 ? SEL_BG
                 : i % 2 === 1

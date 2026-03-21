@@ -10,7 +10,7 @@ import { getRecentFiles, addRecentFile } from '@/lib/recent-files';
 import { getTheme, setTheme, type AppTheme } from '@/lib/theme';
 
 interface MenuItem {
-  label: string;
+  label?: string;
   shortcut?: string;
   action?: () => void;
   separator?: boolean;
@@ -80,7 +80,7 @@ function MenuDropdown({ menu, isOpen, onOpen, onClose }: {
 
 export function MenuBar({ onOpenWizard }: { onOpenWizard?: () => void } = {}) {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
-  const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const [_saveStatus, setSaveStatus] = useState<string | null>(null);
   const [currentTheme, setCurrentTheme] = useState<AppTheme>(getTheme());
 
   const handleTheme = useCallback((theme: AppTheme) => {
