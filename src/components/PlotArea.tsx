@@ -271,13 +271,86 @@ function useGroupedColors(
   }, [visibleWells, paletteName, wellGroups, wellStyleOverrides, analysisResults, paletteReversed, groupColors]);
 }
 
-// Plot config: disable zoom drag, enable box select
+// ── Middle-mouse-button pan hook ─────────────────────────────────────
+function useMiddleMousePan(containerRef: React.RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    let panning = false;
+    let startX = 0, startY = 0;
+    let startXRange: [number, number] | null = null;
+    let startYRange: [number, number] | null = null;
+
+    const getPlotDiv = () => el.querySelector('.js-plotly-plot') as (HTMLElement & { layout?: Record<string, unknown>; _fullLayout?: Record<string, unknown> }) | null;
+
+    const onDown = (e: MouseEvent) => {
+      if (e.button !== 1) return; // MMB only
+      const gd = getPlotDiv();
+      if (!gd?._fullLayout) return;
+      e.preventDefault();
+      panning = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      const fl = gd._fullLayout as Record<string, { range?: [number, number] }>;
+      startXRange = fl.xaxis?.range ? [...fl.xaxis.range] as [number, number] : null;
+      startYRange = fl.yaxis?.range ? [...fl.yaxis.range] as [number, number] : null;
+      document.body.style.cursor = 'grabbing';
+    };
+
+    const onMove = (e: MouseEvent) => {
+      if (!panning || !startXRange || !startYRange) return;
+      const gd = getPlotDiv();
+      if (!gd?._fullLayout) return;
+      const fl = gd._fullLayout as Record<string, { _length?: number }>;
+      const plotWidth = fl.xaxis?._length || 1;
+      const plotHeight = fl.yaxis?._length || 1;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      const xSpan = startXRange[1] - startXRange[0];
+      const ySpan = startYRange[1] - startYRange[0];
+      const xShift = -(dx / plotWidth) * xSpan;
+      const yShift = (dy / plotHeight) * ySpan;
+      Plotly.relayout(gd as unknown as Plotly.Root, {
+        'xaxis.range[0]': startXRange[0] + xShift,
+        'xaxis.range[1]': startXRange[1] + xShift,
+        'yaxis.range[0]': startYRange[0] + yShift,
+        'yaxis.range[1]': startYRange[1] + yShift,
+      });
+    };
+
+    const onUp = (e: MouseEvent) => {
+      if (e.button !== 1) return;
+      panning = false;
+      document.body.style.cursor = '';
+    };
+
+    el.addEventListener('mousedown', onDown);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    // Prevent default MMB scroll/auto-scroll
+    const preventDefault = (e: MouseEvent) => { if (e.button === 1) e.preventDefault(); };
+    el.addEventListener('auxclick', preventDefault);
+
+    return () => {
+      el.removeEventListener('mousedown', onDown);
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      el.removeEventListener('auxclick', preventDefault);
+    };
+  }, [containerRef]);
+}
+
+// Plot config: scroll zoom + reset button only, hide other controls
 const PLOT_CONFIG: Partial<Plotly.Config> = {
   responsive: true,
   displayModeBar: true,
   scrollZoom: true,
-  modeBarButtonsToRemove: ['zoom2d', 'pan2d', 'autoScale2d'] as Plotly.ModeBarDefaultButtons[],
   editable: false,
+  modeBarButtonsToRemove: [
+    'zoom2d', 'pan2d', 'select2d', 'lasso2d',
+    'zoomIn2d', 'zoomOut2d', 'autoScale2d',
+    'toImage',
+  ] as Plotly.ModeBarDefaultButtons[],
 };
 
 // ── Amplification Plot ───────────────────────────────────────────────
@@ -520,6 +593,8 @@ function AmplificationPlot() {
 
   const handleUnhover = useCallback(() => setHoveredWell(null), [setHoveredWell]);
 
+  useMiddleMousePan(plotContainerRef);
+
   return (
     <div ref={plotContainerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
       <Plot
@@ -689,6 +764,8 @@ function MeltDerivMini() {
   }, [visibleWells, setHoveredWell]);
 
   const handleUnhover = useCallback(() => setHoveredWell(null), [setHoveredWell]);
+
+  useMiddleMousePan(containerRef);
 
   if (!hasDerivative) return null;
 
@@ -895,6 +972,8 @@ function MeltPlot() {
 
   const handleUnhover = useCallback(() => setHoveredWell(null), [setHoveredWell]);
 
+  useMiddleMousePan(containerRef);
+
   if (!melt) {
     return <div className="flex items-center justify-center h-full text-muted-foreground text-sm">No melt data available</div>;
   }
@@ -925,6 +1004,8 @@ function formatConc(value: number): string {
 
 /** Dilution standard curve plot (Tt vs log₂(C) with error bars + fit line) */
 function DilutionPlot() {
+  const dilutionRef = useRef<HTMLDivElement>(null);
+  useMiddleMousePan(dilutionRef);
   const { plotBg, isDark } = usePlotTheme();
   const dilutionConfig = useAppState((s) => s.dilutionConfig);
   const setDilutionStepEnabled = useAppState((s) => s.setDilutionStepEnabled);
@@ -1024,11 +1105,11 @@ function DilutionPlot() {
   const xUnit = X_AXIS_LABELS[xAxisMode];
 
   return (
-    <div className="flex flex-col h-full">
+    <div ref={dilutionRef} className="flex flex-col h-full">
       <div className="flex-1 min-h-0">
         <Plot data={traces} layout={layout}
           useResizeHandler style={{ width: '100%', height: '100%' }}
-          config={{ responsive: true, displayModeBar: true, scrollZoom: true }} />
+          config={PLOT_CONFIG} />
       </div>
 
       {/* Stats summary panel */}
@@ -1104,6 +1185,8 @@ function DilutionPlot() {
 
 /** Per-well Tt vs Dt scatter (fallback when no dilution config) */
 function PerWellDoublingPlot() {
+  const doublingRef = useRef<HTMLDivElement>(null);
+  useMiddleMousePan(doublingRef);
   const { plotBg, isDark } = usePlotTheme();
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
@@ -1172,9 +1255,11 @@ function PerWellDoublingPlot() {
   }
 
   return (
-    <Plot data={traces} layout={layout}
-      useResizeHandler style={{ width: '100%', height: '100%' }}
-      config={{ responsive: true, displayModeBar: true, scrollZoom: true }} />
+    <div ref={doublingRef} style={{ width: '100%', height: '100%' }}>
+      <Plot data={traces} layout={layout}
+        useResizeHandler style={{ width: '100%', height: '100%' }}
+        config={PLOT_CONFIG} />
+    </div>
   );
 }
 

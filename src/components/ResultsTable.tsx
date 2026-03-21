@@ -115,6 +115,8 @@ export function ResultsTable() {
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   // Column resize state
+  const COL_ORDER: SortKey[] = ['well', 'sample', 'content', 'tt', 'call', 'endRfu'];
+  const MIN_COL_WIDTH = 32;
   const DEFAULT_WIDTHS: Record<SortKey, number> = { well: 56, sample: 120, content: 64, tt: 56, call: 48, endRfu: 80 };
   const [colWidths, setColWidths] = useState<Record<SortKey, number>>(DEFAULT_WIDTHS);
   const resizingCol = useRef<SortKey | null>(null);
@@ -122,14 +124,30 @@ export function ResultsTable() {
   const resizeStartW = useRef(0);
 
   const startResize = useCallback((col: SortKey) => (startX: number) => {
+    const colIdx = COL_ORDER.indexOf(col);
+    const nextCol = colIdx < COL_ORDER.length - 1 ? COL_ORDER[colIdx + 1] : null;
     resizingCol.current = col;
     resizeStartX.current = startX;
     resizeStartW.current = colWidths[col];
+    const nextStartW = nextCol ? colWidths[nextCol] : 0;
+
     const onMove = (e: MouseEvent) => {
       if (!resizingCol.current) return;
-      const delta = e.clientX - resizeStartX.current;
-      const newW = Math.max(32, resizeStartW.current + delta);
-      setColWidths((prev) => ({ ...prev, [resizingCol.current!]: newW }));
+      let delta = e.clientX - resizeStartX.current;
+      // Clamp: current col can't go below MIN_COL_WIDTH
+      delta = Math.max(delta, MIN_COL_WIDTH - resizeStartW.current);
+      // Clamp: next col can't go below MIN_COL_WIDTH
+      if (nextCol) {
+        delta = Math.min(delta, nextStartW - MIN_COL_WIDTH);
+      } else {
+        // Last resizable col: don't grow beyond current width
+        delta = Math.min(delta, 0);
+      }
+      setColWidths((prev) => {
+        const updated = { ...prev, [resizingCol.current!]: resizeStartW.current + delta };
+        if (nextCol) updated[nextCol] = nextStartW - delta;
+        return updated;
+      });
     };
     const onUp = () => {
       resizingCol.current = null;
@@ -228,7 +246,7 @@ export function ResultsTable() {
     <div className="p-2">
       <Table style={{ tableLayout: 'fixed' }}>
         <TableHeader>
-          <TableRow className="text-xs" style={{ backgroundColor: 'rgba(125, 33, 38, 0.05)' }}>
+          <TableRow className="text-xs" style={{ backgroundColor: 'color-mix(in srgb, var(--brand-red-mid) 5%, transparent)' }}>
             <SortableHeader label="Well" sortKey="well" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} width={colWidths.well} onResize={startResize('well')} />
             <SortableHeader label="Sample" sortKey="sample" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} width={colWidths.sample} onResize={startResize('sample')} />
             <SortableHeader label="Content" sortKey="content" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} width={colWidths.content} onResize={startResize('content')} />
@@ -260,7 +278,7 @@ export function ResultsTable() {
                   onMouseDown={(e) => onRowMouseDown(e, row.well)}
                   onMouseEnter={() => onRowMouseEnter(row.well)}
                 >
-                  <TableCell className="py-0.5 font-medium overflow-hidden text-ellipsis whitespace-nowrap" style={{ color: row.color, backgroundColor: cellBg, borderLeft: isSelected ? '2.5px solid #aa2026' : undefined }}>{row.well}</TableCell>
+                  <TableCell className="py-0.5 font-medium overflow-hidden text-ellipsis whitespace-nowrap" style={{ color: row.color, backgroundColor: cellBg, borderLeft: isSelected ? '2.5px solid var(--brand-red-mid)' : undefined }}>{row.well}</TableCell>
                   <TableCell className="py-0.5 overflow-hidden text-ellipsis whitespace-nowrap" style={{ backgroundColor: cellBg }}>{row.sample}</TableCell>
                   <TableCell className="py-0.5 overflow-hidden text-ellipsis whitespace-nowrap" style={{ backgroundColor: cellBg }}>{row.displayType}</TableCell>
                   <TableCell className="py-0.5 text-right" style={{ backgroundColor: cellBg }}>
