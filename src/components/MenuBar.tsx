@@ -7,6 +7,7 @@ import { loadSharpFile } from '@/lib/sharp-loader';
 import { isInstrumentFile, isSupportedFile, loadInstrumentFile } from '@/lib/instrument-loader';
 import { exportPlotImage, exportDataCsv, exportResultsCsv, exportMeltCsv, exportAsSharp, saveSession } from '@/lib/export';
 import { getRecentFiles, addRecentFile } from '@/lib/recent-files';
+import { getTheme, setTheme, type AppTheme } from '@/lib/theme';
 
 interface MenuItem {
   label: string;
@@ -80,6 +81,12 @@ function MenuDropdown({ menu, isOpen, onOpen, onClose }: {
 export function MenuBar({ onOpenWizard }: { onOpenWizard?: () => void } = {}) {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const [currentTheme, setCurrentTheme] = useState<AppTheme>(getTheme());
+
+  const handleTheme = useCallback((theme: AppTheme) => {
+    setTheme(theme);
+    setCurrentTheme(theme);
+  }, []);
   const loadExperiment = useAppState((s) => s.loadExperiment);
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
@@ -237,6 +244,10 @@ export function MenuBar({ onOpenWizard }: { onOpenWizard?: () => void } = {}) {
         { label: 'Hide All Wells', action: () => hideWells(allWells), disabled: !hasData },
         { separator: true },
         { label: `${showLegend ? '✓ ' : ''}Show Legend`, action: () => setShowLegend(!showLegend) },
+        { separator: true },
+        { label: `${currentTheme === 'classic' ? '● ' : '○ '}Classic`, action: () => handleTheme('classic') },
+        { label: `${currentTheme === 'sharp' ? '● ' : '○ '}SHARP`, action: () => handleTheme('sharp') },
+        { label: `${currentTheme === 'sharp-dark' ? '● ' : '○ '}SHARP Dark`, action: () => handleTheme('sharp-dark') },
       ],
     },
     {
@@ -258,6 +269,14 @@ export function MenuBar({ onOpenWizard }: { onOpenWizard?: () => void } = {}) {
         { label: 'Results Table (CSV)', action: () => exp && exportResultsCsv(exp, analysisResults, visibleWells, xAxisMode), disabled: !hasData },
         { separator: true },
         { label: 'Save as .sharp', action: () => exp && exportAsSharp(exp), disabled: !hasData },
+      ],
+    },
+    {
+      label: 'Help',
+      items: [
+        { label: 'User Manual...', action: () => { /* TODO: open help page */ } },
+        { separator: true },
+        { label: 'About SHARP Processor 2', action: () => { /* TODO: about dialog */ } },
       ],
     },
   ];

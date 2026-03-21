@@ -18,6 +18,36 @@ const createPlotlyComponent =
 
 const Plot = createPlotlyComponent(Plotly);
 
+/** Read the current theme background color for Plotly charts */
+/** Reactive theme info for Plotly charts — bg color + dark mode detection */
+function usePlotTheme() {
+  const [bg, setBg] = useState('white');
+  const [isDark, setIsDark] = useState(false);
+  useEffect(() => {
+    const update = () => {
+      setIsDark(document.documentElement.classList.contains('dark'));
+      const raw = getComputedStyle(document.documentElement).getPropertyValue('--background').trim();
+      if (!raw) { setBg('white'); return; }
+      const el = document.createElement('div');
+      el.style.color = raw;
+      document.body.appendChild(el);
+      const computed = getComputedStyle(el).color;
+      document.body.removeChild(el);
+      setBg(computed || 'white');
+    };
+    update();
+    const observer = new MutationObserver(update);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
+  return { plotBg: bg, isDark };
+}
+
+/** Convenience wrapper — returns just the bg color string */
+function usePlotBg(): string {
+  return usePlotTheme().plotBg;
+}
+
 class PlotErrorBoundary extends Component<
   { children: ReactNode },
   { error: string | null }
@@ -126,7 +156,7 @@ function usePlotStyle() {
   };
 }
 
-function legendLayout(style: ReturnType<typeof usePlotStyle>, showForPlot?: boolean, traces?: Data[]) {
+function legendLayout(style: ReturnType<typeof usePlotStyle>, showForPlot?: boolean, traces?: Data[], isDark = false) {
   const show = showForPlot ?? true;
   let pos: { x: number; y: number; xanchor: string; yanchor: string };
   if (style.legendPosition === 'best' && traces && traces.length > 0) {
@@ -141,13 +171,19 @@ function legendLayout(style: ReturnType<typeof usePlotStyle>, showForPlot?: bool
       x: pos.x, y: pos.y,
       xanchor: pos.xanchor as 'left' | 'right' | 'center',
       yanchor: pos.yanchor as 'top' | 'bottom' | 'middle',
-      bgcolor: 'rgba(255,255,255,0.8)',
+      bgcolor: isDark ? 'rgba(30,30,30,0.85)' : 'rgba(255,255,255,0.8)',
     },
   };
 }
 
-function gridStyle(style: ReturnType<typeof usePlotStyle>) {
-  return { showgrid: style.showGrid, gridcolor: `rgba(0,0,0,${style.gridAlpha})` };
+function gridStyle(style: ReturnType<typeof usePlotStyle>, isDark = false) {
+  const base = isDark ? '255,255,255' : '0,0,0';
+  return { showgrid: style.showGrid, gridcolor: `rgba(${base},${style.gridAlpha})` };
+}
+
+/** Global Plotly font color for dark/light mode */
+function plotFontColor(isDark: boolean) {
+  return isDark ? 'rgba(255,255,255,0.87)' : '#212224';
 }
 
 function getWellLineStyle(well: string, overrides: Map<string, unknown>) {
@@ -251,6 +287,7 @@ const PLOT_CONFIG: Partial<Plotly.Config> = {
 // ── Amplification Plot ───────────────────────────────────────────────
 
 function AmplificationPlot() {
+  const { plotBg, isDark } = usePlotTheme();
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
   const xAxisMode = useAppState((s) => s.xAxisMode);
@@ -374,7 +411,7 @@ function AmplificationPlot() {
         type: 'rect',
         x0: baselineZoneBounds.x0, x1: baselineZoneBounds.x1, xref: 'x',
         y0: 0, y1: 1, yref: 'paper',
-        fillcolor: 'rgba(26, 115, 232, 0.06)',
+        fillcolor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
         line: { width: 0 },
         layer: 'below',
       });
@@ -393,20 +430,20 @@ function AmplificationPlot() {
       xaxis: {
         title: { text: X_AXIS_LABELS[xAxisMode], font: { family: style.fontFamily, size: style.labelSize } },
         tickfont: { family: style.fontFamily, size: style.tickSize },
-        ...gridStyle(style),
+        ...gridStyle(style, isDark),
       },
       yaxis: {
         title: { text: baselineEnabled ? 'RFU (corrected)' : 'RFU', font: { family: style.fontFamily, size: style.labelSize } },
         type: logScale ? 'log' : 'linear',
         tickfont: { family: style.fontFamily, size: style.tickSize },
-        ...gridStyle(style),
+        ...gridStyle(style, isDark),
       },
       shapes,
       dragmode: false as Layout['dragmode'],
       autosize: true,
       margin: { l: 70, r: 20, t: 50, b: 50 },
-      plot_bgcolor: 'white', paper_bgcolor: 'white',
-      ...legendLayout(style, showLegendAmp, traces),
+      plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) },
+      ...legendLayout(style, showLegendAmp, traces, isDark),
       datarevision: Date.now(),
     };
   }, [exp, xAxisMode, logScale, thresholdEnabled, thresholdRfu, style, baselineEnabled, baselineZoneBounds, showLegendAmp, traces]);
@@ -505,6 +542,7 @@ function AmplificationPlot() {
 // ── Melt Derivative Mini-Plot (shown below amp plot) ─────────────────
 
 function MeltDerivMini() {
+  const { plotBg, isDark } = usePlotTheme();
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
   const selectedWells = useAppState((s) => s.selectedWells);
@@ -577,17 +615,17 @@ function MeltDerivMini() {
       xaxis: {
         title: { text: 'Temperature (°C)', font: { family: style.fontFamily, size: 9 } },
         tickfont: { family: style.fontFamily, size: 8 },
-        ...gridStyle(style),
+        ...gridStyle(style, isDark),
       },
       yaxis: {
         title: { text: '-dF/dT', font: { family: style.fontFamily, size: 9 } },
         tickfont: { family: style.fontFamily, size: 8 },
-        ...gridStyle(style),
+        ...gridStyle(style, isDark),
       },
       dragmode: false as Layout['dragmode'],
       autosize: true,
       margin: { l: 60, r: 10, t: 10, b: 35 },
-      plot_bgcolor: 'white', paper_bgcolor: 'white',
+      plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) },
       showlegend: false,
       datarevision: Date.now(),
     };
@@ -676,6 +714,7 @@ function MeltDerivMini() {
 // ── Melt Plot (stacked subplots — full tab) ──────────────────────────
 
 function MeltPlot() {
+  const { plotBg, isDark } = usePlotTheme();
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
   const selectedWells = useAppState((s) => s.selectedWells);
@@ -771,7 +810,7 @@ function MeltPlot() {
 
   const layout = useMemo((): Partial<Layout> => {
     const title = exp?.experimentId ? `${exp.experimentId} — Melt` : 'Melt Curve';
-    const grid = gridStyle(style);
+    const grid = gridStyle(style, isDark);
     if (hasDerivative) {
       return {
         title: { text: title, font: { family: style.fontFamily, size: style.titleSize } },
@@ -779,7 +818,7 @@ function MeltPlot() {
         yaxis: { title: { text: 'RFU', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, domain: [0.55, 1], ...grid },
         yaxis2: { title: { text: '-dF/dT', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, domain: [0, 0.45], anchor: 'x', ...grid },
         dragmode: false as Layout['dragmode'], autosize: true, margin: { l: 70, r: 20, t: 50, b: 50 },
-        plot_bgcolor: 'white', paper_bgcolor: 'white', ...legendLayout(style, showLegendMelt, traces),
+        plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) }, ...legendLayout(style, showLegendMelt, traces, isDark),
         datarevision: Date.now(),
       };
     }
@@ -788,7 +827,7 @@ function MeltPlot() {
       xaxis: { title: { text: 'Temperature (°C)', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, ...grid },
       yaxis: { title: { text: 'RFU', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, ...grid },
       dragmode: false as Layout['dragmode'], autosize: true, margin: { l: 70, r: 20, t: 50, b: 50 },
-      plot_bgcolor: 'white', paper_bgcolor: 'white', ...legendLayout(style, showLegendMelt, traces),
+      plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) }, ...legendLayout(style, showLegendMelt, traces, isDark),
       datarevision: Date.now(),
     };
   }, [exp, style, hasDerivative, traces, showLegendMelt]);
@@ -890,6 +929,7 @@ function formatConc(value: number): string {
 
 /** Dilution standard curve plot (Tt vs log₂(C) with error bars + fit line) */
 function DilutionPlot() {
+  const { plotBg, isDark } = usePlotTheme();
   const dilutionConfig = useAppState((s) => s.dilutionConfig);
   const setDilutionStepEnabled = useAppState((s) => s.setDilutionStepEnabled);
   const experiments = useAppState((s) => s.experiments);
@@ -958,14 +998,14 @@ function DilutionPlot() {
       title: { text: title, font: { family: style.fontFamily, size: style.titleSize } },
       xaxis: {
         title: { text: `log₂(Concentration${unit ? ', ' + unit : ''})`, font: { family: style.fontFamily, size: style.labelSize } },
-        tickfont: { family: style.fontFamily, size: style.tickSize }, ...gridStyle(style),
+        tickfont: { family: style.fontFamily, size: style.tickSize }, ...gridStyle(style, isDark),
       },
       yaxis: {
         title: { text: `${xLabel} (${X_AXIS_LABELS[xAxisMode]})`, font: { family: style.fontFamily, size: style.labelSize } },
-        tickfont: { family: style.fontFamily, size: style.tickSize }, ...gridStyle(style),
+        tickfont: { family: style.fontFamily, size: style.tickSize }, ...gridStyle(style, isDark),
       },
       autosize: true, margin: { l: 70, r: 20, t: 50, b: 50 },
-      plot_bgcolor: 'white', paper_bgcolor: 'white',
+      plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) },
       datarevision: Date.now(),
     };
   }, [exp, xAxisMode, xLabel, style, unit]);
@@ -996,46 +1036,31 @@ function DilutionPlot() {
       </div>
 
       {/* Stats summary panel */}
-      <div className="shrink-0 border-t bg-muted/30 px-4 py-2">
-        <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
-          <div className="text-sm font-semibold">
-            Doubling Time: <span className="text-primary font-bold text-base">{result.doublingTime.toFixed(3)}</span>
-            <button
-              onClick={() => useAppState.getState().setShowDilutionWizard(true)}
-              className="ml-3 px-2 py-0.5 text-[10px] border rounded hover:bg-accent text-muted-foreground"
-            >
-              Edit Steps
-            </button>
-            <span className="text-muted-foreground font-normal text-xs ml-1">
-              ± {result.doublingTimeSE.toFixed(3)} {xUnit}
-            </span>
-          </div>
-          <div className="text-xs text-muted-foreground">
+      <div className="shrink-0 border-t bg-muted/30 px-4 py-2 text-xs">
+        <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
+          <span className="font-semibold text-[var(--brand-red-dark)]">
+            Doubling Time: {result.doublingTime.toFixed(3)}
+          </span>
+          <button
+            onClick={() => useAppState.getState().setShowDilutionWizard(true)}
+            className="px-2 py-0.5 text-[10px] border rounded hover:bg-accent text-muted-foreground"
+          >
+            Edit Steps
+          </button>
+          <span className="text-muted-foreground">
+            ± {result.doublingTimeSE.toFixed(3)} {xUnit}
+          </span>
+          <span className="text-muted-foreground">
             95% CI: [{result.doublingTime95CI[0].toFixed(3)}, {result.doublingTime95CI[1].toFixed(3)}]
-          </div>
-          <div className="text-xs">
-            <span className="text-muted-foreground">R² = </span>
-            <span className="font-mono">{result.rSquared.toFixed(4)}</span>
-          </div>
-          <div className="text-xs">
-            <span className="text-muted-foreground">Adj. R² = </span>
-            <span className="font-mono">{result.adjRSquared.toFixed(4)}</span>
-          </div>
-          <div className="text-xs">
-            <span className="text-muted-foreground">Slope = </span>
-            <span className="font-mono">{result.slope.toFixed(4)} ± {result.slopeSE.toFixed(4)}</span>
-          </div>
-          <div className="text-xs">
-            <span className="text-muted-foreground">F = </span>
-            <span className="font-mono">{result.fStatistic.toFixed(2)}</span>
-            <span className="text-muted-foreground ml-1">p = </span>
-            <span className={`font-mono ${result.pValue < 0.05 ? 'text-green-600 font-medium' : 'text-amber-600'}`}>
-              {formatP(result.pValue)}
-            </span>
-          </div>
-          <div className="text-xs text-muted-foreground">
-            n = {result.nTotal} ({result.nSteps} steps)
-          </div>
+          </span>
+        </div>
+        <div className="flex flex-wrap items-baseline gap-x-5 gap-y-0.5 mt-1 text-muted-foreground">
+          <span>R² = <span className="text-foreground">{result.rSquared.toFixed(4)}</span></span>
+          <span>Adj. R² = <span className="text-foreground">{result.adjRSquared.toFixed(4)}</span></span>
+          <span>Slope = <span className="text-foreground">{result.slope.toFixed(4)} ± {result.slopeSE.toFixed(4)}</span></span>
+          <span>F = <span className="text-foreground">{result.fStatistic.toFixed(2)}</span></span>
+          <span>p = <span className="text-foreground">{formatP(result.pValue)}</span></span>
+          <span>n = {result.nTotal} ({result.nSteps} steps)</span>
         </div>
       </div>
 
@@ -1083,6 +1108,7 @@ function DilutionPlot() {
 
 /** Per-well Tt vs Dt scatter (fallback when no dilution config) */
 function PerWellDoublingPlot() {
+  const { plotBg, isDark } = usePlotTheme();
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
   const hiddenWells = useAppState((s) => s.hiddenWells);
@@ -1135,10 +1161,10 @@ function PerWellDoublingPlot() {
     const title = exp?.experimentId ? `${exp.experimentId} — Doubling Time` : 'Doubling Time';
     return {
       title: { text: title, font: { family: style.fontFamily, size: style.titleSize } },
-      xaxis: { title: { text: `${xLabel} (${X_AXIS_LABELS[xAxisMode]})`, font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, ...gridStyle(style) },
-      yaxis: { title: { text: 'Doubling Time', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, ...gridStyle(style) },
+      xaxis: { title: { text: `${xLabel} (${X_AXIS_LABELS[xAxisMode]})`, font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, ...gridStyle(style, isDark) },
+      yaxis: { title: { text: 'Doubling Time', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, ...gridStyle(style, isDark) },
       autosize: true, margin: { l: 70, r: 20, t: 50, b: 50 },
-      plot_bgcolor: 'white', paper_bgcolor: 'white', ...legendLayout(style, showLegendDoubling, traces),
+      plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) }, ...legendLayout(style, showLegendDoubling, traces, isDark),
       datarevision: Date.now(),
     };
   }, [exp, xAxisMode, xLabel, style, traces, showLegendDoubling]);
@@ -1195,8 +1221,8 @@ function DragDivider({ onDrag }: { onDrag: (deltaY: number) => void }) {
   return (
     <div
       ref={divRef}
-      className="flex-shrink-0 flex items-center justify-center cursor-row-resize hover:bg-blue-100 active:bg-blue-200 transition-colors"
-      style={{ height: 7, borderTop: '1px solid #d0d0d0', borderBottom: '1px solid #d0d0d0' }}
+      className="flex-shrink-0 flex items-center justify-center cursor-row-resize hover:bg-accent active:bg-border transition-colors"
+      style={{ height: 7, borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}
       onMouseDown={(e) => {
         e.preventDefault();
         dragging.current = true;
@@ -1207,9 +1233,9 @@ function DragDivider({ onDrag }: { onDrag: (deltaY: number) => void }) {
     >
       {/* Three dots handle */}
       <div className="flex gap-1">
-        <div className="w-1 h-1 rounded-full bg-gray-400" />
-        <div className="w-1 h-1 rounded-full bg-gray-400" />
-        <div className="w-1 h-1 rounded-full bg-gray-400" />
+        <div className="w-1 h-1 rounded-full bg-muted-foreground/40" />
+        <div className="w-1 h-1 rounded-full bg-muted-foreground/40" />
+        <div className="w-1 h-1 rounded-full bg-muted-foreground/40" />
       </div>
     </div>
   );
@@ -1221,14 +1247,15 @@ function WelcomeScreen() {
   return (
     <div className="flex-1 flex items-center justify-center p-8 text-sm text-muted-foreground select-none">
       <div className="max-w-md space-y-6">
-        <div className="text-center space-y-1">
-          <h2 className="text-lg font-semibold text-foreground">SHARP Processor 2</h2>
+        <div className="text-center space-y-4">
+          <img src="/sharp-logo.png" alt="SHARP" className="w-16 h-16 mx-auto rounded-tl-lg rounded-br-lg" />
+          <h2 className="text-lg font-semibold text-[var(--brand-red-dark)]">SHARP Processor 2</h2>
           <p>Open an experiment file to get started.</p>
           <p className="text-xs">Use <kbd className="px-1 py-0.5 rounded bg-muted text-foreground font-mono text-[10px]">Ctrl+O</kbd> or drag a file onto this window.</p>
         </div>
 
         <div className="space-y-2">
-          <h3 className="text-xs font-semibold text-foreground uppercase tracking-wide">Supported Formats</h3>
+          <h3 className="text-xs font-semibold text-[var(--brand-red-dark)] uppercase tracking-wide">Supported Formats</h3>
           <table className="w-full text-xs border-collapse">
             <thead>
               <tr className="border-b">
@@ -1248,12 +1275,12 @@ function WelcomeScreen() {
 
         <div className="flex items-center gap-2 p-2 rounded bg-muted/50 text-xs">
           <span className="text-foreground font-medium shrink-0">Tip:</span>
-          <span>Click the <strong className="text-foreground">MENU</strong> button on the right edge for quick actions like grouping, coloring, and per-well style overrides.</span>
+          <span>Click the <strong className="text-[var(--brand-red-dark)]">MENU</strong> button on the right edge for quick actions like grouping, coloring, and per-well style overrides.</span>
           <span className="text-lg ml-auto">&#8594;</span>
         </div>
 
         <div className="space-y-2">
-          <h3 className="text-xs font-semibold text-foreground uppercase tracking-wide">Export Options</h3>
+          <h3 className="text-xs font-semibold text-[var(--brand-red-dark)] uppercase tracking-wide">Export Options</h3>
           <ul className="text-xs space-y-0.5 list-disc list-inside">
             <li>Plot images (PNG, SVG, JPEG)</li>
             <li>Amplification &amp; melt data as CSV</li>

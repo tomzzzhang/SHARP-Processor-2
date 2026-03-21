@@ -23,6 +23,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const showWizard = useAppState((s) => s.showDilutionWizard);
   const setShowWizard = useAppState((s) => s.setShowDilutionWizard);
+  const plotTab = useAppState((s) => s.plotTab);
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const [tableHeight, setTableHeight] = useState(160);
   const sidebarDragging = useRef(false);
@@ -37,7 +38,7 @@ function App() {
       if (sidebarDragging.current) {
         e.preventDefault();
         const delta = e.clientX - sidebarDragStartX.current;
-        setSidebarWidth(Math.max(200, Math.min(450, sidebarDragStartW.current + delta)));
+        setSidebarWidth(Math.max(300, Math.min(450, sidebarDragStartW.current + delta)));
       }
       if (tableDragging.current) {
         e.preventDefault();
@@ -116,7 +117,7 @@ function App() {
   const removeExperiment = useAppState((s) => s.removeExperiment);
 
   return (
-    <div className="flex flex-col h-screen select-none">
+    <div className="flex flex-col h-screen select-none border-b border-border">
       {/* Menu bar */}
       <MenuBar onOpenWizard={() => setShowWizard(true)} />
 
@@ -173,14 +174,14 @@ function App() {
       )}
 
       {/* Sidebar */}
-      <div className="flex-shrink-0 overflow-hidden" style={{ width: sidebarWidth }}>
+      <div className="flex-shrink-0 overflow-hidden shadow-[1px_0_3px_rgba(0,0,0,0.04)]" style={{ width: sidebarWidth, minWidth: 300 }}>
         <Sidebar />
       </div>
 
       {/* Sidebar resize handle */}
       <div
-        className="flex-shrink-0 w-1 cursor-col-resize hover:bg-blue-200 active:bg-blue-300 transition-colors"
-        style={{ borderRight: '1px solid #d0d0d0' }}
+        className="flex-shrink-0 w-1 cursor-col-resize hover:bg-accent active:bg-border transition-colors"
+        style={{ borderRight: '1px solid var(--border)' }}
         onMouseDown={(e) => {
           e.preventDefault();
           sidebarDragging.current = true;
@@ -213,30 +214,33 @@ function App() {
           <QuickStylePanel />
         </div>
 
-        {/* Results table resize handle */}
-        <div
-          className="flex-shrink-0 flex items-center justify-center cursor-row-resize hover:bg-blue-100 active:bg-blue-200 transition-colors"
-          style={{ height: 7, borderTop: '1px solid #d0d0d0', borderBottom: '1px solid #d0d0d0' }}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            tableDragging.current = true;
-            tableDragStartY.current = e.clientY;
-            tableDragStartH.current = tableHeight;
-            document.body.style.cursor = 'row-resize';
-            document.body.style.userSelect = 'none';
-          }}
-        >
-          <div className="flex gap-1">
-            <div className="w-1 h-1 rounded-full bg-gray-400" />
-            <div className="w-1 h-1 rounded-full bg-gray-400" />
-            <div className="w-1 h-1 rounded-full bg-gray-400" />
-          </div>
-        </div>
+        {/* Results table resize handle + table (hidden on doubling time tab or when no data) */}
+        {plotTab !== 'doubling' && experiments.length > 0 && (
+          <>
+            <div
+              className="flex-shrink-0 flex items-center justify-center cursor-row-resize hover:bg-accent active:bg-border transition-colors"
+              style={{ height: 7, borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                tableDragging.current = true;
+                tableDragStartY.current = e.clientY;
+                tableDragStartH.current = tableHeight;
+                document.body.style.cursor = 'row-resize';
+                document.body.style.userSelect = 'none';
+              }}
+            >
+              <div className="flex gap-1">
+                <div className="w-1 h-1 rounded-full bg-muted-foreground/40" />
+                <div className="w-1 h-1 rounded-full bg-muted-foreground/40" />
+                <div className="w-1 h-1 rounded-full bg-muted-foreground/40" />
+              </div>
+            </div>
 
-        {/* Results table */}
-        <div className="overflow-auto" style={{ height: tableHeight }}>
-          <ResultsTable />
-        </div>
+            <div className="overflow-auto" style={{ height: tableHeight }}>
+              <ResultsTable />
+            </div>
+          </>
+        )}
       </div>
       </div>
 
