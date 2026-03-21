@@ -165,7 +165,7 @@ export function unzipWithPassword(data: Uint8Array, password?: Uint8Array): ZipF
       if (!password) throw new Error(`Entry "${entry.name}" is encrypted but no password provided`);
       // Decrypt
       const stream = new ZipCryptoStream(password);
-      fileData = stream.decrypt(fileData);
+      fileData = stream.decrypt(fileData) as Uint8Array<ArrayBuffer>;
       // Skip 12-byte encryption header
       fileData = fileData.slice(12);
     }

@@ -7,7 +7,6 @@ import { CollapsibleSection } from './CollapsibleSection';
 
 export function WellsTab() {
   const selectAll = useAppState((s) => s.selectAll);
-  const deselectAll = useAppState((s) => s.deselectAll);
   const selectByType = useAppState((s) => s.selectByType);
   const selectShown = useAppState((s) => s.selectShown);
   const selectHidden = useAppState((s) => s.selectHidden);

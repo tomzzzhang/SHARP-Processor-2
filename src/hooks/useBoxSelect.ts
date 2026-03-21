@@ -60,7 +60,7 @@ export function useBoxSelect(options: BoxSelectOptions) {
     if (!plotDiv?._fullLayout?.yaxis?.p2d) return null;
     const yaxis = plotDiv._fullLayout.yaxis;
     const plotRect = plotDiv.getBoundingClientRect();
-    return yaxis.p2d(pixelY - plotRect.top - (yaxis._offset ?? 0));
+    return yaxis.p2d!(pixelY - plotRect.top - (yaxis._offset ?? 0));
   }, [getPlotDiv]);
 
   const pixelToXValue = useCallback((pixelX: number): number | null => {
@@ -68,7 +68,7 @@ export function useBoxSelect(options: BoxSelectOptions) {
     if (!plotDiv?._fullLayout?.xaxis?.p2d) return null;
     const xaxis = plotDiv._fullLayout.xaxis;
     const plotRect = plotDiv.getBoundingClientRect();
-    return xaxis.p2d(pixelX - plotRect.left - (xaxis._offset ?? 0));
+    return xaxis.p2d!(pixelX - plotRect.left - (xaxis._offset ?? 0));
   }, [getPlotDiv]);
 
   const isNearThreshold = useCallback((pixelY: number): boolean => {
@@ -78,7 +78,7 @@ export function useBoxSelect(options: BoxSelectOptions) {
     if (!plotDiv?._fullLayout?.yaxis?.d2p) return false;
     const yaxis = plotDiv._fullLayout.yaxis;
     const plotRect = plotDiv.getBoundingClientRect();
-    const thresholdPixelY = yaxis.d2p(t.rfu) + plotRect.top + (yaxis._offset ?? 0);
+    const thresholdPixelY = yaxis.d2p!(t.rfu) + plotRect.top + (yaxis._offset ?? 0);
     return Math.abs(pixelY - thresholdPixelY) < 8;
   }, [getPlotDiv]);
 

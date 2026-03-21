@@ -12,7 +12,7 @@ import { unzipPlain } from './zip-crypto';
 import { strFromU8 } from 'fflate';
 import type { ExperimentData, WellInfo, AmplificationData, MeltData } from '@/types/experiment';
 import {
-  plateIndexToWell, sortWells, readIniSection, computeTimeStats,
+  plateIndexToWell, sortWells, computeTimeStats,
   computeMeltDerivative, buildExperimentData, wellSortKey,
 } from './utils';
 
@@ -306,7 +306,7 @@ function parseLegacy(
 // Protocol parsing
 // ---------------------------------------------------------------------------
 
-function parseRunMethodJson(runMethod: Record<string, unknown> | null, name: string) {
+function parseRunMethodJson(runMethod: Record<string, unknown> | null, _name: string) {
   if (!runMethod) return { experimentType: 'standard_pcr', reactionTemp: null, ampCycles: null, hasMelt: false, rawDefinition: '' };
 
   const stages = (runMethod.stages as Array<Record<string, unknown>>) ?? [];

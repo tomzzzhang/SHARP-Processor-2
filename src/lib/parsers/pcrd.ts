@@ -13,7 +13,7 @@ import { unzipWithPassword } from './zip-crypto';
 import type { ExperimentData, WellInfo, AmplificationData, MeltData } from '@/types/experiment';
 import {
   plateIndexToWell, sortWells, safeFloat, parseXml,
-  xmlText, xmlAttr, xmlAllByTag, computeTimeStats,
+  xmlAllByTag, computeTimeStats,
   computeMeltDerivative, buildExperimentData,
 } from './utils';
 
@@ -177,20 +177,11 @@ function parseRunInfo(doc: Document) {
   const header = doc.getElementsByTagName('header')[0];
   const description = header?.getAttribute('description') ?? '';
 
-  const protoPath = kv.ProtocolFile ?? '';
-  const platePath = kv.PlateFile ?? '';
-  const protoName = protoPath.includes('\\') ? protoPath.split('\\').pop()! : protoPath;
-  const plateName = platePath.includes('\\') ? platePath.split('\\').pop()! : platePath;
-
   let swVersion = '';
   if (header) {
     const appVer = header.getAttribute('createdByClientAppVersion') ?? '';
     if (appVer) swVersion = appVer.split('.').slice(0, 3).join('.');
   }
-
-  const protoEl = doc.getElementsByTagName('protocol2')[0];
-  const lidTemp = protoEl ? safeFloat(protoEl.getAttribute('lidTemperature')) : null;
-  const volume = protoEl ? safeFloat(protoEl.getAttribute('volume')) : null;
 
   return {
     runInfo: {
@@ -221,7 +212,7 @@ interface ProtocolData {
   rawDefinition: string;
 }
 
-function parseProtocol(doc: Document, runInfo: { file_name: string }): ProtocolData {
+function parseProtocol(doc: Document, _runInfo: { file_name: string }): ProtocolData {
   const protoEl = doc.getElementsByTagName('protocol2')[0];
   if (!protoEl) return { experimentType: 'unknown', reactionTemp: null, ampCycles: null, hasMelt: false, rawDefinition: '' };
 
@@ -310,7 +301,7 @@ interface RawRunData {
   cycleTimes: number[];
 }
 
-function parseRunData(doc: Document, protocol: ProtocolData): RawRunData {
+function parseRunData(doc: Document, _protocol: ProtocolData): RawRunData {
   const plateReads = Array.from(doc.querySelectorAll('plateReadDataVector > plateRead > PlateRead'));
   if (plateReads.length === 0) return { ampData: null, meltData: null, cycleTimes: [] };
 
