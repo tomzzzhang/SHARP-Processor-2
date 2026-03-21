@@ -19,7 +19,7 @@
  */
 
 import type { ExperimentData, WellInfo, AmplificationData } from '@/types/experiment';
-import { plateIndexToWell, sortWells, safeFloat, buildExperimentData } from './utils';
+import { plateIndexToWell, sortWells, buildExperimentData } from './utils';
 
 const PACKET_SIZE = 1160;
 const N_CHANNELS = 6;

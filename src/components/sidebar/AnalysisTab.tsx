@@ -64,7 +64,7 @@ export function AnalysisTab() {
               name="baseline-method"
               checked={baselineMethod === 'horizontal'}
               onChange={() => setBaselineMethod('horizontal')}
-              className="accent-primary"
+              style={{ accentColor: 'var(--brand-red-dark)' }}
             />
             Horizontal
           </label>
@@ -74,7 +74,7 @@ export function AnalysisTab() {
               name="baseline-method"
               checked={baselineMethod === 'linear'}
               onChange={() => setBaselineMethod('linear')}
-              className="accent-primary"
+              style={{ accentColor: 'var(--brand-red-dark)' }}
             />
             Linear
           </label>
@@ -89,7 +89,7 @@ export function AnalysisTab() {
             max={999}
             value={baselineStart}
             onChange={(e) => setBaselineZone(Number(e.target.value), baselineEnd)}
-            className="w-14 h-7 border rounded px-1 text-center text-sm"
+            className="w-14 h-6 border rounded px-1 text-center text-sm"
           />
           <span>End:</span>
           <input
@@ -98,7 +98,7 @@ export function AnalysisTab() {
             max={999}
             value={baselineEnd}
             onChange={(e) => setBaselineZone(baselineStart, Number(e.target.value))}
-            className="w-14 h-7 border rounded px-1 text-center text-sm"
+            className="w-14 h-6 border rounded px-1 text-center text-sm"
           />
         </div>
 
@@ -134,7 +134,7 @@ export function AnalysisTab() {
                   name="well-baseline-method"
                   checked={selectedOverride?.method === 'horizontal'}
                   onChange={() => setWellBaselineOverride(selectedArr, { method: 'horizontal' })}
-                  className="accent-primary"
+                  style={{ accentColor: 'var(--brand-red-dark)' }}
                 />
                 Horiz.
               </label>
@@ -144,7 +144,7 @@ export function AnalysisTab() {
                   name="well-baseline-method"
                   checked={selectedOverride?.method === 'linear'}
                   onChange={() => setWellBaselineOverride(selectedArr, { method: 'linear' })}
-                  className="accent-primary"
+                  style={{ accentColor: 'var(--brand-red-dark)' }}
                 />
                 Linear
               </label>
@@ -183,44 +183,6 @@ export function AnalysisTab() {
         )}
       </CollapsibleSection>
 
-      <CollapsibleSection title="Smoothing" defaultOpen={false}>
-        <label className="flex items-center gap-2 text-sm">
-          <Checkbox
-            checked={smoothingEnabled}
-            onCheckedChange={(v) => setSmoothingEnabled(v === true)}
-          />
-          Savitzky-Golay smoothing
-        </label>
-
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">Window:</span>
-          <input
-            type="range"
-            min={5}
-            max={21}
-            step={2}
-            value={smoothingWindow}
-            onChange={(e) => setSmoothingWindow(Number(e.target.value))}
-            disabled={!smoothingEnabled}
-            className="flex-1 h-5 accent-primary"
-          />
-          <span className="w-6 text-center text-sm">{smoothingWindow}</span>
-        </div>
-
-        <label className="flex items-center gap-2 text-sm">
-          <Checkbox
-            checked={smoothingMeltDerivative}
-            onCheckedChange={(v) => setSmoothingMeltDerivative(v === true)}
-            disabled={!smoothingEnabled}
-          />
-          Apply to melt derivative
-        </label>
-
-        <p className="text-xs text-muted-foreground italic">
-          Smooths amplification curves and optionally melt -dF/dT
-        </p>
-      </CollapsibleSection>
-
       <CollapsibleSection title="Threshold Detection">
         <label className="flex items-center gap-2 text-sm">
           <Checkbox
@@ -246,6 +208,48 @@ export function AnalysisTab() {
 
         <p className="text-xs text-muted-foreground italic">
           Drag the red dashed line on the plot to adjust
+        </p>
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Smoothing" defaultOpen={false}>
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={smoothingEnabled}
+            onCheckedChange={(v) => setSmoothingEnabled(v === true)}
+          />
+          Savitzky-Golay smoothing
+        </label>
+
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Window:</span>
+          <input
+            type="number"
+            min={3}
+            max={51}
+            step={2}
+            value={smoothingWindow}
+            onChange={(e) => {
+              let v = Number(e.target.value);
+              if (v % 2 === 0) v = v + 1;
+              v = Math.max(3, Math.min(51, v));
+              setSmoothingWindow(v);
+            }}
+            disabled={!smoothingEnabled}
+            className="w-14 h-6 text-center text-sm border rounded px-1 bg-background disabled:opacity-40"
+          />
+        </div>
+
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={smoothingMeltDerivative}
+            onCheckedChange={(v) => setSmoothingMeltDerivative(v === true)}
+            disabled={!smoothingEnabled}
+          />
+          Apply to melt derivative
+        </label>
+
+        <p className="text-xs text-muted-foreground italic">
+          Smooths amplification curves and optionally melt -dF/dT
         </p>
       </CollapsibleSection>
     </div>

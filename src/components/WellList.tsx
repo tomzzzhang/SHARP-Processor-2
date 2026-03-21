@@ -74,7 +74,6 @@ export function WellList() {
   const selectOnly = useAppState((s) => s.selectOnly);
   const toggleWellSelection = useAppState((s) => s.toggleWellSelection);
   const toggleWellHidden = useAppState((s) => s.toggleWellHidden);
-  const addToSelection = useAppState((s) => s.addToSelection);
   const setSelectedWells = useAppState((s) => s.setSelectedWells);
   const palette = useAppState((s) => s.palette);
   const wellGroups = useAppState((s) => s.wellGroups);
@@ -135,7 +134,7 @@ export function WellList() {
           </tr>
         </thead>
         <tbody>
-          {exp.wellsUsed.map((well, i) => {
+          {exp.wellsUsed.map((well) => {
             const info = exp.wells[well];
             const isSelected = selectedWells.has(well);
             const isHidden = hiddenWells.has(well);
@@ -161,7 +160,7 @@ export function WellList() {
                   {well}
                 </td>
                 <td
-                  className="px-1 py-0 truncate max-w-[120px] cursor-text hover:border-b hover:border-dashed hover:border-muted-foreground/50"
+                  className="px-1 py-0 truncate max-w-[120px] cursor-text hover:border-b hover:border-dashed hover:border-muted-foreground/50 transition-all duration-100"
                   onClick={(e) => { e.stopPropagation(); setEditingWell(well); }}
                   title="Click to edit"
                 >

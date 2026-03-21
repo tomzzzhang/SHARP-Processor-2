@@ -3,7 +3,7 @@
  * metadata builder, melt derivative computation.
  */
 
-import type { ExperimentData, WellInfo, ContentType, MeltData } from '@/types/experiment';
+import type { ExperimentData, WellInfo, MeltData } from '@/types/experiment';
 import { inferPlateDimensions, getInstrumentPlateLayout, DEFAULT_PLATE_ROW_COUNT, DEFAULT_PLATE_COL_COUNT } from '@/lib/constants';
 
 // ---------------------------------------------------------------------------
