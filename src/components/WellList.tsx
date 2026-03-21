@@ -1,5 +1,6 @@
 import { useAppState } from '@/hooks/useAppState';
 import { Checkbox } from '@/components/ui/checkbox';
+import { useDragSelect } from '@/hooks/useDragSelect';
 import { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import { CONTENT_DISPLAY, getPaletteColors } from '@/lib/constants';
 import type { ContentType } from '@/types/experiment';
@@ -74,6 +75,7 @@ export function WellList() {
   const toggleWellSelection = useAppState((s) => s.toggleWellSelection);
   const toggleWellHidden = useAppState((s) => s.toggleWellHidden);
   const addToSelection = useAppState((s) => s.addToSelection);
+  const setSelectedWells = useAppState((s) => s.setSelectedWells);
   const palette = useAppState((s) => s.palette);
   const wellGroups = useAppState((s) => s.wellGroups);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
@@ -112,6 +114,10 @@ export function WellList() {
     return m;
   }, [exp, palette, wellGroups, wellStyleOverrides]);
 
+  const { onRowMouseDown, onRowMouseEnter } = useDragSelect(exp?.wellsUsed ?? [], {
+    selectOnly, toggleWellSelection, setSelectedWells, selectedWells,
+  });
+
   if (!exp) {
     return <div className="p-3 text-sm text-muted-foreground">No data loaded</div>;
   }
@@ -141,13 +147,8 @@ export function WellList() {
                 key={well}
                 className={`cursor-pointer hover:bg-accent ${isSelected ? 'bg-accent/50' : ''}`}
                 style={{ height: 22, opacity: isHidden ? 0.4 : 1 }}
-                onClick={(e) => {
-                  if (e.ctrlKey || e.metaKey) {
-                    toggleWellSelection(well);
-                  } else {
-                    selectOnly(well);
-                  }
-                }}
+                onMouseDown={(e) => onRowMouseDown(e, well)}
+                onMouseEnter={() => onRowMouseEnter(well)}
               >
                 <td className="px-1 py-0 text-center" onClick={(e) => e.stopPropagation()}>
                   <Checkbox

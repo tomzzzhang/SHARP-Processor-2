@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useAppState } from '@/hooks/useAppState';
 import type { WellBaselineOverride } from '@/hooks/useAppState';
 import { Checkbox } from '@/components/ui/checkbox';
+import { CollapsibleSection } from './CollapsibleSection';
 
 export function AnalysisTab() {
   const baselineEnabled = useAppState((s) => s.baselineEnabled);
@@ -11,6 +12,9 @@ export function AnalysisTab() {
   const showRawOverlay = useAppState((s) => s.showRawOverlay);
   const thresholdEnabled = useAppState((s) => s.thresholdEnabled);
   const thresholdRfu = useAppState((s) => s.thresholdRfu);
+  const smoothingEnabled = useAppState((s) => s.smoothingEnabled);
+  const smoothingWindow = useAppState((s) => s.smoothingWindow);
+  const smoothingMeltDerivative = useAppState((s) => s.smoothingMeltDerivative);
   const selectedWells = useAppState((s) => s.selectedWells);
   const wellBaselineOverrides = useAppState((s) => s.wellBaselineOverrides);
 
@@ -20,19 +24,18 @@ export function AnalysisTab() {
   const setShowRawOverlay = useAppState((s) => s.setShowRawOverlay);
   const setThresholdEnabled = useAppState((s) => s.setThresholdEnabled);
   const setThresholdRfu = useAppState((s) => s.setThresholdRfu);
+  const setSmoothingEnabled = useAppState((s) => s.setSmoothingEnabled);
+  const setSmoothingWindow = useAppState((s) => s.setSmoothingWindow);
+  const setSmoothingMeltDerivative = useAppState((s) => s.setSmoothingMeltDerivative);
   const setWellBaselineOverride = useAppState((s) => s.setWellBaselineOverride);
   const clearWellBaselineOverrides = useAppState((s) => s.clearWellBaselineOverrides);
 
-  // Check if any selected wells have overrides
   const selectedArr = useMemo(() => [...selectedWells], [selectedWells]);
   const selectedOverride: WellBaselineOverride | null = useMemo(() => {
     if (selectedArr.length === 0) return null;
-    // If exactly one well selected with an override, show its values
-    // If multiple selected, show values only if they all match
     const overrides = selectedArr.map((w) => wellBaselineOverrides.get(w)).filter(Boolean) as WellBaselineOverride[];
     if (overrides.length === 0) return null;
     if (overrides.length === 1) return overrides[0];
-    // Check if all overrides match
     const first = overrides[0];
     const allMatch = overrides.every(
       (o) => o.method === first.method && o.start === first.start && o.end === first.end
@@ -43,11 +46,8 @@ export function AnalysisTab() {
   const hasSelectedOverrides = selectedArr.some((w) => wellBaselineOverrides.has(w));
 
   return (
-    <div className="space-y-4">
-      {/* Baseline Correction */}
-      <fieldset className="border rounded p-3 space-y-3">
-        <legend className="text-sm font-semibold px-1">Baseline Correction</legend>
-
+    <div className="space-y-3">
+      <CollapsibleSection title="Baseline Correction">
         <label className="flex items-center gap-2 text-sm">
           <Checkbox
             checked={baselineEnabled}
@@ -110,9 +110,8 @@ export function AnalysisTab() {
           Show raw curves behind corrected
         </label>
 
-        {/* Per-well baseline overrides */}
         {selectedArr.length > 0 && (
-          <div className="border-t pt-2 mt-2 space-y-2">
+          <div className="border-t pt-2 mt-1 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-muted-foreground">
                 Per-well override ({selectedArr.length} well{selectedArr.length > 1 ? 's' : ''})
@@ -182,12 +181,47 @@ export function AnalysisTab() {
             </div>
           </div>
         )}
-      </fieldset>
+      </CollapsibleSection>
 
-      {/* Threshold & Detection */}
-      <fieldset className="border rounded p-3 space-y-3">
-        <legend className="text-sm font-semibold px-1">Threshold Detection</legend>
+      <CollapsibleSection title="Smoothing" defaultOpen={false}>
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={smoothingEnabled}
+            onCheckedChange={(v) => setSmoothingEnabled(v === true)}
+          />
+          Savitzky-Golay smoothing
+        </label>
 
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Window:</span>
+          <input
+            type="range"
+            min={5}
+            max={21}
+            step={2}
+            value={smoothingWindow}
+            onChange={(e) => setSmoothingWindow(Number(e.target.value))}
+            disabled={!smoothingEnabled}
+            className="flex-1 h-5 accent-primary"
+          />
+          <span className="w-6 text-center text-sm">{smoothingWindow}</span>
+        </div>
+
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={smoothingMeltDerivative}
+            onCheckedChange={(v) => setSmoothingMeltDerivative(v === true)}
+            disabled={!smoothingEnabled}
+          />
+          Apply to melt derivative
+        </label>
+
+        <p className="text-xs text-muted-foreground italic">
+          Smooths amplification curves and optionally melt -dF/dT
+        </p>
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Threshold Detection">
         <label className="flex items-center gap-2 text-sm">
           <Checkbox
             checked={thresholdEnabled}
@@ -213,7 +247,7 @@ export function AnalysisTab() {
         <p className="text-xs text-muted-foreground italic">
           Drag the red dashed line on the plot to adjust
         </p>
-      </fieldset>
+      </CollapsibleSection>
     </div>
   );
 }
