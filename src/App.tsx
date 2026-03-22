@@ -23,7 +23,6 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const showWizard = useAppState((s) => s.showDilutionWizard);
   const setShowWizard = useAppState((s) => s.setShowDilutionWizard);
-  const plotTab = useAppState((s) => s.plotTab);
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const [tableHeight, setTableHeight] = useState(160);
   const sidebarDragging = useRef(false);
