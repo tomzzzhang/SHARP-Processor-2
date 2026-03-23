@@ -4,7 +4,7 @@ import _createPlotlyComponent from 'react-plotly.js/factory';
 import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { analyzeDilutionSeries, savitzkyGolaySmooth } from '@/lib/analysis';
-import { THRESHOLD_LINE_COLOR, getPaletteColors } from '@/lib/constants';
+import { THRESHOLD_LINE_COLOR, MOD_KEY, getPaletteColors } from '@/lib/constants';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useBoxSelect, BOX_SELECT_OVERLAY_STYLE } from '@/hooks/useBoxSelect';
 import { ContextMenu, useContextMenu } from './ContextMenu';
@@ -1332,7 +1332,7 @@ function WelcomeScreen() {
           <img src="/sharp-logo.png" alt="SHARP" className="w-16 h-16 mx-auto rounded-tl-lg rounded-br-lg" />
           <h2 className="text-lg font-semibold text-[var(--brand-red-dark)]">SHARP Processor 2</h2>
           <p>Open an experiment file to get started.</p>
-          <p className="text-xs">Use <kbd className="px-1 py-0.5 rounded bg-muted text-foreground font-mono text-[10px]">Ctrl+O</kbd> or drag a file onto this window.</p>
+          <p className="text-xs">Use <kbd className="px-1 py-0.5 rounded bg-muted text-foreground font-mono text-[10px]">{MOD_KEY}+O</kbd> or drag a file onto this window.</p>
         </div>
 
         <div className="space-y-2">
