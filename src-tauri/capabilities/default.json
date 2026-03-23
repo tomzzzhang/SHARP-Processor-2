@@ -24,17 +24,6 @@
     "dialog:allow-save",
     "dialog:allow-open",
     "shell:default",
-    "shell:allow-open",
-    {
-      "identifier": "shell:allow-execute",
-      "allow": [
-        {
-          "name": "python-parser",
-          "cmd": "C:\\Users\\Tom\\anaconda3\\envs\\sharp\\python.exe",
-          "args": true,
-          "sidecar": false
-        }
-      ]
-    }
+    "shell:allow-open"
   ]
 }

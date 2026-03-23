@@ -201,3 +201,11 @@ export function inferPlateDimensions(wellNames: string[]): { rows: number; cols:
   }
   return { rows: maxRow + 1, cols: maxCol };
 }
+
+// ── Platform detection ─────────────────────────────────────────────────
+export const IS_MAC =
+  typeof navigator !== 'undefined' &&
+  /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
+
+/** Modifier key label: "⌘" on macOS, "Ctrl" on Windows/Linux */
+export const MOD_KEY = IS_MAC ? '\u2318' : 'Ctrl';
