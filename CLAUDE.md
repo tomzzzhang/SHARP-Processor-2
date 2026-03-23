@@ -1,6 +1,6 @@
 # CLAUDE.md — SHARP Processor 2
 
-**Last Updated:** 2026-03-21 PST
+**Last Updated:** 2026-03-22 PST
 
 ## Project Overview
 
@@ -16,14 +16,24 @@ SHARP Processor 2 — a modern desktop app for qPCR/isothermal amplification dat
 
 ## Build & Run
 
+### Windows
 ```bash
 # Double-click dev.bat, or:
 set CARGO_TARGET_DIR=C:\tauri-build-cache
 npx tauri dev
 ```
-
 - **CARGO_TARGET_DIR** must be set to `C:\tauri-build-cache` to avoid OneDrive sync overhead on the Rust `target/` directory.
 - Rust 1.94.0, VS 2022 Build Tools (C++ workload), Node 24.14.0
+
+### macOS
+```bash
+# Prerequisites: xcode-select --install, Rust via rustup, Node 24+
+chmod +x dev.sh build.sh
+./dev.sh          # development
+./build.sh        # production DMG → src-tauri/target/release/bundle/dmg/
+```
+- First launch: right-click > Open to bypass "unidentified developer" warning (ad-hoc signed)
+- Xcode Command Line Tools required (not full Xcode)
 
 ## Project Structure
 
@@ -99,6 +109,7 @@ build.bat                    # Double-click build launcher
 | 18 | UX fixes round 2 | **Done** | Box-select via Plotly event API, sidebar resize (200-450px), well list Group column, melt derivative computed on-the-fly, palette submenu hover fix |
 | 19 | Welcome screen + .sharp export | **Done** | Informative welcome screen (format table, tips), melt CSV export, save as .sharp (preserves edited metadata/sample names) |
 | 20 | Multi-experiment tabs + menu parity | **Done** | Experiment tab bar (closable, visible when >1), per-experiment isolated state (view, analysis, style settings). File/Edit/View/Tools/Export menu structure matching v1 |
+| 21 | macOS build support | **Done** | Bundle targets "all" (DMG+app on Mac, NSIS+MSI on Win), build.sh/dev.sh launchers, platform-aware shortcut labels (⌘/Ctrl), .gitattributes LF for .sh |
 
 ## Instrument File Formats & Encryption
 
