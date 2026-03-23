@@ -18,6 +18,12 @@ interface BoxSelectOptions {
     rfu: number;
     setRfu: (v: number) => void;
   };
+  /** Optional: melt derivative threshold drag support */
+  meltThreshold?: {
+    enabled: boolean;
+    value: number;
+    setValue: (v: number) => void;
+  };
 }
 
 /**
@@ -28,13 +34,14 @@ interface BoxSelectOptions {
  * so we implement selection via raw mouse events + Plotly's internal p2d axis conversion.
  */
 export function useBoxSelect(options: BoxSelectOptions) {
-  const { onSelect, onDragMove, onDragEnd, onEmptyClick, threshold } = options;
+  const { onSelect, onDragMove, onDragEnd, onEmptyClick, threshold, meltThreshold } = options;
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const boxSelecting = useRef(false);
   const boxStartX = useRef(0);
   const boxStartY = useRef(0);
   const thresholdDragging = useRef(false);
+  const meltThresholdDragging = useRef(false);
   /** Set by external code (Plotly onClick) to suppress the empty-click handler */
   const traceClickedRef = useRef(false);
 
@@ -49,6 +56,8 @@ export function useBoxSelect(options: BoxSelectOptions) {
   onEmptyClickRef.current = onEmptyClick;
   const thresholdRef = useRef(threshold);
   thresholdRef.current = threshold;
+  const meltThresholdRef = useRef(meltThreshold);
+  meltThresholdRef.current = meltThreshold;
 
   const getPlotDiv = useCallback(() => {
     return containerRef.current?.querySelector('.js-plotly-plot') as
@@ -82,6 +91,17 @@ export function useBoxSelect(options: BoxSelectOptions) {
     return Math.abs(pixelY - thresholdPixelY) < 8;
   }, [getPlotDiv]);
 
+  const isNearMeltThreshold = useCallback((pixelY: number): boolean => {
+    const mt = meltThresholdRef.current;
+    if (!mt?.enabled) return false;
+    const plotDiv = getPlotDiv();
+    if (!plotDiv?._fullLayout?.yaxis?.d2p) return false;
+    const yaxis = plotDiv._fullLayout.yaxis;
+    const plotRect = plotDiv.getBoundingClientRect();
+    const thresholdPixelY = yaxis.d2p!(mt.value) + plotRect.top + (yaxis._offset ?? 0);
+    return Math.abs(pixelY - thresholdPixelY) < 8;
+  }, [getPlotDiv]);
+
   const isInPlotArea = useCallback((clientX: number, clientY: number): boolean => {
     const plotDiv = getPlotDiv();
     if (!plotDiv?._fullLayout?.xaxis || !plotDiv._fullLayout.yaxis) return false;
@@ -110,6 +130,16 @@ export function useBoxSelect(options: BoxSelectOptions) {
         document.body.style.userSelect = 'none';
         return;
       }
+      // Melt threshold drag
+      const mt = meltThresholdRef.current;
+      if (mt?.enabled && isNearMeltThreshold(e.clientY)) {
+        e.preventDefault();
+        e.stopPropagation();
+        meltThresholdDragging.current = true;
+        document.body.style.cursor = 'ns-resize';
+        document.body.style.userSelect = 'none';
+        return;
+      }
       // Start box selection if click is inside the plot area
       if (isInPlotArea(e.clientX, e.clientY)) {
         boxSelecting.current = true;
@@ -121,15 +151,29 @@ export function useBoxSelect(options: BoxSelectOptions) {
 
     const onMouseMove = (e: MouseEvent) => {
       const t = thresholdRef.current;
+      const mt = meltThresholdRef.current;
       // Threshold hover cursor
-      if (!thresholdDragging.current && !boxSelecting.current && t?.enabled) {
-        container.style.cursor = isNearThreshold(e.clientY) ? 'ns-resize' : '';
+      if (!thresholdDragging.current && !meltThresholdDragging.current && !boxSelecting.current) {
+        if (t?.enabled && isNearThreshold(e.clientY)) {
+          container.style.cursor = 'ns-resize';
+        } else if (mt?.enabled && isNearMeltThreshold(e.clientY)) {
+          container.style.cursor = 'ns-resize';
+        } else {
+          container.style.cursor = '';
+        }
       }
       // Threshold drag
       if (thresholdDragging.current) {
         e.preventDefault();
         const yVal = pixelToYValue(e.clientY);
         if (yVal != null && yVal > 0) thresholdRef.current?.setRfu(Math.round(yVal * 10) / 10);
+        return;
+      }
+      // Melt threshold drag
+      if (meltThresholdDragging.current) {
+        e.preventDefault();
+        const yVal = pixelToYValue(e.clientY);
+        if (yVal != null && yVal > 0) meltThresholdRef.current?.setValue(Math.round(yVal));
         return;
       }
       // Box selection overlay
@@ -167,6 +211,12 @@ export function useBoxSelect(options: BoxSelectOptions) {
     const onMouseUp = (e: MouseEvent) => {
       if (thresholdDragging.current) {
         thresholdDragging.current = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        return;
+      }
+      if (meltThresholdDragging.current) {
+        meltThresholdDragging.current = false;
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
         return;
@@ -209,7 +259,7 @@ export function useBoxSelect(options: BoxSelectOptions) {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
     };
-  }, [isNearThreshold, isInPlotArea, pixelToYValue, pixelToXValue]);
+  }, [isNearThreshold, isNearMeltThreshold, isInPlotArea, pixelToYValue, pixelToXValue]);
 
   return { containerRef, overlayRef, traceClickedRef };
 }

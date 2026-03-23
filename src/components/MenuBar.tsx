@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { open as dialogOpen } from '@tauri-apps/plugin-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { useAppState } from '@/hooks/useAppState';
-import { MOD_KEY } from '@/lib/constants';
+import { MOD_KEY, APP_VERSION } from '@/lib/constants';
+import { checkForUpdates } from '@/lib/update-checker';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { loadSharpFile } from '@/lib/sharp-loader';
 import { isInstrumentFile, isSupportedFile, loadInstrumentFile } from '@/lib/instrument-loader';
@@ -277,7 +278,26 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
       items: [
         { label: 'User Manual...', action: () => onOpenManual?.() },
         { separator: true },
-        { label: 'About SHARP Processor 2', action: () => { /* TODO: about dialog */ } },
+        {
+          label: 'Check for Updates...', action: async () => {
+            const result = await checkForUpdates();
+            if (!result) {
+              alert('Could not check for updates. Please check your internet connection.');
+            } else if (result.updateAvailable) {
+              if (confirm(`Version ${result.latestVersion} is available (you have ${result.currentVersion}).\n\nOpen the download page?`)) {
+                window.open(result.releaseUrl, '_blank');
+              }
+            } else {
+              alert(`You're up to date! (v${result.currentVersion})`);
+            }
+          },
+        },
+        { separator: true },
+        {
+          label: 'About SHARP Processor 2', action: () => {
+            alert(`SHARP Processor 2\nVersion ${APP_VERSION}\n\n© 2026 SHARP Diagnostics, Inc.\nAll rights reserved.\n\nDesktop application for qPCR & isothermal amplification data analysis.`);
+          },
+        },
       ],
     },
   ];

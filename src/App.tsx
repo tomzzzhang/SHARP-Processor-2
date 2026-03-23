@@ -16,6 +16,7 @@ import { useAppState } from './hooks/useAppState';
 import { loadSharpFile } from './lib/sharp-loader';
 import { isInstrumentFile, isSupportedFile, loadInstrumentFile } from './lib/instrument-loader';
 import { addRecentFile } from './lib/recent-files';
+import { checkForUpdates } from './lib/update-checker';
 
 function App() {
   const loadExperiment = useAppState((s) => s.loadExperiment);
@@ -25,6 +26,7 @@ function App() {
   const showWizard = useAppState((s) => s.showDilutionWizard);
   const setShowWizard = useAppState((s) => s.setShowDilutionWizard);
   const [showManual, setShowManual] = useState(false);
+  const [updateBanner, setUpdateBanner] = useState<{ version: string; url: string } | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const [tableHeight, setTableHeight] = useState(160);
   const sidebarDragging = useRef(false);
@@ -112,6 +114,15 @@ function App() {
     };
   }, [handleFilePath]);
 
+  // Silent update check on launch
+  useEffect(() => {
+    checkForUpdates().then((result) => {
+      if (result?.updateAvailable) {
+        setUpdateBanner({ version: result.latestVersion, url: result.releaseUrl });
+      }
+    });
+  }, []);
+
   const experiments = useAppState((s) => s.experiments);
   const activeExperimentIndex = useAppState((s) => s.activeExperimentIndex);
   const switchExperiment = useAppState((s) => s.switchExperiment);
@@ -121,6 +132,19 @@ function App() {
     <div className="flex flex-col h-screen select-none border-b border-border">
       {/* Menu bar */}
       <MenuBar onOpenWizard={() => setShowWizard(true)} onOpenManual={() => setShowManual(true)} />
+
+      {/* Update available banner */}
+      {updateBanner && (
+        <div className="flex items-center justify-between px-3 py-1 bg-blue-50 dark:bg-blue-950 border-b text-xs">
+          <span>
+            Version {updateBanner.version} is available!{' '}
+            <a href={updateBanner.url} target="_blank" rel="noopener noreferrer" className="underline text-blue-600 dark:text-blue-400">
+              Download
+            </a>
+          </span>
+          <button className="text-muted-foreground hover:text-foreground" onClick={() => setUpdateBanner(null)}>✕</button>
+        </div>
+      )}
 
       {/* Experiment tab bar (shown when >1 experiment loaded) */}
       {experiments.length > 1 && (

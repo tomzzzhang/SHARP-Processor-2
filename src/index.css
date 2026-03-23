@@ -56,11 +56,11 @@
     --brand-red-deep: #4f2125;
     --brand-black: #212224;
 
-    --background: oklch(1 0 0);
+    --background: #f3f2f0;
     --foreground: #212224;
-    --card: oklch(1 0 0);
+    --card: #f8f7f6;
     --card-foreground: #212224;
-    --popover: oklch(1 0 0);
+    --popover: #f8f7f6;
     --popover-foreground: #212224;
     --primary: oklch(0.22 0.015 25);
     --primary-foreground: oklch(0.985 0 0);
@@ -71,8 +71,8 @@
     --accent: oklch(0.97 0.006 25);
     --accent-foreground: oklch(0.205 0 0);
     --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
+    --border: #ddd8d3;
+    --input: #ddd8d3;
     --ring: oklch(0.55 0.18 25);
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
@@ -90,7 +90,7 @@
     --sidebar-ring: oklch(0.708 0 0);
 }
 
-/* Classic greyscale theme — neutral accent, no brand colors */
+/* Classic greyscale theme — neutral accent, no brand colors, pure white bg */
 .theme-classic {
     --brand-red: #555;
     --brand-red-mid: #444;
@@ -98,6 +98,9 @@
     --brand-red-deep: #222;
     --brand-black: #111;
 
+    --background: #ffffff;
+    --card: #ffffff;
+    --popover: #ffffff;
     --foreground: oklch(0.145 0 0);
     --primary: oklch(0.205 0 0);
     --ring: oklch(0.708 0 0);
