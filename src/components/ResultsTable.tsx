@@ -3,6 +3,7 @@ import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { useDragSelect } from '@/hooks/useDragSelect';
 import { useMemo, useState, useCallback, useRef } from 'react';
 import { CONTENT_DISPLAY, getPaletteColors } from '@/lib/constants';
+import { savitzkyGolaySmooth } from '@/lib/analysis';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -16,7 +17,7 @@ const CALL_COLORS: Record<string, string> = {
 };
 
 
-type SortKey = 'well' | 'sample' | 'content' | 'tt' | 'call' | 'endRfu';
+type SortKey = 'well' | 'sample' | 'content' | 'tt' | 'tm' | 'call' | 'endRfu';
 type SortDir = 'asc' | 'desc';
 
 interface RowData {
@@ -25,6 +26,7 @@ interface RowData {
   content: string;
   displayType: string;
   tt: number | null;
+  tm: number | null;
   dt: number | null;
   call: string;
   endRfu: number | undefined;
@@ -53,6 +55,9 @@ function compareRows(a: RowData, b: RowData, key: SortKey, dir: SortDir): number
       break;
     case 'tt':
       cmp = (a.tt ?? Infinity) - (b.tt ?? Infinity);
+      break;
+    case 'tm':
+      cmp = (a.tm ?? Infinity) - (b.tm ?? Infinity);
       break;
     case 'call':
       cmp = a.call.localeCompare(b.call);
@@ -108,16 +113,43 @@ export function ResultsTable() {
   const wellGroups = useAppState((s) => s.wellGroups);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
   const xAxisMode = useAppState((s) => s.xAxisMode);
+  const smoothingEnabled = useAppState((s) => s.smoothingEnabled);
+  const smoothingWindow = useAppState((s) => s.smoothingWindow);
+  const smoothingMeltDerivative = useAppState((s) => s.smoothingMeltDerivative);
   const exp = experiments[idx];
+  const melt = exp?.melt;
   const analysisResults = useAnalysisResults();
+
+  // Compute Tm (temperature at peak -dF/dT) per well
+  const tmMap = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!melt || Object.keys(melt.derivative).length === 0) return map;
+    const smoothDeriv = smoothingEnabled && smoothingMeltDerivative;
+    for (const well of exp?.wellsUsed ?? []) {
+      let derData = melt.derivative[well];
+      if (!derData || derData.length === 0) continue;
+      if (smoothDeriv) derData = savitzkyGolaySmooth(derData, smoothingWindow);
+      let maxIdx = 0;
+      let maxVal = -Infinity;
+      for (let i = 0; i < derData.length; i++) {
+        if (derData[i] > maxVal) { maxVal = derData[i]; maxIdx = i; }
+      }
+      if (maxVal > 0 && maxIdx < melt.temperatureC.length) {
+        map.set(well, melt.temperatureC[maxIdx]);
+      }
+    }
+    return map;
+  }, [melt, exp, smoothingEnabled, smoothingWindow, smoothingMeltDerivative]);
 
   const [sortKey, setSortKey] = useState<SortKey>('well');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   // Column resize state
-  const COL_ORDER: SortKey[] = ['well', 'sample', 'content', 'tt', 'call', 'endRfu'];
+  const COL_ORDER: SortKey[] = ['well', 'sample', 'content', 'tt', 'tm', 'call', 'endRfu'];
   const MIN_COL_WIDTH = 32;
-  const DEFAULT_WIDTHS: Record<SortKey, number> = { well: 56, sample: 120, content: 64, tt: 56, call: 48, endRfu: 80 };
+  // Percentage-based widths for even distribution (sample gets remainder)
+  const COL_PCT: Record<SortKey, string> = { well: '8%', sample: '', content: '10%', tt: '10%', tm: '10%', call: '8%', endRfu: '12%' };
+  const DEFAULT_WIDTHS: Record<SortKey, number> = { well: 52, sample: 120, content: 60, tt: 56, tm: 56, call: 48, endRfu: 72 };
   const [colWidths, setColWidths] = useState<Record<SortKey, number>>(DEFAULT_WIDTHS);
   const resizingCol = useRef<SortKey | null>(null);
   const resizeStartX = useRef(0);
@@ -225,6 +257,7 @@ export function ResultsTable() {
         content: info?.content ?? '',
         displayType: CONTENT_DISPLAY[info?.content ?? ''] ?? info?.content ?? '',
         tt: analysis?.tt ?? null,
+        tm: tmMap.get(well) ?? null,
         dt: analysis?.dt ?? null,
         call: analysis?.call ?? 'unset',
         endRfu: analysis?.endRfu ?? info?.endRfu ?? undefined,
@@ -233,7 +266,7 @@ export function ResultsTable() {
     }
     result.sort((a, b) => compareRows(a, b, sortKey, sortDir));
     return result;
-  }, [exp, hiddenWells, analysisResults, colorMap, sortKey, sortDir]);
+  }, [exp, hiddenWells, analysisResults, colorMap, sortKey, sortDir, tmMap]);
 
   const rowWells = useMemo(() => rows.map((r) => r.well), [rows]);
   const { onRowMouseDown, onRowMouseEnter } = useDragSelect(rowWells, {
@@ -244,21 +277,31 @@ export function ResultsTable() {
 
   return (
     <div className="p-2">
-      <Table style={{ tableLayout: 'fixed' }}>
+      <Table style={{ tableLayout: 'fixed', width: '100%' }}>
+        <colgroup>
+          <col style={{ width: COL_PCT.well }} />
+          <col />
+          <col style={{ width: COL_PCT.content }} />
+          <col style={{ width: COL_PCT.tt }} />
+          <col style={{ width: COL_PCT.tm }} />
+          <col style={{ width: COL_PCT.call }} />
+          <col style={{ width: COL_PCT.endRfu }} />
+        </colgroup>
         <TableHeader>
           <TableRow className="text-xs" style={{ backgroundColor: 'color-mix(in srgb, var(--brand-red-mid) 5%, transparent)' }}>
-            <SortableHeader label="Well" sortKey="well" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} width={colWidths.well} onResize={startResize('well')} />
-            <SortableHeader label="Sample" sortKey="sample" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} width={colWidths.sample} onResize={startResize('sample')} />
-            <SortableHeader label="Content" sortKey="content" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} width={colWidths.content} onResize={startResize('content')} />
-            <SortableHeader label={ttLabel} sortKey="tt" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="text-right" width={colWidths.tt} onResize={startResize('tt')} />
-            <SortableHeader label="Call" sortKey="call" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="text-center" width={colWidths.call} onResize={startResize('call')} />
+            <SortableHeader label="Well" sortKey="well" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} onResize={startResize('well')} />
+            <SortableHeader label="Sample" sortKey="sample" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} onResize={startResize('sample')} />
+            <SortableHeader label="Content" sortKey="content" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} onResize={startResize('content')} />
+            <SortableHeader label={ttLabel} sortKey="tt" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="text-right" onResize={startResize('tt')} />
+            <SortableHeader label="Tm" sortKey="tm" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="text-right" onResize={startResize('tm')} />
+            <SortableHeader label="Call" sortKey="call" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="text-center" onResize={startResize('call')} />
             <SortableHeader label="End RFU" sortKey="endRfu" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="text-right" />
           </TableRow>
         </TableHeader>
         <TableBody>
           {rows.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={6} className="text-center text-muted-foreground text-xs py-2">
+              <TableCell colSpan={7} className="text-center text-muted-foreground text-xs py-2">
                 No data loaded
               </TableCell>
             </TableRow>
@@ -283,6 +326,9 @@ export function ResultsTable() {
                   <TableCell className="py-0.5 overflow-hidden text-ellipsis whitespace-nowrap" style={{ backgroundColor: cellBg }}>{row.displayType}</TableCell>
                   <TableCell className="py-0.5 text-right" style={{ backgroundColor: cellBg }}>
                     {row.tt != null ? row.tt.toFixed(2) : '—'}
+                  </TableCell>
+                  <TableCell className="py-0.5 text-right" style={{ backgroundColor: cellBg }}>
+                    {row.tm != null ? row.tm.toFixed(1) + '°' : '—'}
                   </TableCell>
                   <TableCell className="py-0.5 text-center" style={{ backgroundColor: cellBg, fontSize: 15, fontWeight: 700, color: CALL_COLORS[row.call] }}>
                     {row.call === 'unset' ? '—' : row.call === 'positive' ? '+' : row.call === 'negative' ? '−' : '?'}

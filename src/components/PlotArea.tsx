@@ -636,6 +636,9 @@ function MeltDerivMini() {
   const smoothingEnabled = useAppState((s) => s.smoothingEnabled);
   const smoothingWindow = useAppState((s) => s.smoothingWindow);
   const smoothingMeltDerivative = useAppState((s) => s.smoothingMeltDerivative);
+  const meltThresholdEnabled = useAppState((s) => s.meltThresholdEnabled);
+  const meltThresholdValue = useAppState((s) => s.meltThresholdValue);
+  const setMeltThresholdValue = useAppState((s) => s.setMeltThresholdValue);
 
   const exp = experiments[idx];
   const melt = exp?.melt;
@@ -654,6 +657,20 @@ function MeltDerivMini() {
   const hasDerivative = melt && Object.keys(melt.derivative).length > 0;
 
   const smoothMeltDeriv = smoothingEnabled && smoothingMeltDerivative;
+
+  // Pre-compute peak -dF/dT per well for threshold dimming
+  const wellPeakDeriv = useMemo(() => {
+    if (!melt || !hasDerivative) return new Map<string, number>();
+    const peaks = new Map<string, number>();
+    for (const well of visibleWells) {
+      let derData = melt.derivative[well];
+      if (!derData) continue;
+      if (smoothMeltDeriv) derData = savitzkyGolaySmooth(derData, smoothingWindow);
+      peaks.set(well, Math.max(...derData));
+    }
+    return peaks;
+  }, [melt, visibleWells, hasDerivative, smoothMeltDeriv, smoothingWindow]);
+
   const traces = useMemo((): Data[] => {
     if (!melt || !hasDerivative) return [];
     const result: Data[] = [];
@@ -670,6 +687,11 @@ function MeltDerivMini() {
       if (isDragHighlighted === true) { lineWidth = style.lineWidth * 1.4; opacity = 1.0; }
       else if (isDragHighlighted === false) { opacity = 0.15; }
       if (isHovered) { lineWidth = Math.max(lineWidth, style.lineWidth * 1.6); }
+      // Dim wells below melt threshold
+      if (meltThresholdEnabled && (wellPeakDeriv.get(well) ?? 0) < meltThresholdValue) {
+        opacity = Math.min(opacity, 0.25);
+        lineWidth = Math.min(lineWidth, style.lineWidth * 0.6);
+      }
       result.push({
         x: melt.temperatureC, y: derData,
         type: 'scatter' as const, mode: 'lines' as const, name: well,
@@ -679,9 +701,17 @@ function MeltDerivMini() {
       });
     }
     return result;
-  }, [melt, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells, smoothMeltDeriv, smoothingWindow]);
+  }, [melt, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells, smoothMeltDeriv, smoothingWindow, meltThresholdEnabled, meltThresholdValue, wellPeakDeriv]);
 
   const layout = useMemo((): Partial<Layout> => {
+    const shapes: Partial<Shape>[] = [];
+    if (meltThresholdEnabled) {
+      shapes.push({
+        type: 'line', x0: 0, x1: 1, xref: 'paper',
+        y0: meltThresholdValue, y1: meltThresholdValue, yref: 'y',
+        line: { color: '#000000', width: 2.5, dash: 'dash' },
+      });
+    }
     return {
       xaxis: {
         title: { text: 'Temperature (°C)', font: { family: style.fontFamily, size: 9 } },
@@ -693,6 +723,7 @@ function MeltDerivMini() {
         tickfont: { family: style.fontFamily, size: 8 },
         ...gridStyle(style, isDark),
       },
+      shapes: shapes as Layout['shapes'],
       dragmode: false as Layout['dragmode'],
       autosize: true,
       margin: { l: 60, r: 10, t: 10, b: 35 },
@@ -700,7 +731,7 @@ function MeltDerivMini() {
       showlegend: false,
       datarevision: Date.now(),
     };
-  }, [style, traces]);
+  }, [style, traces, meltThresholdEnabled, meltThresholdValue]);
 
   // Box select on melt derivative
   const visibleWellsRef = useRef(visibleWells);
@@ -741,6 +772,11 @@ function MeltDerivMini() {
     onDragMove: handleDragMove,
     onDragEnd: handleDragEnd,
     onEmptyClick: deselectAll,
+    meltThreshold: meltThresholdEnabled ? {
+      enabled: true,
+      value: meltThresholdValue,
+      setValue: setMeltThresholdValue,
+    } : undefined,
   });
 
   const handleClick = useCallback((event: Readonly<PlotMouseEvent>) => {
@@ -811,6 +847,8 @@ function MeltPlot() {
   const smoothingEnabled = useAppState((s) => s.smoothingEnabled);
   const smoothingWindow = useAppState((s) => s.smoothingWindow);
   const smoothingMeltDerivative = useAppState((s) => s.smoothingMeltDerivative);
+  const meltThresholdEnabled = useAppState((s) => s.meltThresholdEnabled);
+  const meltThresholdValue = useAppState((s) => s.meltThresholdValue);
 
   const exp = experiments[idx];
   const melt = exp?.melt;
@@ -829,6 +867,19 @@ function MeltPlot() {
   const hasDerivative = melt && Object.keys(melt.derivative).length > 0;
   const smoothMeltDeriv = smoothingEnabled && smoothingMeltDerivative;
 
+  // Pre-compute peak -dF/dT per well for threshold dimming
+  const wellPeakDeriv = useMemo(() => {
+    if (!melt || !hasDerivative) return new Map<string, number>();
+    const peaks = new Map<string, number>();
+    for (const well of visibleWells) {
+      let derData = melt.derivative[well];
+      if (!derData) continue;
+      if (smoothMeltDeriv) derData = savitzkyGolaySmooth(derData, smoothingWindow);
+      peaks.set(well, Math.max(...derData));
+    }
+    return peaks;
+  }, [melt, visibleWells, hasDerivative, smoothMeltDeriv, smoothingWindow]);
+
   const traces = useMemo((): Data[] => {
     if (!melt) return [];
     const result: Data[] = [];
@@ -846,6 +897,11 @@ function MeltPlot() {
       if (isDragHighlighted === true) { lineWidth = style.lineWidth * 1.4; opacity = 1.0; }
       else if (isDragHighlighted === false) { opacity = 0.15; }
       if (isHovered) { lineWidth = Math.max(lineWidth, style.lineWidth * 1.6); }
+      // Dim wells below melt threshold (also dims RFU trace)
+      if (meltThresholdEnabled && (wellPeakDeriv.get(well) ?? 0) < meltThresholdValue) {
+        opacity = Math.min(opacity, 0.25);
+        lineWidth = Math.min(lineWidth, style.lineWidth * 0.6);
+      }
       result.push({
         x: melt.temperatureC, y: rfuData,
         type: 'scatter' as const, mode: 'lines' as const, name: well,
@@ -869,6 +925,11 @@ function MeltPlot() {
         if (isDragHighlighted === true) { lineWidth = style.lineWidth * 1.4; opacity = 1.0; }
         else if (isDragHighlighted === false) { opacity = 0.15; }
         if (isHovered) { lineWidth = Math.max(lineWidth, style.lineWidth * 1.6); }
+        // Dim derivative traces below melt threshold
+        if (meltThresholdEnabled && (wellPeakDeriv.get(well) ?? 0) < meltThresholdValue) {
+          opacity = Math.min(opacity, 0.25);
+          lineWidth = Math.min(lineWidth, style.lineWidth * 0.6);
+        }
         result.push({
           x: melt.temperatureC, y: derData,
           type: 'scatter' as const, mode: 'lines' as const, name: well,
@@ -879,17 +940,26 @@ function MeltPlot() {
       }
     }
     return result;
-  }, [melt, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells, smoothMeltDeriv, smoothingWindow]);
+  }, [melt, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells, smoothMeltDeriv, smoothingWindow, meltThresholdEnabled, meltThresholdValue, wellPeakDeriv]);
 
   const layout = useMemo((): Partial<Layout> => {
     const title = exp?.experimentId ? `${exp.experimentId} — Melt` : 'Melt Curve';
     const grid = gridStyle(style, isDark);
+    const shapes: Partial<Shape>[] = [];
+    if (meltThresholdEnabled && hasDerivative) {
+      shapes.push({
+        type: 'line', x0: 0, x1: 1, xref: 'paper',
+        y0: meltThresholdValue, y1: meltThresholdValue, yref: 'y2',
+        line: { color: '#000000', width: 2.5, dash: 'dash' },
+      });
+    }
     if (hasDerivative) {
       return {
         title: { text: title, font: { family: style.fontFamily, size: style.titleSize } },
         xaxis: { title: { text: 'Temperature (°C)', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, ...grid },
         yaxis: { title: { text: 'RFU', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, domain: [0.55, 1], ...grid },
         yaxis2: { title: { text: '-dF/dT', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, domain: [0, 0.45], anchor: 'x', ...grid },
+        shapes: shapes as Layout['shapes'],
         dragmode: false as Layout['dragmode'], autosize: true, margin: { l: 70, r: 20, t: 50, b: 50 },
         plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) }, ...legendLayout(style, showLegendMelt, traces, isDark),
         datarevision: Date.now(),
@@ -903,7 +973,7 @@ function MeltPlot() {
       plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) }, ...legendLayout(style, showLegendMelt, traces, isDark),
       datarevision: Date.now(),
     };
-  }, [exp, style, hasDerivative, traces, showLegendMelt]);
+  }, [exp, style, hasDerivative, traces, showLegendMelt, meltThresholdEnabled, meltThresholdValue]);
 
   // Box select on melt plot (uses RFU y-axis for matching)
   const visibleWellsRef = useRef(visibleWells);

@@ -241,7 +241,7 @@ export function WellGrid() {
               style={{
                 width: CELL_SIZE, height: CELL_SIZE,
                 backgroundColor: bgColor,
-                border: `${isSelected ? 2 : isDragHighlighted === true ? 2 : 1}px solid ${isSelected ? WELL_SELECTED_BORDER : isDragHighlighted === true ? WELL_SELECTED_BORDER : 'var(--border)'}`,
+                border: `${isSelected ? 2 : isDragHighlighted === true ? 2 : 1}px solid ${isSelected ? WELL_SELECTED_BORDER : isDragHighlighted === true ? WELL_SELECTED_BORDER : 'rgba(0,0,0,0.18)'}`,
                 borderRadius: 3,
                 opacity: cellOpacity,
                 outline: isHovered ? `2px solid ${WELL_SELECTED_BORDER}` : 'none',

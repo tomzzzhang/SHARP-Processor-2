@@ -1,5 +1,6 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { readFile } from '@tauri-apps/plugin-fs';
+import { open as dialogOpen } from '@tauri-apps/plugin-dialog';
 import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { Button } from '@/components/ui/button';
@@ -16,28 +17,52 @@ export function DataTab() {
   const xAxisMode = useAppState((s) => s.xAxisMode);
   const figureDpi = useAppState((s) => s.figureDpi);
   const exp = experiments[idx];
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const analysisResults = useAnalysisResults();
   const [exportStatus, setExportStatus] = useState<string | null>(null);
-
-  const handleFileSelect = useCallback(async (files: FileList | null) => {
-    if (!files) return;
-    for (const file of Array.from(files)) {
-      if (!file.name.endsWith('.sharp')) continue;
-      const buffer = await file.arrayBuffer();
-      const experiment = await loadSharpFile(buffer, file.name);
-      loadExperiment(experiment);
-    }
-  }, [loadExperiment]);
-
-  const visibleWells = exp
-    ? exp.wellsUsed.filter((w) => !hiddenWells.has(w))
-    : [];
 
   const showStatus = (msg: string) => {
     setExportStatus(msg);
     setTimeout(() => setExportStatus(null), 3000);
   };
+
+  const openFilePath = useCallback(async (filePath: string) => {
+    if (!isSupportedFile(filePath)) return;
+    try {
+      let experiment;
+      if (isInstrumentFile(filePath)) {
+        experiment = await loadInstrumentFile(filePath);
+      } else {
+        const bytes = await readFile(filePath);
+        experiment = await loadSharpFile(bytes.buffer as ArrayBuffer, filePath.split(/[/\\]/).pop()!);
+      }
+      addRecentFile(filePath);
+      loadExperiment(experiment, filePath);
+    } catch (err) {
+      showStatus(`Failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [loadExperiment]);
+
+  const handleOpen = useCallback(async () => {
+    const path = await dialogOpen({
+      filters: [
+        { name: 'Experiment Files', extensions: ['sharp', 'pcrd', 'tlpd', 'eds', 'amxd', 'adxd'] },
+        { name: 'SHARP Files', extensions: ['sharp'] },
+        { name: 'BioRad .pcrd', extensions: ['pcrd'] },
+        { name: 'TianLong .tlpd', extensions: ['tlpd'] },
+        { name: 'ThermoFisher .eds', extensions: ['eds'] },
+        { name: 'Agilent .amxd', extensions: ['amxd', 'adxd'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+      multiple: false,
+    });
+    if (!path) return;
+    const filePath = typeof path === 'string' ? path : path[0];
+    if (filePath) await openFilePath(filePath);
+  }, [openFilePath]);
+
+  const visibleWells = exp
+    ? exp.wellsUsed.filter((w) => !hiddenWells.has(w))
+    : [];
 
   const handleExportPlot = useCallback(async (format: 'png' | 'svg' | 'jpeg') => {
     const plotDiv = document.querySelector('.js-plotly-plot') as HTMLElement | null;
@@ -90,23 +115,6 @@ export function DataTab() {
     }
   }, [exp]);
 
-  const openFilePath = useCallback(async (filePath: string) => {
-    if (!isSupportedFile(filePath)) return;
-    try {
-      let experiment;
-      if (isInstrumentFile(filePath)) {
-        experiment = await loadInstrumentFile(filePath);
-      } else {
-        const bytes = await readFile(filePath);
-        experiment = await loadSharpFile(bytes.buffer as ArrayBuffer, filePath.split(/[/\\]/).pop()!);
-      }
-      addRecentFile(filePath);
-      loadExperiment(experiment, filePath);
-    } catch (err) {
-      showStatus(`Failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }, [loadExperiment]);
-
   if (!exp) {
     const recentFiles = getRecentFiles();
     return (
@@ -117,17 +125,10 @@ export function DataTab() {
         <Button
           variant="outline"
           className="w-full"
-          onClick={() => fileInputRef.current?.click()}
+          onClick={handleOpen}
         >
           Load file...
         </Button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".sharp,.pcrd,.tlpd,.eds,.amxd,.adxd"
-          className="hidden"
-          onChange={(e) => handleFileSelect(e.target.files)}
-        />
         <p className="text-xs text-muted-foreground text-center">
           or drag & drop a file anywhere
         </p>
@@ -212,17 +213,10 @@ export function DataTab() {
         variant="outline"
         size="sm"
         className="w-full"
-        onClick={() => fileInputRef.current?.click()}
+        onClick={handleOpen}
       >
         Open another file...
       </Button>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".sharp"
-        className="hidden"
-        onChange={(e) => handleFileSelect(e.target.files)}
-      />
     </div>
   );
 }

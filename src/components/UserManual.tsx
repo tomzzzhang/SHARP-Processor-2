@@ -71,24 +71,59 @@ const sections: Section[] = [
     title: 'Window Layout',
     content: (
       <div className="space-y-3">
-        <pre className="text-[10px] leading-snug bg-muted/50 rounded p-3 overflow-x-auto font-mono">
-{`┌── Sidebar ──┬── X-axis: ○Cycle ○Sec ○Min ──────────┬──┐
-│             │  Amplification │ Melt │ Doubling Time │  │
-│  [Data]     │                                       │Q │
-│  [Wells]    │         Plot Area              ☐ Log  │u │
-│  [Analysis] │                                Scale  │i │
-│  [Style]    │                                       │c │
-│             ├───────────────────────────────────────-│k │
-│             │     Melt derivative mini-plot          │  │
-│             ├───────────────────────────────────────-│  │
-│             │     Results Table                      │  │
-└─────────────┴───────────────────────────────────────-┴──┘`}
-        </pre>
+        {/* Visual layout diagram */}
+        <div className="border border-border rounded overflow-hidden text-[9px] leading-none font-mono bg-muted/30">
+          {/* Menu bar */}
+          <div className="flex items-center gap-3 px-2 py-1 border-b border-border bg-muted/50 text-muted-foreground">
+            <span>File</span><span>Edit</span><span>View</span><span>Tools</span><span>Export</span><span>Help</span>
+          </div>
+          <div className="flex">
+            {/* Sidebar */}
+            <div className="w-[90px] border-r border-border p-1.5 space-y-1 shrink-0">
+              <div className="text-[8px] font-semibold text-muted-foreground mb-1">Sidebar</div>
+              {['Data', 'Wells', 'Analysis', 'Style'].map(t => (
+                <div key={t} className="px-1 py-0.5 rounded bg-muted/50 text-center">{t}</div>
+              ))}
+            </div>
+            {/* Main area */}
+            <div className="flex-1 flex flex-col min-w-0">
+              {/* X-axis bar */}
+              <div className="flex items-center gap-2 px-2 py-0.5 border-b border-border text-muted-foreground">
+                <span>X-axis:</span>
+                <span>○ Cycle</span><span>○ Sec</span><span>● Min</span>
+              </div>
+              {/* Plot tabs */}
+              <div className="flex border-b border-border">
+                <div className="px-2 py-0.5 font-semibold border-b border-foreground">Amplification</div>
+                <div className="px-2 py-0.5 text-muted-foreground">Melt</div>
+                <div className="px-2 py-0.5 text-muted-foreground">Doubling Time</div>
+              </div>
+              {/* Plot area */}
+              <div className="flex">
+                <div className="flex-1 h-[60px] flex items-center justify-center text-muted-foreground bg-background m-1 rounded border border-border/50">
+                  Plot Area
+                </div>
+                <div className="w-[18px] border-l border-border flex items-center justify-center text-muted-foreground" style={{ writingMode: 'vertical-rl', fontSize: 8 }}>
+                  Quick
+                </div>
+              </div>
+              {/* Melt deriv mini-plot */}
+              <div className="h-[24px] flex items-center justify-center text-muted-foreground border-t border-border bg-background mx-1 mb-0.5 rounded border-border/50">
+                Melt derivative mini-plot
+              </div>
+              {/* Results table */}
+              <div className="border-t border-border px-2 py-1 text-muted-foreground">
+                Results Table (Well · Sample · Tt · Tm · Call · End RFU)
+              </div>
+            </div>
+          </div>
+        </div>
+
         <ul className="list-disc pl-5 space-y-1">
-          <li><strong>Left sidebar</strong> — four tabs: Data, Wells, Analysis, Style (resizable)</li>
-          <li><strong>Centre</strong> — plot tabs with optional melt mini-plot below</li>
-          <li><strong>Right edge</strong> — collapsible quick-action panel (click MENU to toggle)</li>
-          <li><strong>Bottom</strong> — results table (resizable)</li>
+          <li><strong>Left sidebar</strong> — four tabs: Data, Wells, Analysis, Style (resizable drag-border)</li>
+          <li><strong>Centre</strong> — plot tabs with optional melt derivative mini-plot below</li>
+          <li><strong>Right edge</strong> — collapsible quick-action panel</li>
+          <li><strong>Bottom</strong> — results table with sortable columns (resizable drag-border)</li>
         </ul>
       </div>
     ),
@@ -453,7 +488,7 @@ export function UserManual({ onClose }: UserManualProps) {
             </div>
           ))}
           <div className="text-center text-muted-foreground text-[10px] py-4 border-t border-border mt-4">
-            SHARP Processor 2 · SHARP Diagnostics · 2026
+            SHARP Processor 2 · © 2026 SHARP Diagnostics, Inc. All rights reserved.
           </div>
         </div>
       </div>

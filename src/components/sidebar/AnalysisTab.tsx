@@ -27,6 +27,10 @@ export function AnalysisTab() {
   const setSmoothingEnabled = useAppState((s) => s.setSmoothingEnabled);
   const setSmoothingWindow = useAppState((s) => s.setSmoothingWindow);
   const setSmoothingMeltDerivative = useAppState((s) => s.setSmoothingMeltDerivative);
+  const meltThresholdEnabled = useAppState((s) => s.meltThresholdEnabled);
+  const meltThresholdValue = useAppState((s) => s.meltThresholdValue);
+  const setMeltThresholdEnabled = useAppState((s) => s.setMeltThresholdEnabled);
+  const setMeltThresholdValue = useAppState((s) => s.setMeltThresholdValue);
   const setWellBaselineOverride = useAppState((s) => s.setWellBaselineOverride);
   const clearWellBaselineOverrides = useAppState((s) => s.clearWellBaselineOverrides);
 
@@ -208,6 +212,35 @@ export function AnalysisTab() {
 
         <p className="text-xs text-muted-foreground italic">
           Drag the red dashed line on the plot to adjust
+        </p>
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Melt Threshold" defaultOpen={false}>
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={meltThresholdEnabled}
+            onCheckedChange={(v) => setMeltThresholdEnabled(v === true)}
+          />
+          Enable melt threshold
+        </label>
+
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Threshold:</span>
+          <input
+            type="number"
+            min={0}
+            max={100000}
+            step={0.1}
+            value={meltThresholdValue}
+            onChange={(e) => setMeltThresholdValue(Number(e.target.value))}
+            disabled={!meltThresholdEnabled}
+            className="w-24 h-7 border rounded px-1 text-sm bg-background disabled:opacity-40"
+          />
+          <span className="text-muted-foreground">-dF/dT</span>
+        </div>
+
+        <p className="text-xs text-muted-foreground italic">
+          Wells with peak -dF/dT below this value are dimmed on melt plots
         </p>
       </CollapsibleSection>
 

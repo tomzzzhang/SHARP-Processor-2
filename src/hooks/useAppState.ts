@@ -51,6 +51,10 @@ export interface ExperimentViewState {
   thresholdEnabled: boolean;
   thresholdRfu: number;
 
+  // Analysis - Melt Threshold
+  meltThresholdEnabled: boolean;
+  meltThresholdValue: number;  // -dF/dT threshold
+
   // Analysis - Smoothing
   smoothingEnabled: boolean;
   smoothingWindow: number;  // odd, 5-21
@@ -105,6 +109,8 @@ function defaultViewState(wellsUsed: string[] = []): ExperimentViewState {
     showRawOverlay: false,
     thresholdEnabled: false,
     thresholdRfu: DEFAULT_THRESHOLD_RFU,
+    meltThresholdEnabled: true,
+    meltThresholdValue: 400,
     smoothingEnabled: false,
     smoothingWindow: 7,
     smoothingMeltDerivative: true,
@@ -154,6 +160,8 @@ function snapshotViewState(state: AppState): ExperimentViewState {
     showRawOverlay: state.showRawOverlay,
     thresholdEnabled: state.thresholdEnabled,
     thresholdRfu: state.thresholdRfu,
+    meltThresholdEnabled: state.meltThresholdEnabled,
+    meltThresholdValue: state.meltThresholdValue,
     smoothingEnabled: state.smoothingEnabled,
     smoothingWindow: state.smoothingWindow,
     smoothingMeltDerivative: state.smoothingMeltDerivative,
@@ -259,6 +267,8 @@ interface AppState extends ExperimentViewState {
   setShowRawOverlay: (on: boolean) => void;
   setThresholdEnabled: (on: boolean) => void;
   setThresholdRfu: (rfu: number) => void;
+  setMeltThresholdEnabled: (on: boolean) => void;
+  setMeltThresholdValue: (value: number) => void;
   setSmoothingEnabled: (on: boolean) => void;
   setSmoothingWindow: (window: number) => void;
   setSmoothingMeltDerivative: (on: boolean) => void;
@@ -664,6 +674,8 @@ export const useAppState = create<AppState>((set, get) => ({
   setShowRawOverlay: (on) => set({ showRawOverlay: on }),
   setThresholdEnabled: (on) => { get().pushUndo('Toggle threshold'); set({ thresholdEnabled: on }); },
   setThresholdRfu: (rfu) => set({ thresholdRfu: rfu }),
+  setMeltThresholdEnabled: (on) => { get().pushUndo('Toggle melt threshold'); set({ meltThresholdEnabled: on }); },
+  setMeltThresholdValue: (value) => set({ meltThresholdValue: value }),
   setSmoothingEnabled: (on) => { get().pushUndo('Toggle smoothing'); set({ smoothingEnabled: on }); },
   setSmoothingWindow: (window) => set({ smoothingWindow: window }),
   setSmoothingMeltDerivative: (on) => set({ smoothingMeltDerivative: on }),
