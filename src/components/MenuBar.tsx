@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { open as dialogOpen } from '@tauri-apps/plugin-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { useAppState } from '@/hooks/useAppState';
+import { MOD_KEY } from '@/lib/constants';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { loadSharpFile } from '@/lib/sharp-loader';
 import { isInstrumentFile, isSupportedFile, loadInstrumentFile } from '@/lib/instrument-loader';
@@ -203,9 +204,9 @@ export function MenuBar({ onOpenWizard }: { onOpenWizard?: () => void } = {}) {
     {
       label: 'File',
       items: [
-        { label: 'Open...', shortcut: 'Ctrl+O', action: handleOpen },
+        { label: 'Open...', shortcut: `${MOD_KEY}+O`, action: handleOpen },
         { separator: true },
-        { label: 'Save', shortcut: 'Ctrl+S', action: handleSave, disabled: !hasData },
+        { label: 'Save', shortcut: `${MOD_KEY}+S`, action: handleSave, disabled: !hasData },
         { label: 'Save as .sharp', action: () => exp && exportAsSharp(exp), disabled: !hasData },
         ...(recentFiles.length > 0 ? [
           { separator: true } as MenuItem,
@@ -219,15 +220,15 @@ export function MenuBar({ onOpenWizard }: { onOpenWizard?: () => void } = {}) {
     {
       label: 'Edit',
       items: [
-        { label: `Undo${getUndoDescription() ? ` ${getUndoDescription()}` : ''}`, shortcut: 'Ctrl+Z', action: undo, disabled: !hasData || !canUndo() },
-        { label: `Redo${getRedoDescription() ? ` ${getRedoDescription()}` : ''}`, shortcut: 'Ctrl+Shift+Z', action: redo, disabled: !hasData || !canRedo() },
+        { label: `Undo${getUndoDescription() ? ` ${getUndoDescription()}` : ''}`, shortcut: `${MOD_KEY}+Z`, action: undo, disabled: !hasData || !canUndo() },
+        { label: `Redo${getRedoDescription() ? ` ${getRedoDescription()}` : ''}`, shortcut: `${MOD_KEY}+Shift+Z`, action: redo, disabled: !hasData || !canRedo() },
         { separator: true },
-        { label: 'Select All Wells', shortcut: 'Ctrl+A', action: selectAll, disabled: !hasData },
+        { label: 'Select All Wells', shortcut: `${MOD_KEY}+A`, action: selectAll, disabled: !hasData },
         { label: 'Deselect All', action: deselectAll, disabled: !hasData },
         { separator: true },
-        { label: 'Toggle Visibility', shortcut: 'Ctrl+H', action: handleToggleVisibility, disabled: !hasData || selArray.length === 0 },
-        { label: 'Group...', shortcut: 'Ctrl+G', action: handleGroup, disabled: !hasData || selArray.length === 0 },
-        { label: 'Ungroup', shortcut: 'Ctrl+Shift+G', action: handleUngroup, disabled: !hasData || selArray.length === 0 },
+        { label: 'Toggle Visibility', shortcut: `${MOD_KEY}+H`, action: handleToggleVisibility, disabled: !hasData || selArray.length === 0 },
+        { label: 'Group...', shortcut: `${MOD_KEY}+G`, action: handleGroup, disabled: !hasData || selArray.length === 0 },
+        { label: 'Ungroup', shortcut: `${MOD_KEY}+Shift+G`, action: handleUngroup, disabled: !hasData || selArray.length === 0 },
         { label: 'Auto-group by Sample', action: autoGroupBySample, disabled: !hasData },
       ],
     },
@@ -259,7 +260,7 @@ export function MenuBar({ onOpenWizard }: { onOpenWizard?: () => void } = {}) {
     {
       label: 'Export',
       items: [
-        { label: 'Plot as PNG', shortcut: 'Ctrl+Shift+E', action: () => handleExportPlot('png'), disabled: !hasData },
+        { label: 'Plot as PNG', shortcut: `${MOD_KEY}+Shift+E`, action: () => handleExportPlot('png'), disabled: !hasData },
         { label: 'Plot as SVG', action: () => handleExportPlot('svg'), disabled: !hasData },
         { label: 'Plot as JPEG', action: () => handleExportPlot('jpeg'), disabled: !hasData },
         { separator: true },
