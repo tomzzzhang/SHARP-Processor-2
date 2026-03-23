@@ -239,7 +239,6 @@ const sections: Section[] = [
           <table className="w-full text-xs border border-border rounded">
             <thead><tr><TH>Item</TH><TH>Action</TH></tr></thead>
             <tbody>
-              <tr><TD>Activate / Deactivate</TD><TD>Include or exclude selected wells from analysis</TD></tr>
               <tr><TD>Show / Hide</TD><TD>Toggle plot visibility</TD></tr>
               <tr><TD>Deselect All</TD><TD>Clear the selection</TD></tr>
               <tr><TD>Sample Type ›</TD><TD>Classify selected wells</TD></tr>

@@ -48,8 +48,6 @@ export function QuickStylePanel() {
   const selectedWells = useAppState((s) => s.selectedWells);
   const showWells = useAppState((s) => s.showWells);
   const hideWells = useAppState((s) => s.hideWells);
-  const activateWells = useAppState((s) => s.activateWells);
-  const deactivateWells = useAppState((s) => s.deactivateWells);
   const deselectAll = useAppState((s) => s.deselectAll);
   const setWellContentType = useAppState((s) => s.setWellContentType);
   const setWellStyleOverride = useAppState((s) => s.setWellStyleOverride);
@@ -162,12 +160,6 @@ export function QuickStylePanel() {
           <div className="text-[10px] text-muted-foreground">
             {n > 0 ? `${n} well${n > 1 ? 's' : ''} selected` : 'No selection'}
           </div>
-
-          {/* Activation */}
-          <PanelSection title="Activation">
-            {btn('Activate', () => activateWells(wells), n === 0)}
-            {btn('Deactivate', () => deactivateWells(wells), n === 0)}
-          </PanelSection>
 
           {/* Visibility */}
           <PanelSection title="Visibility">

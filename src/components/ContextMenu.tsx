@@ -60,8 +60,6 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
   const selectedWells = useAppState((s) => s.selectedWells);
   const showWells = useAppState((s) => s.showWells);
   const hideWells = useAppState((s) => s.hideWells);
-  const activateWells = useAppState((s) => s.activateWells);
-  const deactivateWells = useAppState((s) => s.deactivateWells);
   const deselectAll = useAppState((s) => s.deselectAll);
   const setWellContentType = useAppState((s) => s.setWellContentType);
   const setWellStyleOverride = useAppState((s) => s.setWellStyleOverride);
@@ -190,11 +188,6 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
       <div className="px-3 py-1 text-xs text-muted-foreground font-medium border-b mb-0.5">
         {n > 0 ? `${n} well${n > 1 ? 's' : ''} selected` : 'No wells selected'}
       </div>
-
-      {/* Activation */}
-      {itemWithHover('Activate', () => activateWells(wells), n === 0)}
-      {itemWithHover('Deactivate', () => deactivateWells(wells), n === 0)}
-      {sep('s1')}
 
       {/* Visibility */}
       {itemWithHover('Show', () => showWells(wells), n === 0)}
