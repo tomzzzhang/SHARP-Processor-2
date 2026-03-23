@@ -6,16 +6,27 @@ echo "==================================="
 echo " Building SHARP Processor 2 (macOS)"
 echo "==================================="
 
+# Build into a local folder inside the project
+export CARGO_TARGET_DIR="$(pwd)/build-cache"
 npx tauri build
 
-BUNDLE_DIR="src-tauri/target/release/bundle"
-if [ -d "$BUNDLE_DIR/dmg" ]; then
-    echo ""
-    echo "Build complete!"
-    echo "DMG: $BUNDLE_DIR/dmg/"
-    echo "App: $BUNDLE_DIR/macos/"
-    open "$BUNDLE_DIR/dmg"
-else
-    echo ""
-    echo "*** No DMG bundle found at $BUNDLE_DIR/dmg ***"
+# Copy final DMG/app into project folder
+OUT="$(pwd)/dist-release"
+mkdir -p "$OUT"
+
+BUNDLE_DIR="$CARGO_TARGET_DIR/release/bundle"
+if ls "$BUNDLE_DIR"/dmg/*.dmg 1>/dev/null 2>&1; then
+    cp -f "$BUNDLE_DIR"/dmg/*.dmg "$OUT/"
+    echo "Copied DMG to dist-release/"
 fi
+if [ -d "$BUNDLE_DIR/macos" ]; then
+    # Use ditto to preserve .app symlinks and signatures
+    for app in "$BUNDLE_DIR"/macos/*.app; do
+        ditto "$app" "$OUT/$(basename "$app")"
+    done
+    echo "Copied .app to dist-release/"
+fi
+
+echo ""
+echo "Build complete!  Output: dist-release/"
+open "$OUT"

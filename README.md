@@ -19,12 +19,22 @@
 
 ## Download & Install
 
+### Windows
+
 1. Click the **Download** button above (or go to the [Releases](https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest) page)
 2. Download **`SHARP Processor 2_x64-setup.exe`**
 3. Double-click the installer and follow the prompts
 4. Open **SHARP Processor 2** from the Start Menu or desktop shortcut
 
 > **Windows may show a SmartScreen warning** the first time you run the app ("Windows protected your PC"). This is normal for new apps that haven't been code-signed yet. Click **"More info"** → **"Run anyway"** to proceed.
+
+### macOS
+
+1. Download the **`.dmg`** file from the [Releases](https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest) page
+2. Open the DMG and drag **SHARP Processor 2** to your Applications folder
+3. **First launch:** Right-click the app → **Open** (bypasses the "unidentified developer" warning)
+
+> macOS builds are currently ad-hoc signed. After the first launch via right-click, subsequent launches work normally.
 
 ---
 
@@ -93,9 +103,9 @@ Go to **Export** in the menu bar:
 
 | Shortcut | What it does |
 |---|---|
-| `Ctrl+O` | Open a file |
-| `Ctrl+A` | Select all wells |
-| `Ctrl+H` | Show/hide selected wells on the plot |
+| `Ctrl/⌘+O` | Open a file |
+| `Ctrl/⌘+A` | Select all wells |
+| `Ctrl/⌘+H` | Show/hide selected wells on the plot |
 
 ---
 
@@ -140,7 +150,7 @@ A `.sharp` file is just a ZIP archive containing your experiment data in open fo
 ## Need Help?
 
 - Open an issue on [GitHub](https://github.com/tomzzzhang/SHARP-Processor-2/issues)
-- Check the in-app help: **Help → User Guide**
+- Check the in-app help: **Help → User Manual**
 
 ---
 
@@ -182,7 +192,9 @@ All formats are parsed into the universal `.sharp` archive format for consistent
 ### Prerequisites
 
 - Node.js 24+
-- Rust 1.94+ with VS 2022 Build Tools (C++ desktop workload)
+- Rust 1.94+
+- **Windows:** VS 2022 Build Tools (C++ desktop workload)
+- **macOS:** Xcode Command Line Tools (`xcode-select --install`)
 - Python 3.13 in the `sharp` conda environment (for instrument file parsing sidecar)
 
 ### Setup & Run
@@ -190,20 +202,26 @@ All formats are parsed into the universal `.sharp` archive format for consistent
 ```bash
 npm install
 
-# Windows — set CARGO_TARGET_DIR to avoid OneDrive sync on Rust target/
+# Windows — double-click dev.bat, or:
 set CARGO_TARGET_DIR=C:\tauri-build-cache
 npx tauri dev
-```
 
-Or double-click `dev.bat`.
+# macOS
+./dev.sh
+```
 
 ### Build Release Installers
 
 ```bash
+# Windows — double-click build.bat, or:
+set CARGO_TARGET_DIR=C:\tauri-build-cache
 npx tauri build
+
+# macOS
+./build.sh
 ```
 
-Or double-click `build.bat`. Produces NSIS (`.exe`) and MSI installers in `target/release/bundle/`.
+Build output goes to `dist-release/` inside the project folder on both platforms.
 
 ### Documentation
 

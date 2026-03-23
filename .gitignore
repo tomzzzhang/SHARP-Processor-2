@@ -23,5 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 
-# Tauri
+# Tauri / Build
 src-tauri/target/
+build-cache/
+dist-release/
