@@ -79,7 +79,7 @@ function MenuDropdown({ menu, isOpen, onOpen, onClose }: {
   );
 }
 
-export function MenuBar({ onOpenWizard }: { onOpenWizard?: () => void } = {}) {
+export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => void; onOpenManual?: () => void } = {}) {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [_saveStatus, setSaveStatus] = useState<string | null>(null);
   const [currentTheme, setCurrentTheme] = useState<AppTheme>(getTheme());
@@ -275,7 +275,7 @@ export function MenuBar({ onOpenWizard }: { onOpenWizard?: () => void } = {}) {
     {
       label: 'Help',
       items: [
-        { label: 'User Manual...', action: () => { /* TODO: open help page */ } },
+        { label: 'User Manual...', action: () => onOpenManual?.() },
         { separator: true },
         { label: 'About SHARP Processor 2', action: () => { /* TODO: about dialog */ } },
       ],

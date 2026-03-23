@@ -2,9 +2,11 @@
 echo ===================================
 echo  Building SHARP Processor 2
 echo ===================================
-set CARGO_TARGET_DIR=C:\tauri-build-cache
 set PATH=%USERPROFILE%\.cargo\bin;%PATH%
 cd /d "%~dp0"
+
+REM Build into a local folder (not C: drive) — but outside OneDrive sync
+set CARGO_TARGET_DIR=%~dp0build-cache
 npx tauri build 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo.
@@ -13,13 +15,20 @@ if %ERRORLEVEL% NEQ 0 (
     pause
     exit /b %ERRORLEVEL%
 )
+
+REM Copy final installers into project folder
 echo.
-if exist "%CARGO_TARGET_DIR%\release\bundle\nsis" (
-    echo Build complete!
-    echo Output: %CARGO_TARGET_DIR%\release\bundle\
-    explorer "%CARGO_TARGET_DIR%\release\bundle\nsis"
-) else (
-    echo Build may have failed — no bundle found.
-    echo Expected output: %CARGO_TARGET_DIR%\release\bundle\
+set OUT=%~dp0dist-release
+if not exist "%OUT%" mkdir "%OUT%"
+if exist "%CARGO_TARGET_DIR%\release\bundle\nsis\*.exe" (
+    copy /Y "%CARGO_TARGET_DIR%\release\bundle\nsis\*.exe" "%OUT%\" >nul
+    echo Copied NSIS installer to dist-release\
 )
+if exist "%CARGO_TARGET_DIR%\release\bundle\msi\*.msi" (
+    copy /Y "%CARGO_TARGET_DIR%\release\bundle\msi\*.msi" "%OUT%\" >nul
+    echo Copied MSI installer to dist-release\
+)
+echo.
+echo Build complete!  Output: dist-release\
+explorer "%OUT%"
 pause
