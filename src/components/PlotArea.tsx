@@ -363,7 +363,6 @@ function AmplificationPlot() {
   const logScale = useAppState((s) => s.logScale);
   const selectedWells = useAppState((s) => s.selectedWells);
   const hiddenWells = useAppState((s) => s.hiddenWells);
-  const deactivatedWells = useAppState((s) => s.deactivatedWells);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
   const setSelectedWells = useAppState((s) => s.setSelectedWells);
   const selectOnly = useAppState((s) => s.selectOnly);
@@ -393,8 +392,8 @@ function AmplificationPlot() {
 
   const visibleWells = useMemo(() => {
     if (!exp) return [];
-    return exp.wellsUsed.filter((w) => !hiddenWells.has(w) && !deactivatedWells.has(w));
-  }, [exp, hiddenWells, deactivatedWells]);
+    return exp.wellsUsed.filter((w) => !hiddenWells.has(w));
+  }, [exp, hiddenWells]);
 
   const colorMap = useGroupedColors(
     exp?.wellsUsed ?? [], visibleWells, style.palette, wellGroups, wellStyleOverrides,
@@ -453,7 +452,7 @@ function AmplificationPlot() {
       });
     }
     return result;
-  }, [amp, exp, xAxisMode, selectedWells, hiddenWells, deactivatedWells, style.lineWidth,
+  }, [amp, exp, xAxisMode, selectedWells, hiddenWells, style.lineWidth,
       style.legendVisibleOnly, visibleWells, baselineEnabled, showRawOverlay,
       analysisResults, wellStyleOverrides, colorMap, hoveredWell, dragPreviewWells]);
 
@@ -618,7 +617,6 @@ function MeltDerivMini() {
   const idx = useAppState((s) => s.activeExperimentIndex);
   const selectedWells = useAppState((s) => s.selectedWells);
   const hiddenWells = useAppState((s) => s.hiddenWells);
-  const deactivatedWells = useAppState((s) => s.deactivatedWells);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
   const wellGroups = useAppState((s) => s.wellGroups);
   const paletteReversed = useAppState((s) => s.paletteReversed);
@@ -645,8 +643,8 @@ function MeltDerivMini() {
 
   const visibleWells = useMemo(() => {
     if (!exp) return [];
-    return exp.wellsUsed.filter((w) => !hiddenWells.has(w) && !deactivatedWells.has(w));
-  }, [exp, hiddenWells, deactivatedWells]);
+    return exp.wellsUsed.filter((w) => !hiddenWells.has(w));
+  }, [exp, hiddenWells]);
 
   const colorMap = useGroupedColors(
     exp?.wellsUsed ?? [], visibleWells, style.palette, wellGroups, wellStyleOverrides,
@@ -828,7 +826,6 @@ function MeltPlot() {
   const idx = useAppState((s) => s.activeExperimentIndex);
   const selectedWells = useAppState((s) => s.selectedWells);
   const hiddenWells = useAppState((s) => s.hiddenWells);
-  const deactivatedWells = useAppState((s) => s.deactivatedWells);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
   const wellGroups = useAppState((s) => s.wellGroups);
   const paletteReversed = useAppState((s) => s.paletteReversed);
@@ -855,8 +852,8 @@ function MeltPlot() {
 
   const visibleWells = useMemo(() => {
     if (!exp) return [];
-    return exp.wellsUsed.filter((w) => !hiddenWells.has(w) && !deactivatedWells.has(w));
-  }, [exp, hiddenWells, deactivatedWells]);
+    return exp.wellsUsed.filter((w) => !hiddenWells.has(w));
+  }, [exp, hiddenWells]);
 
   const colorMap = useGroupedColors(
     exp?.wellsUsed ?? [], visibleWells, style.palette, wellGroups, wellStyleOverrides,
@@ -1261,7 +1258,6 @@ function PerWellDoublingPlot() {
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
   const hiddenWells = useAppState((s) => s.hiddenWells);
-  const deactivatedWells = useAppState((s) => s.deactivatedWells);
   const xAxisMode = useAppState((s) => s.xAxisMode);
   const showLegendDoubling = useAppState((s) => s.showLegendDoubling);
   const paletteReversed = useAppState((s) => s.paletteReversed);
@@ -1275,8 +1271,8 @@ function PerWellDoublingPlot() {
 
   const dtVisibleWells = useMemo(() => {
     if (!exp) return [];
-    return exp.wellsUsed.filter((w) => !hiddenWells.has(w) && !deactivatedWells.has(w));
-  }, [exp, hiddenWells, deactivatedWells]);
+    return exp.wellsUsed.filter((w) => !hiddenWells.has(w));
+  }, [exp, hiddenWells]);
 
   const colorMap = useGroupedColors(
     exp?.wellsUsed ?? [], dtVisibleWells, style.palette, wellGroups, wellStyleOverrides,
