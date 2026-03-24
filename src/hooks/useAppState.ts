@@ -199,8 +199,8 @@ interface UndoEntry {
 const MAX_UNDO_DEPTH = 50;
 
 interface AppState extends ExperimentViewState {
-  // Data
-  experiments: ExperimentData[];
+  // Data (null entries represent empty "home" tabs)
+  experiments: (ExperimentData | null)[];
   activeExperimentIndex: number;
 
   // Source file paths (index → file path that was opened)
@@ -220,6 +220,7 @@ interface AppState extends ExperimentViewState {
   _restoringSnapshot: boolean;
 
   // Actions
+  addEmptyTab: () => void;
   loadExperiment: (data: ExperimentData, sourcePath?: string) => void;
   getActiveSourcePath: () => string | undefined;
   pushUndo: (description: string) => void;
@@ -301,7 +302,7 @@ interface AppState extends ExperimentViewState {
 }
 
 export const useAppState = create<AppState>((set, get) => ({
-  experiments: [],
+  experiments: [null],  // Start with one Welcome tab
   activeExperimentIndex: 0,
   sourceFilePaths: new Map(),
   _experimentSnapshots: new Map(),
@@ -315,10 +316,49 @@ export const useAppState = create<AppState>((set, get) => ({
   // Spread default view state as initial top-level fields
   ...defaultViewState(),
 
+  addEmptyTab: () =>
+    set((state) => {
+      const snapshots = new Map(state._experimentSnapshots);
+      if (state.experiments.length > 0) {
+        snapshots.set(state.activeExperimentIndex, snapshotViewState(state));
+      }
+      const newIndex = state.experiments.length;
+      const newView = defaultViewState();
+      snapshots.set(newIndex, newView);
+      return {
+        experiments: [...state.experiments, null],
+        activeExperimentIndex: newIndex,
+        _experimentSnapshots: snapshots,
+        hoveredWell: null,
+        dragPreviewWells: null,
+        ...newView,
+      };
+    }),
+
   loadExperiment: (data, sourcePath?) =>
     set((state) => {
       const snapshots = new Map(state._experimentSnapshots);
       const paths = new Map(state.sourceFilePaths);
+      const currentIsEmpty = state.experiments[state.activeExperimentIndex] === null;
+
+      if (currentIsEmpty) {
+        // Replace the current empty/Welcome tab with this experiment
+        const idx = state.activeExperimentIndex;
+        const newView = defaultViewState(data.wellsUsed);
+        const exps = [...state.experiments];
+        exps[idx] = data;
+        snapshots.set(idx, newView);
+        if (sourcePath) paths.set(idx, sourcePath);
+        return {
+          experiments: exps,
+          sourceFilePaths: paths,
+          _experimentSnapshots: snapshots,
+          hoveredWell: null,
+          dragPreviewWells: null,
+          ...newView,
+        };
+      }
+
       // Save current experiment's view state before switching
       if (state.experiments.length > 0) {
         snapshots.set(state.activeExperimentIndex, snapshotViewState(state));
@@ -431,7 +471,19 @@ export const useAppState = create<AppState>((set, get) => ({
 
   removeExperiment: (index) =>
     set((state) => {
-      if (state.experiments.length <= 1) return {}; // Don't remove the last one
+      if (state.experiments.length <= 1) {
+        // Last tab — replace with Welcome instead of removing
+        const newView = defaultViewState();
+        return {
+          experiments: [null],
+          activeExperimentIndex: 0,
+          sourceFilePaths: new Map(),
+          _experimentSnapshots: new Map([[0, newView]]),
+          hoveredWell: null,
+          dragPreviewWells: null,
+          ...newView,
+        };
+      }
       const experiments = state.experiments.filter((_, i) => i !== index);
       const snapshots = new Map<number, ExperimentViewState>();
       const paths = new Map<number, string>();

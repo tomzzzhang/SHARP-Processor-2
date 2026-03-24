@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { loadSharpFile } from '@/lib/sharp-loader';
 import { isInstrumentFile, isSupportedFile, loadInstrumentFile } from '@/lib/instrument-loader';
 import { exportPlotImage, exportDataCsv, exportResultsCsv, exportMeltCsv, exportAsSharp } from '@/lib/export';
-import { getRecentFiles, addRecentFile } from '@/lib/recent-files';
+import { addRecentFile } from '@/lib/recent-files';
 
 export function DataTab() {
   const experiments = useAppState((s) => s.experiments);
@@ -35,7 +35,7 @@ export function DataTab() {
         const bytes = await readFile(filePath);
         experiment = await loadSharpFile(bytes.buffer as ArrayBuffer, filePath.split(/[/\\]/).pop()!);
       }
-      addRecentFile(filePath);
+      addRecentFile(filePath, experiment.wellsUsed?.length);
       loadExperiment(experiment, filePath);
     } catch (err) {
       showStatus(`Failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -115,48 +115,7 @@ export function DataTab() {
     }
   }, [exp]);
 
-  if (!exp) {
-    const recentFiles = getRecentFiles();
-    return (
-      <div className="space-y-4">
-        <p className="text-sm text-muted-foreground">
-          No experiment loaded.
-        </p>
-        <Button
-          variant="outline"
-          className="w-full"
-          onClick={handleOpen}
-        >
-          Load file...
-        </Button>
-        <p className="text-xs text-muted-foreground text-center">
-          or drag & drop a file anywhere
-        </p>
-        <p className="text-xs text-muted-foreground text-center">
-          .sharp · .pcrd · .tlpd · .eds · .amxd
-        </p>
-
-        {recentFiles.length > 0 && (
-          <div className="pt-2 border-t">
-            <h3 className="text-xs font-semibold text-muted-foreground mb-2">Recent Files</h3>
-            <div className="space-y-0.5">
-              {recentFiles.map((f, i) => (
-                <button
-                  key={i}
-                  className="w-full text-left px-2 py-1.5 text-xs rounded hover:bg-accent transition-colors truncate"
-                  title={f.path}
-                  onClick={() => openFilePath(f.path)}
-                >
-                  <span className="font-medium">{f.name}</span>
-                  <span className="text-muted-foreground ml-1.5">{f.format}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
+  if (!exp) return null; // SidebarHome handles the empty state
 
   return (
     <div className="space-y-4">

@@ -79,7 +79,7 @@ function App() {
         const bytes = await fs.readFile(filePath);
         experiment = await loadSharpFile(bytes.buffer as ArrayBuffer, filePath.split(/[/\\]/).pop()!);
       }
-      addRecentFile(filePath);
+      addRecentFile(filePath, experiment.wellsUsed?.length);
       loadExperiment(experiment, filePath);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -114,6 +114,8 @@ function App() {
     };
   }, [handleFilePath]);
 
+  const addEmptyTab = useAppState((s) => s.addEmptyTab);
+
   // Silent update check on launch
   useEffect(() => {
     checkForUpdates().then((result) => {
@@ -143,37 +145,6 @@ function App() {
             </a>
           </span>
           <button className="text-muted-foreground hover:text-foreground" onClick={() => setUpdateBanner(null)}>✕</button>
-        </div>
-      )}
-
-      {/* Experiment tab bar (shown when >1 experiment loaded) */}
-      {experiments.length > 1 && (
-        <div className="flex items-end bg-muted/20 border-b shrink-0 overflow-x-auto">
-          {experiments.map((exp, i) => (
-            <div
-              key={`${exp.experimentId}-${i}`}
-              className={`group flex items-center gap-1 px-3 py-1.5 text-xs cursor-pointer border-r transition-colors shrink-0 ${
-                i === activeExperimentIndex
-                  ? 'bg-background border-b-2 border-b-primary font-medium'
-                  : 'hover:bg-accent/50 text-muted-foreground'
-              }`}
-              onClick={() => switchExperiment(i)}
-            >
-              <span className="truncate max-w-[150px]" title={exp.experimentId}>
-                {exp.experimentId}
-              </span>
-              <button
-                className="ml-1 w-4 h-4 rounded-sm flex items-center justify-center text-muted-foreground hover:bg-destructive/20 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  removeExperiment(i);
-                }}
-                title="Close experiment"
-              >
-                ×
-              </button>
-            </div>
-          ))}
         </div>
       )}
 
@@ -219,6 +190,51 @@ function App() {
 
       {/* Main area */}
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Experiment tab bar */}
+        {experiments.length > 0 && (
+          <div className="flex items-end bg-muted/20 border-b shrink-0 overflow-hidden">
+            {experiments.map((exp, i) => {
+              const isActive = i === activeExperimentIndex;
+              return (
+                <div
+                  key={`${exp?.experimentId ?? 'welcome'}-${i}`}
+                  className={`group flex items-center gap-1 py-1.5 text-xs cursor-pointer border-r transition-all overflow-hidden ${
+                    isActive
+                      ? 'bg-background border-b-2 border-b-[var(--brand-red-mid)] font-medium shrink-0 px-3'
+                      : 'hover:bg-accent/50 text-muted-foreground shrink px-2'
+                  }`}
+                  style={isActive ? { maxWidth: 200 } : { minWidth: 28, maxWidth: 100 }}
+                  onClick={() => switchExperiment(i)}
+                  title={exp?.experimentId ?? 'Welcome'}
+                >
+                  <span className="truncate">
+                    {exp?.experimentId ?? 'Welcome'}
+                  </span>
+                  {isActive && (
+                    <button
+                      className="ml-1 w-4 h-4 rounded-sm flex items-center justify-center text-muted-foreground hover:bg-destructive/20 hover:text-destructive shrink-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeExperiment(i);
+                      }}
+                      title="Close experiment"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+            <button
+              className="px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
+              onClick={addEmptyTab}
+              title="New tab"
+            >
+              +
+            </button>
+          </div>
+        )}
+
         {/* X-axis selector bar */}
         <XAxisBar />
 
@@ -240,7 +256,7 @@ function App() {
         </div>
 
         {/* Results table resize handle + table */}
-        {experiments.length > 0 && (
+        {experiments[activeExperimentIndex] != null && (
           <>
             <div
               className="flex-shrink-0 flex items-center justify-center cursor-row-resize hover:bg-accent active:bg-border transition-colors"
