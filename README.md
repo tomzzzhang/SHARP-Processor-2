@@ -22,9 +22,13 @@
 ### Windows
 
 1. Click the **Download** button above (or go to the [Releases](https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest) page)
-2. Download **`SHARP Processor 2_x64-setup.exe`**
+2. Download the installer for your system:
+   - **64-bit** (most PCs): **`SHARP Processor 2_x64-setup.exe`**
+   - **32-bit** (older lab PCs): **`SHARP Processor 2_x86-setup.exe`**
 3. Double-click the installer and follow the prompts
 4. Open **SHARP Processor 2** from the Start Menu or desktop shortcut
+
+> **Not sure which to pick?** If your PC runs Windows 10 or 11, use the 64-bit version. Use 32-bit only for older machines (e.g., lab PCs connected to legacy instruments).
 
 > **Windows may show a SmartScreen warning** the first time you run the app ("Windows protected your PC"). This is normal for new apps that haven't been code-signed yet. Click **"More info"** → **"Run anyway"** to proceed.
 
@@ -216,13 +220,21 @@ npx tauri dev
 ```bash
 # Windows — double-click build.bat, or:
 set CARGO_TARGET_DIR=C:\tauri-build-cache
-npx tauri build
+npx tauri build --target x86_64-pc-windows-msvc   # 64-bit
+npx tauri build --target i686-pc-windows-msvc      # 32-bit
 
 # macOS
 ./build.sh
 ```
 
-Build output goes to `dist-release/` inside the project folder on both platforms.
+`build.bat` builds both x64 and x86 installers automatically. Build output goes to:
+
+```
+dist-release/
+  windows-x64/    # 64-bit NSIS + MSI
+  windows-x86/    # 32-bit NSIS + MSI
+  macos/          # DMG + .app
+```
 
 ### Documentation
 
