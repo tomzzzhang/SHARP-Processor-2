@@ -12,7 +12,7 @@ SHARP Processor 2 — a modern desktop app for qPCR/isothermal amplification dat
 - **State:** Zustand
 - **Backend:** Tauri 2.x (Rust)
 - **Python sidecar:** For instrument file parsing (.pcrd, .tlpd, .eds, .amxd) via scoped shell command
-- **Build:** Tauri CLI → `.exe` (Windows), `.app` (macOS)
+- **Build:** Tauri CLI → `.exe` x64+x86 (Windows), `.app` (macOS)
 
 ## Build & Run
 
@@ -24,16 +24,26 @@ npx tauri dev
 ```
 - **CARGO_TARGET_DIR** must be set to `C:\tauri-build-cache` to avoid OneDrive sync overhead on the Rust `target/` directory.
 - Rust 1.94.0, VS 2022 Build Tools (C++ workload), Node 24.14.0
+- Installed Rust targets: `x86_64-pc-windows-msvc` (64-bit), `i686-pc-windows-msvc` (32-bit)
+- `build.bat` builds both x64 and x86 installers → `dist-release/windows-x64/` and `dist-release/windows-x86/`
 
 ### macOS
 ```bash
 # Prerequisites: xcode-select --install, Rust via rustup, Node 24+
 chmod +x dev.sh build.sh
 ./dev.sh          # development
-./build.sh        # production DMG → src-tauri/target/release/bundle/dmg/
+./build.sh        # production DMG → dist-release/macos/
 ```
 - First launch: right-click > Open to bypass "unidentified developer" warning (ad-hoc signed)
 - Xcode Command Line Tools required (not full Xcode)
+
+### dist-release/ Structure
+```
+dist-release/
+  windows-x64/    # 64-bit NSIS (.exe) + MSI
+  windows-x86/    # 32-bit NSIS (.exe) + MSI
+  macos/          # DMG + .app bundle
+```
 
 ## Project Structure
 
