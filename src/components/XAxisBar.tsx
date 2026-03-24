@@ -13,9 +13,12 @@ export function XAxisBar() {
   const setXAxisMode = useAppState((s) => s.setXAxisMode);
   const logScale = useAppState((s) => s.logScale);
   const setLogScale = useAppState((s) => s.setLogScale);
+  const experiments = useAppState((s) => s.experiments);
+  const idx = useAppState((s) => s.activeExperimentIndex);
+  const hasExperiment = !!experiments[idx];
 
   return (
-    <div className="flex items-center gap-4 px-3 py-1 bg-muted/30 border-b text-sm shrink-0">
+    <div className={`flex items-center gap-4 px-3 py-1 bg-muted/30 border-b text-sm shrink-0 ${!hasExperiment ? 'opacity-40 pointer-events-none' : ''}`}>
       <span className="font-medium text-muted-foreground text-xs">X-axis:</span>
       {MODES.map(({ value, label }) => (
         <label key={value} className="flex items-center gap-1 text-xs cursor-pointer">

@@ -10,6 +10,7 @@ export interface RecentFile {
   path: string;
   name: string;
   format: string;
+  wellCount?: number;
   openedAt: string; // ISO date
 }
 
@@ -35,12 +36,13 @@ export function getRecentFiles(): RecentFile[] {
   }
 }
 
-export function addRecentFile(filePath: string): void {
+export function addRecentFile(filePath: string, wellCount?: number): void {
   const name = filePath.split(/[/\\]/).pop() ?? filePath;
   const entry: RecentFile = {
     path: filePath,
     name,
     format: getFormatLabel(filePath),
+    wellCount,
     openedAt: new Date().toISOString(),
   };
 

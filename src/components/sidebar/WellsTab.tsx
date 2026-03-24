@@ -29,52 +29,56 @@ export function WellsTab() {
   };
 
   return (
-    <div className="flex flex-col h-full p-3 space-y-2">
-      {/* Plate grid */}
-      <div>
-        <h3 className="text-xs font-semibold mb-1 text-[var(--brand-red-dark)] uppercase tracking-wide">Plate</h3>
+    <div className="flex flex-col h-full p-3 gap-2">
+      {/* Plate grid — fixed height */}
+      <div className="shrink-0">
+        <h3 className="text-xs font-semibold mb-1 text-foreground uppercase tracking-wide">Plate</h3>
         <div className="flex justify-center">
           <WellGrid />
         </div>
       </div>
 
-      {/* Selection toolbar */}
-      <CollapsibleSection title="Select">
-        <div className="space-y-1">
-          <div className="flex gap-1">
-            <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={selectAll}>All</Button>
-            <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => selectByType('Unkn')}>Samp</Button>
-            <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => selectByType('Neg Ctrl')}>NTC</Button>
-            <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => selectByType('Std')}>Std</Button>
+      {/* Selection toolbar — fixed height */}
+      <div className="shrink-0">
+        <CollapsibleSection title="Select">
+          <div className="space-y-1">
+            <div className="flex gap-1">
+              <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={selectAll}>All</Button>
+              <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => selectByType('Unkn')}>Samp</Button>
+              <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => selectByType('Neg Ctrl')}>NTC</Button>
+              <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => selectByType('Std')}>Std</Button>
+            </div>
+            <div className="flex gap-1">
+              <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={selectShown}>Shown</Button>
+              <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={selectHidden}>Hidden</Button>
+              <select
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) handleSelectGroup(e.target.value);
+                  e.target.value = '';
+                }}
+                disabled={groupNames.length === 0}
+                className="flex-1 h-7 text-xs border rounded-md px-1 bg-background text-foreground disabled:opacity-40"
+                title="Select all wells in a group"
+              >
+                <option value="" disabled>Group…</option>
+                {groupNames.map((g) => (
+                  <option key={g} value={g}>{g}</option>
+                ))}
+              </select>
+            </div>
           </div>
-          <div className="flex gap-1">
-            <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={selectShown}>Shown</Button>
-            <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={selectHidden}>Hidden</Button>
-            <select
-              value=""
-              onChange={(e) => {
-                if (e.target.value) handleSelectGroup(e.target.value);
-                e.target.value = '';
-              }}
-              disabled={groupNames.length === 0}
-              className="flex-1 h-7 text-xs border rounded-md px-1 bg-background text-foreground disabled:opacity-40"
-              title="Select all wells in a group"
-            >
-              <option value="" disabled>Group…</option>
-              {groupNames.map((g) => (
-                <option key={g} value={g}>{g}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </CollapsibleSection>
+        </CollapsibleSection>
+      </div>
 
-      {/* Well list */}
-      <CollapsibleSection title="Wells">
-        <div className="-mx-3 -mb-3">
-          <WellList />
-        </div>
-      </CollapsibleSection>
+      {/* Well list — fills remaining space */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <CollapsibleSection title="Wells">
+          <div className="-mx-3 -mb-3 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 420px)' }}>
+            <WellList />
+          </div>
+        </CollapsibleSection>
+      </div>
     </div>
   );
 }

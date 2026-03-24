@@ -71,49 +71,91 @@ const sections: Section[] = [
     title: 'Window Layout',
     content: (
       <div className="space-y-3">
-        {/* Visual layout diagram */}
-        <div className="border border-border rounded overflow-hidden text-[9px] leading-none font-mono bg-muted/30">
+        {/* Visual layout diagram — styled to match actual app */}
+        <div className="border border-border rounded-md overflow-hidden text-[9px] leading-none" style={{ background: '#f3f2f0', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
           {/* Menu bar */}
-          <div className="flex items-center gap-3 px-2 py-1 border-b border-border bg-muted/50 text-muted-foreground">
-            <span>File</span><span>Edit</span><span>View</span><span>Tools</span><span>Export</span><span>Help</span>
+          <div className="flex items-center gap-3 px-2.5 py-1" style={{ borderBottom: '1px solid #ddd8d3', background: '#f3f2f0' }}>
+            {['File', 'Edit', 'View', 'Tools', 'Export', 'Help'].map(m => (
+              <span key={m} style={{ color: '#212224', fontSize: 9 }}>{m}</span>
+            ))}
           </div>
-          <div className="flex">
+          <div className="flex" style={{ minHeight: 180 }}>
             {/* Sidebar */}
-            <div className="w-[90px] border-r border-border p-1.5 space-y-1 shrink-0">
-              <div className="text-[8px] font-semibold text-muted-foreground mb-1">Sidebar</div>
-              {['Data', 'Wells', 'Analysis', 'Style'].map(t => (
-                <div key={t} className="px-1 py-0.5 rounded bg-muted/50 text-center">{t}</div>
-              ))}
+            <div className="shrink-0" style={{ width: 170, borderRight: '1px solid #ddd8d3' }}>
+              {/* Sidebar tabs */}
+              <div className="flex" style={{ borderBottom: '1px solid #ddd8d3' }}>
+                {['DATA', 'WELLS', 'ANALYSIS', 'STYLE'].map((t, i) => (
+                  <div key={t} className="flex-1 text-center py-1" style={{
+                    fontSize: 8, fontWeight: i === 0 ? 700 : 400, letterSpacing: '0.03em',
+                    color: i === 0 ? '#aa2026' : '#888',
+                    borderBottom: i === 0 ? '2px solid #aa2026' : 'none',
+                  }}>{t}</div>
+                ))}
+              </div>
+              {/* Sidebar content */}
+              <div className="p-2 space-y-1.5" style={{ fontSize: 8, color: '#666' }}>
+                <div style={{ fontSize: 8, color: '#999' }}>No experiment loaded.</div>
+                <div className="text-center py-1.5 rounded" style={{ border: '1px solid #ddd8d3', fontSize: 9, color: '#212224', fontWeight: 500, background: '#faf9f8' }}>Load file...</div>
+                <div className="text-center" style={{ fontSize: 7, color: '#aaa' }}>or drag &amp; drop a file</div>
+                <div className="text-center" style={{ fontSize: 7, color: '#bbb' }}>.sharp · .pcrd · .tlpd · .eds · .amxd</div>
+              </div>
             </div>
             {/* Main area */}
             <div className="flex-1 flex flex-col min-w-0">
               {/* X-axis bar */}
-              <div className="flex items-center gap-2 px-2 py-0.5 border-b border-border text-muted-foreground">
-                <span>X-axis:</span>
-                <span>○ Cycle</span><span>○ Sec</span><span>● Min</span>
+              <div className="flex items-center gap-2 px-2" style={{ borderBottom: '1px solid #ddd8d3', padding: '2px 8px', color: '#666' }}>
+                <span style={{ fontSize: 8 }}>X-axis:</span>
+                <span style={{ fontSize: 8 }}>○ Cycle</span>
+                <span style={{ fontSize: 8 }}>○ Sec</span>
+                <span style={{ fontSize: 8, color: '#aa2026' }}>● Min</span>
+                <span className="flex-1" />
+                <span style={{ fontSize: 8 }}>☐ Log Scale</span>
               </div>
               {/* Plot tabs */}
-              <div className="flex border-b border-border">
-                <div className="px-2 py-0.5 font-semibold border-b border-foreground">Amplification</div>
-                <div className="px-2 py-0.5 text-muted-foreground">Melt</div>
-                <div className="px-2 py-0.5 text-muted-foreground">Doubling Time</div>
+              <div className="flex" style={{ borderBottom: '1px solid #ddd8d3' }}>
+                {['Amplification', 'Melt', 'Doubling Time'].map((t, i) => (
+                  <div key={t} className="px-2 py-1" style={{
+                    fontSize: 8, color: i === 0 ? '#aa2026' : '#999',
+                    fontWeight: i === 0 ? 600 : 400,
+                    borderBottom: i === 0 ? '2px solid #aa2026' : 'none',
+                  }}>{t}</div>
+                ))}
               </div>
-              {/* Plot area */}
-              <div className="flex">
-                <div className="flex-1 h-[60px] flex items-center justify-center text-muted-foreground bg-background m-1 rounded border border-border/50">
+              {/* Plot area + MENU */}
+              <div className="flex flex-1">
+                <div className="flex-1 flex items-center justify-center m-1 rounded" style={{ background: '#faf9f8', border: '1px solid #e8e5e2', color: '#bbb', fontSize: 10, minHeight: 70 }}>
                   Plot Area
                 </div>
-                <div className="w-[18px] border-l border-border flex items-center justify-center text-muted-foreground" style={{ writingMode: 'vertical-rl', fontSize: 8 }}>
-                  Quick
+                <div className="flex items-center justify-center" style={{ width: 16, borderLeft: '1px solid #ddd8d3', background: '#f3f2f0', color: '#7d2126', writingMode: 'vertical-rl', fontSize: 7, fontWeight: 700, letterSpacing: '0.08em' }}>
+                  MENU
                 </div>
               </div>
               {/* Melt deriv mini-plot */}
-              <div className="h-[24px] flex items-center justify-center text-muted-foreground border-t border-border bg-background mx-1 mb-0.5 rounded border-border/50">
+              <div className="flex items-center justify-center mx-1 mb-0.5 rounded" style={{ height: 28, background: '#faf9f8', borderTop: '1px solid #e8e5e2', border: '1px solid #e8e5e2', color: '#bbb', fontSize: 8 }}>
                 Melt derivative mini-plot
               </div>
+              {/* Resize handle */}
+              <div className="flex items-center justify-center" style={{ height: 5, borderTop: '1px solid #ddd8d3', borderBottom: '1px solid #ddd8d3' }}>
+                <span style={{ fontSize: 6, color: '#bbb' }}>• • •</span>
+              </div>
               {/* Results table */}
-              <div className="border-t border-border px-2 py-1 text-muted-foreground">
-                Results Table (Well · Sample · Tt · Tm · Call · End RFU)
+              <div style={{ fontSize: 7, padding: '3px 6px', color: '#888' }}>
+                <div className="flex" style={{ borderBottom: '1px solid #e8e5e2', paddingBottom: 2, marginBottom: 2, fontWeight: 600, color: '#555' }}>
+                  <span style={{ width: '14%' }}>Well</span>
+                  <span className="flex-1">Sample</span>
+                  <span style={{ width: '12%', textAlign: 'right' }}>Tt</span>
+                  <span style={{ width: '12%', textAlign: 'right' }}>Tm</span>
+                  <span style={{ width: '10%', textAlign: 'center' }}>Call</span>
+                  <span style={{ width: '16%', textAlign: 'right' }}>End RFU</span>
+                </div>
+                <div className="flex" style={{ color: '#999' }}>
+                  <span style={{ width: '14%', color: '#d81f27' }}>A1</span>
+                  <span className="flex-1">Sample 1</span>
+                  <span style={{ width: '12%', textAlign: 'right' }}>12.4</span>
+                  <span style={{ width: '12%', textAlign: 'right' }}>85.3°</span>
+                  <span style={{ width: '10%', textAlign: 'center', color: '#22c55e', fontWeight: 700 }}>+</span>
+                  <span style={{ width: '16%', textAlign: 'right' }}>4,521</span>
+                </div>
               </div>
             </div>
           </div>
@@ -122,7 +164,7 @@ const sections: Section[] = [
         <ul className="list-disc pl-5 space-y-1">
           <li><strong>Left sidebar</strong> — four tabs: Data, Wells, Analysis, Style (resizable drag-border)</li>
           <li><strong>Centre</strong> — plot tabs with optional melt derivative mini-plot below</li>
-          <li><strong>Right edge</strong> — collapsible quick-action panel</li>
+          <li><strong>Right edge</strong> — collapsible MENU panel (quick actions)</li>
           <li><strong>Bottom</strong> — results table with sortable columns (resizable drag-border)</li>
         </ul>
       </div>

@@ -10,10 +10,10 @@ export function CollapsibleSection({ title, defaultOpen = true, children }: Coll
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <div className="border rounded-md overflow-hidden shadow-sm">
+    <div className="border rounded-md overflow-hidden shadow-sm shrink-0">
       <button
         type="button"
-        className="w-full flex items-center justify-between px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--brand-red-dark)] hover:bg-accent/50 transition-colors select-none"
+        className="w-full flex items-center justify-between px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-foreground hover:bg-accent/50 transition-colors select-none"
         onClick={() => setOpen((o) => !o)}
       >
         <span>{title}</span>

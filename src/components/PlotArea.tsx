@@ -490,7 +490,7 @@ function AmplificationPlot() {
       shapes.push({
         type: 'line', x0: 0, x1: 1, xref: 'paper',
         y0: thresholdRfu, y1: thresholdRfu, yref: 'y',
-        line: { color: THRESHOLD_LINE_COLOR, width: 2, dash: 'dash' },
+        line: { color: isDark ? '#ef9a9d' : THRESHOLD_LINE_COLOR, width: 2, dash: 'dash' },
       });
     }
     return {
@@ -707,7 +707,7 @@ function MeltDerivMini() {
       shapes.push({
         type: 'line', x0: 0, x1: 1, xref: 'paper',
         y0: meltThresholdValue, y1: meltThresholdValue, yref: 'y',
-        line: { color: '#000000', width: 2.5, dash: 'dash' },
+        line: { color: isDark ? '#ef9a9d' : THRESHOLD_LINE_COLOR, width: 2.5, dash: 'dash' },
       });
     }
     return {
@@ -947,7 +947,7 @@ function MeltPlot() {
       shapes.push({
         type: 'line', x0: 0, x1: 1, xref: 'paper',
         y0: meltThresholdValue, y1: meltThresholdValue, yref: 'y2',
-        line: { color: '#000000', width: 2.5, dash: 'dash' },
+        line: { color: isDark ? '#ef9a9d' : THRESHOLD_LINE_COLOR, width: 2.5, dash: 'dash' },
       });
     }
     if (hasDerivative) {

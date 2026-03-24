@@ -116,7 +116,7 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
       const bytes = await readFile(filePath);
       experiment = await loadSharpFile(bytes.buffer as ArrayBuffer, filePath.split(/[/\\]/).pop()!);
     }
-    addRecentFile(filePath);
+    addRecentFile(filePath, experiment.wellsUsed?.length);
     loadExperiment(experiment, filePath);
   }, [loadExperiment]);
 
