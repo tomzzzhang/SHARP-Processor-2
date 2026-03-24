@@ -122,12 +122,13 @@ const sections: Section[] = [
                 ))}
                 <span className="flex-1" />
                 <div className="flex items-center gap-1 pr-2" style={{ fontSize: 7, color: '#666' }}>
+                  <span style={{ color: '#ccc' }}>|</span>
+                  <span>☐Log</span>
+                  <span style={{ color: '#ccc' }}>|</span>
                   <span>X:</span>
                   <span>○Cycle</span>
                   <span>○Sec</span>
                   <span style={{ color: '#aa2026' }}>●Min</span>
-                  <span style={{ color: '#ccc', margin: '0 1px' }}>|</span>
-                  <span>☐Log</span>
                 </div>
               </div>
               {/* Plot area + MENU */}
@@ -307,7 +308,7 @@ const sections: Section[] = [
 
         <div>
           <h4 className="font-semibold text-xs mb-1">Quick-Action Panel</h4>
-          <p>Click the <strong>MENU</strong> tab on the right edge to expand a panel that mirrors every context menu action as clickable buttons.</p>
+          <p>Click the <strong>MENU</strong> tab on the right edge to expand a panel that mirrors every context menu action as clickable buttons. Keyboard shortcut hints are shown next to actions that have them.</p>
         </div>
       </div>
     ),

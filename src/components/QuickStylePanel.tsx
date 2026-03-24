@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { Button } from '@/components/ui/button';
-import { MAIN_PALETTE_NAMES, GRADIENT_PALETTE_NAMES, getPaletteColors } from '@/lib/constants';
+import { MAIN_PALETTE_NAMES, GRADIENT_PALETTE_NAMES, MOD_KEY, getPaletteColors } from '@/lib/constants';
 import type { ContentType } from '@/types/experiment';
 
 function PanelSection({ title, defaultOpen = true, children }: { title: string; defaultOpen?: boolean; children: ReactNode }) {
@@ -125,15 +125,16 @@ export function QuickStylePanel() {
     }
   }, [wells, wellStyleOverrides, setWellStyleOverride]);
 
-  const btn = (label: string, action: () => void, disabled = false) => (
+  const btn = (label: string, action: () => void, disabled = false, shortcut?: string) => (
     <Button
       variant="outline"
       size="sm"
-      className="w-full h-6 text-[10px] justify-start"
+      className="w-full h-6 text-[10px] justify-between"
       disabled={disabled}
       onClick={action}
     >
-      {label}
+      <span>{label}</span>
+      {shortcut && <span className="text-muted-foreground text-[8px] ml-1">{shortcut}</span>}
     </Button>
   );
 
@@ -163,8 +164,8 @@ export function QuickStylePanel() {
 
           {/* Visibility */}
           <PanelSection title="Visibility">
-            {btn('Show', () => showWells(wells), n === 0)}
-            {btn('Hide', () => hideWells(wells), n === 0)}
+            {btn('Show', () => showWells(wells), n === 0, `${MOD_KEY}+H`)}
+            {btn('Hide', () => hideWells(wells), n === 0, `${MOD_KEY}+H`)}
             {btn('Deselect All', deselectAll)}
           </PanelSection>
 
@@ -184,8 +185,8 @@ export function QuickStylePanel() {
 
           {/* Grouping */}
           <PanelSection title="Grouping">
-            {btn('Group...', handleGroup, n === 0)}
-            {btn('Ungroup', () => removeWellGroup(wells), n === 0)}
+            {btn('Group...', handleGroup, n === 0, `${MOD_KEY}+G`)}
+            {btn('Ungroup', () => removeWellGroup(wells), n === 0, `${MOD_KEY}+⇧+G`)}
             {btn('Auto-Group by Sample', autoGroupBySample)}
           </PanelSection>
 

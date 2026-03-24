@@ -47,9 +47,21 @@ export function PlotTabs() {
 
       <div className="flex-1" />
 
-      {/* X-axis selector + Log Scale — right side */}
+      {/* Log Scale + X-axis selector — right side */}
       <div className={`flex items-center gap-3 px-3 text-xs ${!hasExperiment ? 'opacity-40 pointer-events-none' : ''}`}>
         <span className="mx-1 text-border">|</span>
+
+        <label className="flex items-center gap-1.5 cursor-pointer">
+          <Checkbox
+            checked={logScale}
+            onCheckedChange={(v) => setLogScale(v === true)}
+            className="h-3.5 w-3.5"
+          />
+          Log
+        </label>
+
+        <span className="mx-1 text-border">|</span>
+
         <span className="font-medium text-muted-foreground">X:</span>
         {MODES.map(({ value, label }) => (
           <label key={value} className="flex items-center gap-1 cursor-pointer">
@@ -63,17 +75,6 @@ export function PlotTabs() {
             {label}
           </label>
         ))}
-
-        <span className="mx-1 text-border">|</span>
-
-        <label className="flex items-center gap-1.5 cursor-pointer">
-          <Checkbox
-            checked={logScale}
-            onCheckedChange={(v) => setLogScale(v === true)}
-            className="h-3.5 w-3.5"
-          />
-          Log
-        </label>
       </div>
     </div>
   );
