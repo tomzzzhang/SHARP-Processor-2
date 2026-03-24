@@ -49,6 +49,7 @@ export function PlotTabs() {
 
       {/* X-axis selector + Log Scale — right side */}
       <div className={`flex items-center gap-3 px-3 text-xs ${!hasExperiment ? 'opacity-40 pointer-events-none' : ''}`}>
+        <span className="mx-1 text-border">|</span>
         <span className="font-medium text-muted-foreground">X:</span>
         {MODES.map(({ value, label }) => (
           <label key={value} className="flex items-center gap-1 cursor-pointer">

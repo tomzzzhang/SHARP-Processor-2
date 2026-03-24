@@ -613,8 +613,10 @@ export const useAppState = create<AppState>((set, get) => ({
   setWellContentType: (wells, type) => {
     get().pushUndo('Set content type');
     set((state) => {
+      const current = state.experiments[state.activeExperimentIndex];
+      if (!current) return {};
       const exps = [...state.experiments];
-      const exp = { ...exps[state.activeExperimentIndex] };
+      const exp = { ...current };
       const wellMap = { ...exp.wells };
       for (const w of wells) {
         if (wellMap[w]) wellMap[w] = { ...wellMap[w], content: type };
@@ -627,8 +629,10 @@ export const useAppState = create<AppState>((set, get) => ({
   setWellSampleName: (well, name) => {
     get().pushUndo('Set sample name');
     set((state) => {
+      const current = state.experiments[state.activeExperimentIndex];
+      if (!current) return {};
       const exps = [...state.experiments];
-      const exp = { ...exps[state.activeExperimentIndex] };
+      const exp = { ...current };
       const wellMap = { ...exp.wells };
       if (wellMap[well]) wellMap[well] = { ...wellMap[well], sample: name };
       exp.wells = wellMap;
