@@ -10,7 +10,6 @@ import { QuickStylePanel } from './components/QuickStylePanel';
 import { ResultsTable } from './components/ResultsTable';
 import { DilutionWizard } from './components/DilutionWizard';
 import { UserManual } from './components/UserManual';
-import { XAxisBar } from './components/XAxisBar';
 import { PlotTabs } from './components/PlotTabs';
 import { useAppState } from './hooks/useAppState';
 import { loadSharpFile } from './lib/sharp-loader';
@@ -235,10 +234,7 @@ function App() {
           </div>
         )}
 
-        {/* X-axis selector bar */}
-        <XAxisBar />
-
-        {/* Plot tabs */}
+        {/* Plot tabs + X-axis selector + Log Scale */}
         <PlotTabs />
 
         {/* Error message */}

@@ -58,10 +58,19 @@ const sections: Section[] = [
         <ul className="list-disc pl-5 space-y-1">
           <li><strong>File &gt; Open</strong> (<Kbd>{mod}+O</Kbd>) — file dialog</li>
           <li><strong>Drag and drop</strong> — drag any supported file onto the window</li>
+          <li><strong>Recent Experiments</strong> — click any file in the sidebar list to reopen it</li>
+          <li><strong>Load file...</strong> button in the sidebar (when no experiment is loaded)</li>
         </ul>
         <p>
-          Multiple experiments can be loaded simultaneously. When more than one is open, an experiment
-          tab bar appears above the plot area. Click a tab to switch; click its × button to close.
+          The app opens with a Welcome tab. Load a file to replace it with your experiment data.
+          Multiple experiments can be loaded simultaneously — each gets its own tab above the plot area.
+          Click <strong>+</strong> to open a new empty tab, or click × to close one.
+        </p>
+
+        <h4 className="font-semibold text-xs mt-3">Checking for Updates</h4>
+        <p>
+          Go to <strong>Help &gt; Check for Updates</strong> to see if a newer version is available.
+          The app also checks automatically on launch and shows a banner if an update is found.
         </p>
       </div>
     ),
@@ -102,17 +111,8 @@ const sections: Section[] = [
             </div>
             {/* Main area */}
             <div className="flex-1 flex flex-col min-w-0">
-              {/* X-axis bar */}
-              <div className="flex items-center gap-2 px-2" style={{ borderBottom: '1px solid #ddd8d3', padding: '2px 8px', color: '#666' }}>
-                <span style={{ fontSize: 8 }}>X-axis:</span>
-                <span style={{ fontSize: 8 }}>○ Cycle</span>
-                <span style={{ fontSize: 8 }}>○ Sec</span>
-                <span style={{ fontSize: 8, color: '#aa2026' }}>● Min</span>
-                <span className="flex-1" />
-                <span style={{ fontSize: 8 }}>☐ Log Scale</span>
-              </div>
-              {/* Plot tabs */}
-              <div className="flex" style={{ borderBottom: '1px solid #ddd8d3' }}>
+              {/* Plot tabs + X-axis + Log Scale on same row */}
+              <div className="flex items-center" style={{ borderBottom: '1px solid #ddd8d3' }}>
                 {['Amplification', 'Melt', 'Doubling Time'].map((t, i) => (
                   <div key={t} className="px-2 py-1" style={{
                     fontSize: 8, color: i === 0 ? '#aa2026' : '#999',
@@ -120,6 +120,15 @@ const sections: Section[] = [
                     borderBottom: i === 0 ? '2px solid #aa2026' : 'none',
                   }}>{t}</div>
                 ))}
+                <span className="flex-1" />
+                <div className="flex items-center gap-1 pr-2" style={{ fontSize: 7, color: '#666' }}>
+                  <span>X:</span>
+                  <span>○Cycle</span>
+                  <span>○Sec</span>
+                  <span style={{ color: '#aa2026' }}>●Min</span>
+                  <span style={{ color: '#ccc', margin: '0 1px' }}>|</span>
+                  <span>☐Log</span>
+                </div>
               </div>
               {/* Plot area + MENU */}
               <div className="flex flex-1">

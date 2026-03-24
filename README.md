@@ -62,7 +62,7 @@ You can open multiple experiments at the same time. Each one gets its own tab.
 See all your wells plotted together. Switch the x-axis between **Cycle**, **Seconds**, or **Minutes**. Toggle **Log Scale** for a logarithmic view.
 
 ### View melt curves
-Switch to the **Melt** tab to see raw fluorescence and the negative derivative (−dF/dT) side by side. A small melt derivative preview also appears below the amplification chart.
+Switch to the **Melt** tab to see raw fluorescence and the negative derivative (−dF/dT) side by side. A small melt derivative preview also appears below the amplification chart. Enable the **Melt Threshold** to dim wells with low derivative peaks — useful for identifying negative or weak reactions. The threshold line is draggable.
 
 ### Select wells
 - **Click** a well on the 96-well plate grid to select it
@@ -78,7 +78,7 @@ Selecting a well highlights it everywhere — on the grid, in the well list, on 
 Turn on **Baseline Correction** in the Analysis panel. Choose **Horizontal** (flat) or **Linear** (slope-corrected). Adjust the fitting zone by changing the start and end cycle numbers, or drag the shaded region on the plot.
 
 ### Set a detection threshold
-Enable **Threshold Detection** to see a red dashed line on your amplification plot. Drag it up or down to set your threshold level. The app calculates **Tt** (time-to-threshold), **doubling time**, and a **positive/negative call** for each well.
+Enable **Threshold Detection** to see a red dashed line on your amplification plot. Drag it up or down to set your threshold level. The app calculates **Tt** (time-to-threshold), **Tm** (melt temperature), **doubling time**, and a **positive/negative call** for each well.
 
 ### Measure doubling time
 Switch to the **Doubling Time** tab for exponential growth fitting results. The app fits the log-linear growth region of each curve and reports the doubling time with confidence intervals.
@@ -94,7 +94,7 @@ Go to **Export** in the menu bar:
 - **Plot image** — save as PNG, SVG, or JPEG at any resolution
 - **Amplification CSV** — raw or baseline-corrected fluorescence data
 - **Melt CSV** — melt curve data
-- **Results CSV** — detection results table (Tt, doubling time, call, end RFU)
+- **Results CSV** — detection results table (Tt, Tm, doubling time, call, end RFU)
 - **Save as .sharp** — save the experiment with your edits (sample names, well types, etc.)
 
 ---
@@ -151,6 +151,7 @@ A `.sharp` file is just a ZIP archive containing your experiment data in open fo
 
 - Open an issue on [GitHub](https://github.com/tomzzzhang/SHARP-Processor-2/issues)
 - Check the in-app help: **Help → User Manual**
+- Check for updates: **Help → Check for Updates**
 
 ---
 
@@ -232,5 +233,5 @@ Build output goes to `dist-release/` inside the project folder on both platforms
 ---
 
 <p align="center">
-  <sub>SHARP Diagnostics</sub>
+  <sub>© 2026 SHARP Diagnostics, Inc. All rights reserved.</sub>
 </p>

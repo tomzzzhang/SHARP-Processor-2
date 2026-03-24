@@ -1,6 +1,6 @@
 # CLAUDE.md — SHARP Processor 2
 
-**Last Updated:** 2026-03-23 PST
+**Last Updated:** 2026-03-24 PST
 
 ## Project Overview
 
@@ -110,6 +110,8 @@ build.bat                    # Double-click build launcher
 | 19 | Welcome screen + .sharp export | **Done** | Informative welcome screen (format table, tips), melt CSV export, save as .sharp (preserves edited metadata/sample names) |
 | 20 | Multi-experiment tabs + menu parity | **Done** | Experiment tab bar (closable, visible when >1), per-experiment isolated state (view, analysis, style settings). File/Edit/View/Tools/Export menu structure matching v1 |
 | 21 | macOS build support | **Done** | Bundle targets "all" (DMG+app on Mac, NSIS+MSI on Win), build.sh/dev.sh launchers, platform-aware shortcut labels (⌘/Ctrl), .gitattributes LF for .sh |
+| 22 | Update checker + melt threshold + UX | **Done** | GitHub release update checker (auto + manual), melt derivative threshold (draggable, dims low-peak wells), Tm column in results, SHARP theme warm grey, smaller checkboxes, well grid outlines |
+| 23 | Welcome tab + sidebar home | **Done** | Welcome tab on startup, SidebarHome with load button + recent experiments, greyed-out tabs when no experiment, padded macOS icon |
 
 ## Instrument File Formats & Encryption
 
