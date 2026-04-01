@@ -22,6 +22,7 @@ export function StyleTab() {
   const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
   const showGrid = useAppState((s) => s.showGrid);
   const gridAlpha = useAppState((s) => s.gridAlpha);
+  const plotBgColor = useAppState((s) => s.plotBgColor);
   const figureDpi = useAppState((s) => s.figureDpi);
 
   const setPalette = useAppState((s) => s.setPalette);
@@ -41,6 +42,7 @@ export function StyleTab() {
   const setPaletteGroupColors = useAppState((s) => s.setPaletteGroupColors);
   const setShowGrid = useAppState((s) => s.setShowGrid);
   const setGridAlpha = useAppState((s) => s.setGridAlpha);
+  const setPlotBgColor = useAppState((s) => s.setPlotBgColor);
   const setFigureDpi = useAppState((s) => s.setFigureDpi);
 
   return (
@@ -85,6 +87,29 @@ export function StyleTab() {
               className="w-16 h-7 border rounded px-1 text-sm text-center"
             />
             <span className="text-muted-foreground">pt</span>
+          </div>
+        </div>
+
+        <div className="border-t pt-2 mt-1">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Plot bg:</span>
+            <input
+              type="color"
+              value={plotBgColor || '#fafafa'}
+              onChange={(e) => setPlotBgColor(e.target.value)}
+              className="w-7 h-7 border rounded cursor-pointer p-0"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 text-xs px-2"
+              onClick={() => setPlotBgColor('')}
+            >
+              Auto
+            </Button>
+            {plotBgColor && (
+              <span className="text-xs text-muted-foreground">{plotBgColor}</span>
+            )}
           </div>
         </div>
       </CollapsibleSection>
