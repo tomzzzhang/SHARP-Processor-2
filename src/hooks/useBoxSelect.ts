@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef } from 'react';
 
 type PlotlyAxisLayout = { p2d?: (p: number) => number; d2p?: (d: number) => number; _offset?: number; _length?: number };
-type PlotlyFullLayout = { xaxis?: PlotlyAxisLayout; yaxis?: PlotlyAxisLayout };
+type PlotlyFullLayout = { xaxis?: PlotlyAxisLayout; yaxis?: PlotlyAxisLayout; yaxis2?: PlotlyAxisLayout };
 
 interface BoxSelectOptions {
-  /** Callback when a region is selected. Receives data-coordinate bounds. */
-  onSelect: (x0: number, x1: number, y0: number, y1: number) => void;
+  /** Callback when a region is selected. Receives data-coordinate bounds.
+   *  For stacked subplots: y2Bounds contains yaxis2 data coords (if available). */
+  onSelect: (x0: number, x1: number, y0: number, y1: number, y2Bounds?: { y0: number; y1: number }) => void;
   /** Callback during drag to preview which data coords are inside the box. */
-  onDragMove?: (x0: number, x1: number, y0: number, y1: number) => void;
+  onDragMove?: (x0: number, x1: number, y0: number, y1: number, y2Bounds?: { y0: number; y1: number }) => void;
   /** Callback when drag ends or is cancelled (to clear preview state). */
   onDragEnd?: () => void;
   /** Callback when user clicks on empty plot area (not a drag, not threshold). */
@@ -72,6 +73,14 @@ export function useBoxSelect(options: BoxSelectOptions) {
     return yaxis.p2d!(pixelY - plotRect.top - (yaxis._offset ?? 0));
   }, [getPlotDiv]);
 
+  const pixelToY2Value = useCallback((pixelY: number): number | null => {
+    const plotDiv = getPlotDiv();
+    if (!plotDiv?._fullLayout?.yaxis2?.p2d) return null;
+    const yaxis2 = plotDiv._fullLayout.yaxis2;
+    const plotRect = plotDiv.getBoundingClientRect();
+    return yaxis2.p2d!(pixelY - plotRect.top - (yaxis2._offset ?? 0));
+  }, [getPlotDiv]);
+
   const pixelToXValue = useCallback((pixelX: number): number | null => {
     const plotDiv = getPlotDiv();
     if (!plotDiv?._fullLayout?.xaxis?.p2d) return null;
@@ -109,9 +118,17 @@ export function useBoxSelect(options: BoxSelectOptions) {
     const xa = plotDiv._fullLayout.xaxis;
     const ya = plotDiv._fullLayout.yaxis;
     const left = rect.left + (xa._offset ?? 0);
-    const top = rect.top + (ya._offset ?? 0);
-    return clientX >= left && clientX <= left + (xa._length ?? 0) &&
-           clientY >= top && clientY <= top + (ya._length ?? 0);
+    if (clientX < left || clientX > left + (xa._length ?? 0)) return false;
+    // Check primary y-axis region
+    const top1 = rect.top + (ya._offset ?? 0);
+    if (clientY >= top1 && clientY <= top1 + (ya._length ?? 0)) return true;
+    // Also check yaxis2 region (stacked subplots)
+    const ya2 = plotDiv._fullLayout.yaxis2;
+    if (ya2) {
+      const top2 = rect.top + (ya2._offset ?? 0);
+      if (clientY >= top2 && clientY <= top2 + (ya2._length ?? 0)) return true;
+    }
+    return false;
   }, [getPlotDiv]);
 
   useEffect(() => {
@@ -201,7 +218,10 @@ export function useBoxSelect(options: BoxSelectOptions) {
             const dataY0 = pixelToYValue(Math.max(boxStartY.current, e.clientY));
             const dataY1 = pixelToYValue(Math.min(boxStartY.current, e.clientY));
             if (dataX0 != null && dataX1 != null && dataY0 != null && dataY1 != null) {
-              onDragMoveRef.current(dataX0, dataX1, dataY0, dataY1);
+              const y2lo = pixelToY2Value(Math.max(boxStartY.current, e.clientY));
+              const y2hi = pixelToY2Value(Math.min(boxStartY.current, e.clientY));
+              const y2Bounds = y2lo != null && y2hi != null ? { y0: y2lo, y1: y2hi } : undefined;
+              onDragMoveRef.current(dataX0, dataX1, dataY0, dataY1, y2Bounds);
             }
           }
         }
@@ -247,7 +267,10 @@ export function useBoxSelect(options: BoxSelectOptions) {
         const dataY1 = pixelToYValue(Math.min(boxStartY.current, e.clientY));
         if (dataX0 == null || dataX1 == null || dataY0 == null || dataY1 == null) return;
 
-        onSelectRef.current(dataX0, dataX1, dataY0, dataY1);
+        const y2lo = pixelToY2Value(Math.max(boxStartY.current, e.clientY));
+        const y2hi = pixelToY2Value(Math.min(boxStartY.current, e.clientY));
+        const y2Bounds = y2lo != null && y2hi != null ? { y0: y2lo, y1: y2hi } : undefined;
+        onSelectRef.current(dataX0, dataX1, dataY0, dataY1, y2Bounds);
       }
     };
 
@@ -259,7 +282,7 @@ export function useBoxSelect(options: BoxSelectOptions) {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
     };
-  }, [isNearThreshold, isNearMeltThreshold, isInPlotArea, pixelToYValue, pixelToXValue]);
+  }, [isNearThreshold, isNearMeltThreshold, isInPlotArea, pixelToYValue, pixelToY2Value, pixelToXValue]);
 
   return { containerRef, overlayRef, traceClickedRef };
 }

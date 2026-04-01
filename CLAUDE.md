@@ -1,6 +1,6 @@
 # CLAUDE.md — SHARP Processor 2
 
-**Last Updated:** 2026-03-26 PST
+**Last Updated:** 2026-04-01 PST
 
 ## Project Overview
 
@@ -122,6 +122,7 @@ build.bat                    # Double-click build launcher
 | 21 | macOS build support | **Done** | Bundle targets "all" (DMG+app on Mac, NSIS+MSI on Win), build.sh/dev.sh launchers, platform-aware shortcut labels (⌘/Ctrl), .gitattributes LF for .sh |
 | 22 | Update checker + melt threshold + UX | **Done** | GitHub release update checker (auto + manual), melt derivative threshold (draggable, dims low-peak wells), Tm column in results, SHARP theme warm grey, smaller checkboxes, well grid outlines |
 | 23 | Welcome tab + sidebar home | **Done** | Welcome tab on startup, SidebarHome with load button + recent experiments, greyed-out tabs when no experiment, padded macOS icon |
+| 24 | Plot bg + melt drag-select | **Done** | Plot background defaults to off-white (#fafafa) instead of theme bg, customizable via Style tab color picker. Melt tab derivative subplot now supports drag-select (yaxis2-aware box select) |
 
 ## Instrument File Formats & Encryption
 

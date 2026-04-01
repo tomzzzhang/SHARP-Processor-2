@@ -87,6 +87,7 @@ export interface ExperimentViewState {
   legendVisibleOnly: boolean;
   showGrid: boolean;
   gridAlpha: number;
+  plotBgColor: string;  // '' = auto (off-white for light, dark surface for dark)
   figureDpi: number;
 }
 
@@ -136,6 +137,7 @@ function defaultViewState(wellsUsed: string[] = []): ExperimentViewState {
     legendVisibleOnly: true,
     showGrid: true,
     gridAlpha: DEFAULT_GRID_ALPHA,
+    plotBgColor: '',
     figureDpi: DEFAULT_FIGURE_DPI,
   };
 }
@@ -187,6 +189,7 @@ function snapshotViewState(state: AppState): ExperimentViewState {
     legendVisibleOnly: state.legendVisibleOnly,
     showGrid: state.showGrid,
     gridAlpha: state.gridAlpha,
+    plotBgColor: state.plotBgColor,
     figureDpi: state.figureDpi,
   };
 }
@@ -297,6 +300,7 @@ interface AppState extends ExperimentViewState {
   reversePalette: () => void;
   setShowGrid: (on: boolean) => void;
   setGridAlpha: (alpha: number) => void;
+  setPlotBgColor: (color: string) => void;
   setFigureDpi: (dpi: number) => void;
   setShowDilutionWizard: (show: boolean) => void;
 }
@@ -766,6 +770,7 @@ export const useAppState = create<AppState>((set, get) => ({
   reversePalette: () => { get().pushUndo('Reverse palette'); set((state) => ({ paletteReversed: !state.paletteReversed })); },
   setShowGrid: (on) => set({ showGrid: on }),
   setGridAlpha: (alpha) => set({ gridAlpha: alpha }),
+  setPlotBgColor: (color) => set({ plotBgColor: color }),
   setFigureDpi: (dpi) => set({ figureDpi: dpi }),
   setShowDilutionWizard: (show) => set({ showDilutionWizard: show }),
 }));

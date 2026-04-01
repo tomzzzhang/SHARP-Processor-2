@@ -18,29 +18,21 @@ const createPlotlyComponent =
 
 const Plot = createPlotlyComponent(Plotly);
 
-/** Read the current theme background color for Plotly charts */
-/** Reactive theme info for Plotly charts — bg color + dark mode detection */
+/** Reactive theme info for Plotly charts — bg color + dark mode detection.
+ *  Uses the store's plotBgColor when set, otherwise defaults to a clean off-white
+ *  (light) or dark surface color (dark). */
 function usePlotTheme() {
-  const [bg, setBg] = useState('white');
+  const customBg = useAppState((s) => s.plotBgColor);
   const [isDark, setIsDark] = useState(false);
   useEffect(() => {
-    const update = () => {
-      setIsDark(document.documentElement.classList.contains('dark'));
-      const raw = getComputedStyle(document.documentElement).getPropertyValue('--background').trim();
-      if (!raw) { setBg('white'); return; }
-      const el = document.createElement('div');
-      el.style.color = raw;
-      document.body.appendChild(el);
-      const computed = getComputedStyle(el).color;
-      document.body.removeChild(el);
-      setBg(computed || 'white');
-    };
+    const update = () => setIsDark(document.documentElement.classList.contains('dark'));
     update();
     const observer = new MutationObserver(update);
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     return () => observer.disconnect();
   }, []);
-  return { plotBg: bg, isDark };
+  const plotBg = customBg || (isDark ? '#1e1e1e' : '#fafafa');
+  return { plotBg, isDark };
 }
 
 
@@ -978,11 +970,17 @@ function MeltPlot() {
   const meltRef = useRef(melt);
   meltRef.current = melt;
 
-  const matchWellsInBox = useCallback((x0: number, x1: number, y0: number, y1: number): Set<string> => {
+  const smoothMeltDerivRef = useRef(smoothMeltDeriv);
+  smoothMeltDerivRef.current = smoothMeltDeriv;
+  const smoothingWindowRef = useRef(smoothingWindow);
+  smoothingWindowRef.current = smoothingWindow;
+
+  const matchWellsInBox = useCallback((x0: number, x1: number, y0: number, y1: number, y2Bounds?: { y0: number; y1: number }): Set<string> => {
     const m = meltRef.current;
     if (!m) return new Set();
     const matched = new Set<string>();
     for (const well of visibleWellsRef.current) {
+      // Check RFU traces (yaxis)
       const rfuData = m.rfu[well];
       if (rfuData) {
         for (let i = 0; i < m.temperatureC.length; i++) {
@@ -992,17 +990,30 @@ function MeltPlot() {
           }
         }
       }
+      // Check derivative traces (yaxis2)
+      if (!matched.has(well) && y2Bounds) {
+        let derData = m.derivative[well];
+        if (derData) {
+          if (smoothMeltDerivRef.current) derData = savitzkyGolaySmooth(derData, smoothingWindowRef.current);
+          for (let i = 0; i < m.temperatureC.length; i++) {
+            if (m.temperatureC[i] >= x0 && m.temperatureC[i] <= x1 && derData[i] >= y2Bounds.y0 && derData[i] <= y2Bounds.y1) {
+              matched.add(well);
+              break;
+            }
+          }
+        }
+      }
     }
     return matched;
   }, []);
 
-  const handleBoxSelect = useCallback((x0: number, x1: number, y0: number, y1: number) => {
-    const matched = matchWellsInBox(x0, x1, y0, y1);
+  const handleBoxSelect = useCallback((x0: number, x1: number, y0: number, y1: number, y2Bounds?: { y0: number; y1: number }) => {
+    const matched = matchWellsInBox(x0, x1, y0, y1, y2Bounds);
     if (matched.size > 0) setSelectedWells(matched);
   }, [setSelectedWells, matchWellsInBox]);
 
-  const handleDragMove = useCallback((x0: number, x1: number, y0: number, y1: number) => {
-    setDragPreviewWells(matchWellsInBox(x0, x1, y0, y1));
+  const handleDragMove = useCallback((x0: number, x1: number, y0: number, y1: number, y2Bounds?: { y0: number; y1: number }) => {
+    setDragPreviewWells(matchWellsInBox(x0, x1, y0, y1, y2Bounds));
   }, [matchWellsInBox]);
 
   const handleDragEnd = useCallback(() => setDragPreviewWells(null), []);

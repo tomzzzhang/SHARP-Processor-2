@@ -20,7 +20,7 @@ done
 
 # Rebuild DMG with the properly signed .app
 for app in "$BUNDLE_DIR"/macos/*.app; do
-    DMG_NAME="$(basename "$app" .app | tr ' ' '.')_0.1.1_aarch64.dmg"
+    DMG_NAME="$(basename "$app" .app | tr ' ' '.')_0.1.2_aarch64.dmg"
     hdiutil create -volname "$(basename "$app" .app)" -srcfolder "$app" -ov -format UDZO "$BUNDLE_DIR/dmg/$DMG_NAME"
 done
 
