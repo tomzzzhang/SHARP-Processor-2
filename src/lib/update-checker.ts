@@ -19,8 +19,31 @@ function isNewer(remote: string, local: string): boolean {
   return false;
 }
 
+/** Detect current platform from navigator */
+function getCurrentPlatform(): 'windows' | 'macos' | 'unknown' {
+  const ua = navigator.userAgent.toLowerCase();
+  if (ua.includes('win')) return 'windows';
+  if (ua.includes('mac')) return 'macos';
+  return 'unknown';
+}
+
+/** Asset filename patterns that indicate a platform-specific release */
+const PLATFORM_ASSET_PATTERNS: Record<string, RegExp> = {
+  windows: /\.(exe|msi)$/i,
+  macos: /\.(dmg|app)$/i,
+};
+
+/** Check if a release has assets for the given platform */
+function hasPlatformAsset(assets: Array<{ name: string }>, platform: string): boolean {
+  const pattern = PLATFORM_ASSET_PATTERNS[platform];
+  if (!pattern) return true; // unknown platform — don't filter
+  return assets.some((a) => pattern.test(a.name));
+}
+
 /**
  * Check GitHub Releases API for a newer version.
+ * Only reports an update if the release includes assets for the current platform,
+ * so users won't be notified about a release they can't download yet.
  * Returns null if the check fails (no internet, API error, etc.).
  */
 export async function checkForUpdates(): Promise<UpdateResult | null> {
@@ -32,8 +55,12 @@ export async function checkForUpdates(): Promise<UpdateResult | null> {
     if (!resp.ok) return null;
     const data = await resp.json();
     const tagName: string = data.tag_name ?? '';
+    const assets: Array<{ name: string }> = data.assets ?? [];
+    const platform = getCurrentPlatform();
+    const newer = isNewer(tagName, APP_VERSION);
+    const hasAsset = hasPlatformAsset(assets, platform);
     return {
-      updateAvailable: isNewer(tagName, APP_VERSION),
+      updateAvailable: newer && hasAsset,
       latestVersion: tagName.replace(/^v/, ''),
       currentVersion: APP_VERSION,
       releaseUrl: data.html_url ?? RELEASES_URL,
