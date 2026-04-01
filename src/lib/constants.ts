@@ -1,5 +1,5 @@
 // ── App version ─────────────────────────────────────────────────────
-export const APP_VERSION = '0.1.1';
+export const APP_VERSION = '0.1.2';
 export const GITHUB_REPO = 'tomzzzhang/SHARP-Processor-2';
 export const RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`;
 
