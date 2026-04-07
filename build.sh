@@ -18,10 +18,21 @@ for app in "$BUNDLE_DIR"/macos/*.app; do
     echo "Signed: $(basename "$app")"
 done
 
-# Rebuild DMG with the properly signed .app
+# Rebuild DMG with the properly signed .app + Applications symlink
 for app in "$BUNDLE_DIR"/macos/*.app; do
-    DMG_NAME="$(basename "$app" .app | tr ' ' '.')_0.1.2_aarch64.dmg"
-    hdiutil create -volname "$(basename "$app" .app)" -srcfolder "$app" -ov -format UDZO "$BUNDLE_DIR/dmg/$DMG_NAME"
+    APP_NAME="$(basename "$app" .app)"
+    DMG_NAME="$(echo "$APP_NAME" | tr ' ' '.')_0.1.2_aarch64.dmg"
+
+    # Create staging directory with .app and Applications symlink
+    DMG_STAGE="/tmp/dmg-stage-$$"
+    rm -rf "$DMG_STAGE"
+    mkdir -p "$DMG_STAGE"
+    ditto "$app" "$DMG_STAGE/$APP_NAME.app"
+    ln -s /Applications "$DMG_STAGE/Applications"
+
+    # Create DMG from staging directory
+    hdiutil create -volname "$APP_NAME" -srcfolder "$DMG_STAGE" -ov -format UDZO "$BUNDLE_DIR/dmg/$DMG_NAME"
+    rm -rf "$DMG_STAGE"
 done
 
 # Copy final DMG/app into project folder
