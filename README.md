@@ -32,13 +32,17 @@
 
 > **Windows may show a SmartScreen warning** the first time you run the app ("Windows protected your PC"). This is normal for new apps that haven't been code-signed yet. Click **"More info"** → **"Run anyway"** to proceed.
 
-### macOS
+### macOS (Apple Silicon)
 
 1. Download the **`.dmg`** file from the [Releases](https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest) page
-2. Open the DMG and drag **SHARP Processor 2** to your Applications folder
-3. **First launch:** Right-click the app → **Open** (bypasses the "unidentified developer" warning)
+2. Open the DMG and drag **SHARP Processor 2** into the **Applications** folder
+3. **First launch — bypass the macOS security warning:**
+   - Open **System Settings → Privacy & Security**
+   - Scroll down to the Security section — you'll see a message saying *"SHARP Processor 2" was blocked from use because it is not from an identified developer*
+   - Click **Open Anyway** and confirm
+   - Alternatively: right-click the app in Applications → **Open** → click **Open** in the dialog
 
-> macOS builds are currently ad-hoc signed. After the first launch via right-click, subsequent launches work normally.
+> macOS builds are ad-hoc signed (not notarized with Apple). After you allow it once via the steps above, subsequent launches work normally. This is standard for open-source Tauri apps distributed outside the Mac App Store.
 
 ---
 
