@@ -1,7 +1,5 @@
 # CLAUDE.md — SHARP Processor 2
 
-**Last Updated:** 2026-04-07 PST
-
 ## Project Overview
 
 SHARP Processor 2 — a modern desktop app for qPCR/isothermal amplification data analysis. This is a ground-up rewrite of the v1 PyQt6+matplotlib app using **Tauri 2 + React + TypeScript + Plotly.js**.
@@ -19,12 +17,12 @@ SHARP Processor 2 — a modern desktop app for qPCR/isothermal amplification dat
 ### Windows
 ```bash
 # Double-click dev.bat, or:
-set CARGO_TARGET_DIR=C:\tauri-build-cache
+set CARGO_TARGET_DIR=%cd%\build-cache
 npx tauri dev
 ```
-- **CARGO_TARGET_DIR** must be set to `C:\tauri-build-cache` to avoid OneDrive sync overhead on the Rust `target/` directory.
-- Rust 1.94.0, VS 2022 Build Tools (C++ workload), Node 24.14.0
-- Installed Rust targets: `x86_64-pc-windows-msvc` (64-bit), `i686-pc-windows-msvc` (32-bit)
+- **CARGO_TARGET_DIR** is set to `build-cache/` inside the project directory (handled automatically by `dev.bat` and `build.bat`).
+- Requires: Rust (stable), VS 2022 Build Tools (C++ workload), Node 24+
+- Rust targets: `x86_64-pc-windows-msvc` (64-bit), `i686-pc-windows-msvc` (32-bit)
 - `build.bat` builds both x64 and x86 installers → `dist-release/windows-x64/` and `dist-release/windows-x86/`
 
 ### macOS
@@ -123,15 +121,16 @@ build.bat                    # Double-click build launcher
 | 22 | Update checker + melt threshold + UX | **Done** | GitHub release update checker (auto + manual), melt derivative threshold (draggable, dims low-peak wells), Tm column in results, SHARP theme warm grey, smaller checkboxes, well grid outlines |
 | 23 | Welcome tab + sidebar home | **Done** | Welcome tab on startup, SidebarHome with load button + recent experiments, greyed-out tabs when no experiment, padded macOS icon |
 | 24 | Plot bg + melt drag-select | **Done** | Plot background defaults to off-white (#fafafa) instead of theme bg, customizable via Style tab color picker. Melt tab derivative subplot now supports drag-select (yaxis2-aware box select) |
+| 25 | TianLong sample parsing + UX | **Done** | .tlpd parser extracts actual sample names from Well hex blobs (Test Name priority, Sample fallback). Only populated wells shown. Well names mapped to correct plate layout (A1-A8/B1-B8 for Gentier Mini). Dynamic well count from instrument model. SHARP theme sepia toned down. Dark mode number input spinners fixed. Cross-platform npm install fix (removed darwin-arm64 dep) |
 
 ## Instrument File Formats & Encryption
 
-The Python sidecar (`scripts/parse_instrument.py`) calls the v1 parser to handle encrypted/proprietary instrument files. Key details for each format:
+Most instrument formats are parsed in pure TypeScript (`src/lib/parsers/`). The Python sidecar (`scripts/parse_instrument.py`) is used as a fallback for formats requiring v1 parser dependencies. Key details for each format:
 
 ### BioRad CFX96 (.pcrd)
 - **Structure:** Nested ZIP → inner `datafile.pcrd` entry is ZipCrypto encrypted → UTF-8 XML
 - **Password:** `SecureCompressDecompressKeyiQ5V4Files!!##$$`
-- **Source:** Hardcoded in `C:\Program Files (x86)\Bio-Rad\CFX\BioRad.Common.dll` (`FileCryptor` class)
+- **Source:** Hardcoded in Bio-Rad CFX Manager's `BioRad.Common.dll` (`FileCryptor` class)
 - **XML root:** `<experimentalData2>` — contains plate setup, protocol, fluorescence data (PAr blobs), per-cycle timestamps, RunInfo (66 KV pairs), event log
 - **PAr data:** 2592 semicolon-separated floats per plate read: 108 wells × 4 stats × 6 channels. Channel 0 = FAM/SYBR. Index: `c*432 + w*4 + stat`. Wells 0-95 = data (A1-H12), 96-107 = reference (skip)
 - **Plate layout:** Always 96-well (8×12), defined by `plateSetup2` XML section
@@ -140,12 +139,18 @@ The Python sidecar (`scripts/parse_instrument.py`) calls the v1 parser to handle
 ### TianLong Gentier (.tlpd)
 - **Structure:** Password-protected ZIP archive
 - **Password:** `82218051`
-- **Contents:** INI-style text files (`experiment_data`, `run_method`, `coefficient`)
-- **AmpData:** Hex-encoded uint16 LE fluorescence values, 16 wells per cycle
+- **Contents:** INI-style text files (`experiment_data`, `run_method`, `coefficient`, `experiment_log`)
+- **AmpData:** Hex-encoded uint16 LE fluorescence values, N wells per cycle (N = well count from model)
 - **MeltData:** Same hex format, temperatures derived from protocol step definitions
 - **Step definitions:** 26-byte hex blobs — temp at offset +2 (uint16 LE, hundredths °C), hold time at +10, read flag at +14
-- **Well count:** 16 (always), model is `InstrumentTypeName` from `FileInfo` section (e.g., `"Gentier mini"`)
-- **Physical layout:** 2 rows × 8 columns (not stored in file — must be mapped by instrument model lookup)
+- **SampleSetup Well blobs:** `Well\N\Value` in `[SampleSetup]` section — hex-encoded binary per well:
+  - Byte 0: active flag (01 = populated, 00 = empty)
+  - Bytes 4-7: color (RGBA)
+  - Bytes 12+: sample name (ASCII, null-terminated)
+  - `Well\N\Value\Test`: same structure, contains Test Name field (preferred over Sample name)
+- **Well count:** Determined from `InstrumentTypeName` in `FileInfo` section via model lookup
+- **Physical layout:** Mapped from instrument model (not stored in file): Gentier Mini → 2×8, Gentier 48 → 6×8, Gentier 96 → 8×12
+- **Well name mapping:** 0-based index → row/col: `index / cols` → row letter, `index % cols + 1` → column number
 - **Time reconstruction:** `TempData` section contains real 1-second resolution instrument telemetry
 
 ### ThermoFisher QuantStudio (.eds)
@@ -210,12 +215,7 @@ ZIP archive (rename to `.zip` to open) containing:
 
 ## Python Environment
 
-If working with the Python sidecar (parser), use the `sharp` conda environment:
-
-| Platform | Python path |
-|----------|-------------|
-| Windows  | `C:\Users\Tom\anaconda3\envs\sharp\python.exe` |
-| macOS    | `~/anaconda3/envs/sharp/bin/python` |
+The Python sidecar requires a `sharp` conda environment with the v1 parser dependencies. See `CLAUDE.local.md` for platform-specific Python paths.
 
 ## Repository
 
@@ -224,12 +224,7 @@ If working with the Python sidecar (parser), use the `sharp` conda environment:
 
 ## Key References
 
-- v1 source: `C:\Users\Tom\OneDrive - SHARP Diagnostics\SHARP data processor\Unwinding data processing\`
 - v1 design doc: `PROCESSOR_DESIGN.md` (in v1 repo)
 - v1 .sharp format spec: `SHARP_FORMAT.md` (in v1 repo)
 - v1 BioRad reverse engineering: `PCRD_FORMAT.md` (in v1 repo)
 - v1 user guide: `PROCESSOR_GUIDE.md` (in v1 repo)
-
-## Documentation Timestamps (MANDATORY)
-
-All project MD files have a `**Last Updated:**` field. Update ALL of them whenever any project file is modified. Format: `**Last Updated:** YYYY-MM-DD PST`

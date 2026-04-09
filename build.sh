@@ -21,7 +21,7 @@ done
 # Rebuild DMG with the properly signed .app + Applications symlink
 for app in "$BUNDLE_DIR"/macos/*.app; do
     APP_NAME="$(basename "$app" .app)"
-    DMG_NAME="$(echo "$APP_NAME" | tr ' ' '.')_0.1.2_aarch64.dmg"
+    DMG_NAME="$(echo "$APP_NAME" | tr ' ' '.')_0.1.3_aarch64.dmg"
 
     # Create staging directory with .app and Applications symlink
     DMG_STAGE="/tmp/dmg-stage-$$"

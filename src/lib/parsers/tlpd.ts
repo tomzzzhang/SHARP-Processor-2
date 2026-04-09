@@ -16,9 +16,16 @@ import {
   sortWells, readIniSection, computeTimeStats,
   computeMeltDerivative, buildExperimentData,
 } from './utils';
+import { getInstrumentPlateLayout } from '@/lib/constants';
 
 const TLPD_PASSWORD = new TextEncoder().encode('82218051');
-const WELL_COUNT = 16;
+
+/** Map 0-based well index to well name (e.g., A1, B3) given plate column count */
+function wellNameFromIndex(index: number, cols: number): string {
+  const row = Math.floor(index / cols);
+  const col = (index % cols) + 1;
+  return `${String.fromCharCode(65 + row)}${col}`;
+}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -39,36 +46,52 @@ export async function parseTlpd(buffer: ArrayBuffer, fileName: string): Promise<
   // RunMethod → Protocol + stages
   const { protocol, stages } = parseRunMethod(runMethod);
 
+  // Determine plate layout from instrument model
+  const layout = getInstrumentPlateLayout(instrument.model) ?? { rows: 2, cols: 8 };
+  const plateCols = layout.cols;
+  const wellCount = layout.rows * layout.cols;
+
   // SampleSetup → sample map
-  const sampleMap = parseSampleSetup(runMethod);
+  const sampleMap = parseSampleSetup(runMethod, plateCols);
 
   // AmpData → fluorescence
-  const ampRaw = parseAmpData(expData);
+  const ampRaw = parseAmpData(expData, wellCount, plateCols);
 
   // MeltData → melt RFU
-  const meltRaw = parseMeltData(expData, stages);
+  const meltRaw = parseMeltData(expData, stages, wellCount, plateCols);
 
   // TempData → time reconstruction
   const timeRecon = parseTempData(expData, stages);
 
+  // Filter amp/melt data to only populated wells
+  const populatedWellNames = new Set(Object.keys(sampleMap));
+
   // Build amplification
   let amplification: AmplificationData | null = null;
   if (ampRaw) {
+    const filteredAmpWells: Record<string, number[]> = {};
+    for (const [w, values] of Object.entries(ampRaw.wells)) {
+      if (populatedWellNames.has(w)) filteredAmpWells[w] = values;
+    }
     amplification = {
       cycle: ampRaw.cycles,
       timeS: timeRecon.cycleTimes.length === ampRaw.cycles.length
         ? timeRecon.cycleTimes : ampRaw.cycles.map((_, i) => i * 23.0),
       timeMin: (timeRecon.cycleTimes.length === ampRaw.cycles.length
         ? timeRecon.cycleTimes : ampRaw.cycles.map((_, i) => i * 23.0)).map(t => t / 60),
-      wells: ampRaw.wells,
+      wells: filteredAmpWells,
     };
   }
 
   // Build melt
   let melt: MeltData | null = null;
   if (meltRaw) {
-    const derivative = computeMeltDerivative(meltRaw.temperatures, meltRaw.wells);
-    melt = { temperatureC: meltRaw.temperatures, rfu: meltRaw.wells, derivative };
+    const filteredMeltWells: Record<string, number[]> = {};
+    for (const [w, values] of Object.entries(meltRaw.wells)) {
+      if (populatedWellNames.has(w)) filteredMeltWells[w] = values;
+    }
+    const derivative = computeMeltDerivative(meltRaw.temperatures, filteredMeltWells);
+    melt = { temperatureC: meltRaw.temperatures, rfu: filteredMeltWells, derivative };
   }
 
   // Build well info
@@ -103,7 +126,7 @@ export async function parseTlpd(buffer: ArrayBuffer, fileName: string): Promise<
       raw_definition: protocol.rawDefinition,
     },
     wells, wellsUsed, amplification, melt,
-    plateRows: 2, plateCols: 8,
+    plateRows: layout.rows, plateCols: layout.cols,
     timeReconstruction,
   });
 }
@@ -261,40 +284,62 @@ function inferExperimentType(stages: Map<number, StageInfo>): string {
 // SampleSetup
 // ---------------------------------------------------------------------------
 
-function parseSampleSetup(runMethod: string): Record<string, { sample: string; content: string }> {
+function parseSampleSetup(runMethod: string, plateCols: number): Record<string, { sample: string; content: string }> {
   const ss = readIniSection(runMethod, 'SampleSetup');
   const wellSize = parseInt(ss['Well\\size'] ?? '0');
   const map: Record<string, { sample: string; content: string }> = {};
   for (let i = 0; i < wellSize; i++) {
-    const name = `A${i + 1}`;
-    map[name] = { sample: `Well ${i + 1}`, content: 'Unkn' };
+    const hexVal = ss[`Well\\${i + 1}\\Value`] ?? '';
+    if (!hexVal) continue;
+    let raw: Uint8Array;
+    try { raw = hexToBytes(hexVal); } catch { continue; }
+    // Byte 0: active flag (01 = populated, 00 = empty)
+    if (raw.length < 13 || raw[0] === 0) continue;
+    // Prefer Test Name (Well\N\Value\Test) over Sample (Well\N\Value)
+    const sample = extractNameFromBlob(ss[`Well\\${i + 1}\\Value\\Test`])
+      ?? extractNameFromBlob(hexVal)
+      ?? wellNameFromIndex(i, plateCols);
+    const name = wellNameFromIndex(i, plateCols);
+    map[name] = { sample, content: 'Unkn' };
   }
   return map;
+}
+
+/** Extract null-terminated ASCII name starting at byte 12 of a hex blob. Returns null if empty. */
+function extractNameFromBlob(hexVal?: string): string | null {
+  if (!hexVal) return null;
+  let raw: Uint8Array;
+  try { raw = hexToBytes(hexVal); } catch { return null; }
+  if (raw.length <= 12) return null;
+  let nameEnd = 12;
+  while (nameEnd < raw.length && raw[nameEnd] !== 0) nameEnd++;
+  if (nameEnd === 12) return null;
+  return new TextDecoder('ascii').decode(raw.slice(12, nameEnd));
 }
 
 // ---------------------------------------------------------------------------
 // AmpData
 // ---------------------------------------------------------------------------
 
-function parseAmpData(expData: string): { cycles: number[]; wells: Record<string, number[]> } | null {
+function parseAmpData(expData: string, wellCount: number, plateCols: number): { cycles: number[]; wells: Record<string, number[]> } | null {
   const amp = readIniSection(expData, 'AmpData');
   const cycleCount = parseInt(amp['Cycle\\size'] ?? '0');
   if (cycleCount === 0) return null;
 
   const cycles: number[] = [];
   const wells: Record<string, number[]> = {};
-  for (let w = 0; w < WELL_COUNT; w++) wells[`A${w + 1}`] = [];
+  for (let w = 0; w < wellCount; w++) wells[wellNameFromIndex(w, plateCols)] = [];
 
   for (let c = 1; c <= cycleCount; c++) {
     const hexVal = amp[`Cycle\\${c}\\Value`] ?? '';
     if (!hexVal) continue;
     const raw = hexToBytes(hexVal);
     cycles.push(c);
-    for (let w = 0; w < WELL_COUNT; w++) {
+    for (let w = 0; w < wellCount; w++) {
       const offset = w * 2;
       const val = offset + 2 <= raw.length
         ? new DataView(raw.buffer, raw.byteOffset + offset, 2).getUint16(0, true) : 0;
-      wells[`A${w + 1}`].push(val);
+      wells[wellNameFromIndex(w, plateCols)].push(val);
     }
   }
 
@@ -305,7 +350,7 @@ function parseAmpData(expData: string): { cycles: number[]; wells: Record<string
 // MeltData
 // ---------------------------------------------------------------------------
 
-function parseMeltData(expData: string, stages: Map<number, StageInfo>): { temperatures: number[]; wells: Record<string, number[]> } | null {
+function parseMeltData(expData: string, stages: Map<number, StageInfo>, wellCount: number, plateCols: number): { temperatures: number[]; wells: Record<string, number[]> } | null {
   const md = readIniSection(expData, 'MeltData');
   const cycleCount = parseInt(md['Cycle\\size'] ?? '0');
   if (cycleCount === 0) return null;
@@ -313,7 +358,7 @@ function parseMeltData(expData: string, stages: Map<number, StageInfo>): { tempe
   const meltTemps = getMeltTemperatures(stages);
   const temperatures: number[] = [];
   const wells: Record<string, number[]> = {};
-  for (let w = 0; w < WELL_COUNT; w++) wells[`A${w + 1}`] = [];
+  for (let w = 0; w < wellCount; w++) wells[wellNameFromIndex(w, plateCols)] = [];
 
   for (let c = 1; c <= cycleCount; c++) {
     const hexVal = md[`Cycle\\${c}\\Value`] ?? '';
@@ -323,11 +368,11 @@ function parseMeltData(expData: string, stages: Map<number, StageInfo>): { tempe
       ? meltTemps[c - 1]
       : 65.0 + (c - 1) * (30.0 / Math.max(cycleCount - 1, 1));
     temperatures.push(tempC);
-    for (let w = 0; w < WELL_COUNT; w++) {
+    for (let w = 0; w < wellCount; w++) {
       const offset = w * 2;
       const val = offset + 2 <= raw.length
         ? new DataView(raw.buffer, raw.byteOffset + offset, 2).getUint16(0, true) : 0;
-      wells[`A${w + 1}`].push(val);
+      wells[wellNameFromIndex(w, plateCols)].push(val);
     }
   }
 
