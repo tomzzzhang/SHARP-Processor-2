@@ -56,9 +56,9 @@
     --brand-red-deep: #4f2125;
     --brand-black: #212224;
 
-    --background: #f3f2f0;
+    --background: #f5f4f3;
     --foreground: #212224;
-    --card: #f8f7f6;
+    --card: #f9f8f7;
     --card-foreground: #212224;
     --popover: #f8f7f6;
     --popover-foreground: #212224;
@@ -71,8 +71,8 @@
     --accent: oklch(0.97 0.006 25);
     --accent-foreground: oklch(0.205 0 0);
     --destructive: oklch(0.577 0.245 27.325);
-    --border: #ddd8d3;
-    --input: #ddd8d3;
+    --border: #dedad6;
+    --input: #dedad6;
     --ring: oklch(0.55 0.18 25);
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
@@ -200,5 +200,9 @@
     @apply font-sans;
     }
 
-
+  /* Number input spinner buttons — dark-mode aware coloring */
+  .dark input[type="number"],
+  .theme-sharp-dark input[type="number"] {
+    color-scheme: dark;
+  }
 }

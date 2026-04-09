@@ -198,7 +198,7 @@ Instrument files (`.pcrd`, `.tlpd`, `.eds`, `.amxd`) use proprietary and encrypt
 - **ThermoFisher `.eds`** — ZIP with JSON (modern) or XML (legacy) quantification data
 - **Agilent `.amxd`** — double-encrypted PGP TAR archives with binary fluorescence packets
 
-All formats are parsed into the universal `.sharp` archive format for consistent downstream analysis.
+Most formats are parsed in pure TypeScript; the Python sidecar is used as a fallback for formats requiring legacy parser dependencies. All formats are converted into the universal `.sharp` archive format for consistent downstream analysis.
 
 ## Development
 

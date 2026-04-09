@@ -27,3 +27,6 @@ dist-ssr
 src-tauri/target/
 build-cache/
 dist-release/
+
+# Local dev config (machine-specific, not for public repo)
+CLAUDE.local.md
