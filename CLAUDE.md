@@ -1,5 +1,7 @@
 # CLAUDE.md — SHARP Processor 2
 
+**Last Updated:** 2026-04-10 PST
+
 ## Project Overview
 
 SHARP Processor 2 — a modern desktop app for qPCR/isothermal amplification data analysis. This is a ground-up rewrite of the v1 PyQt6+matplotlib app using **Tauri 2 + React + TypeScript + Plotly.js**.
