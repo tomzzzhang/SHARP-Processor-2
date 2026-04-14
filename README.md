@@ -102,8 +102,13 @@ Switch to the **Doubling Time** tab for exponential growth fitting results. The 
 - Switch between **3 themes**: Classic (greyscale), SHARP (brand red), or SHARP Dark
 
 ### Export your results
-Go to **Export** in the menu bar:
-- **Plot image** — save as PNG, SVG, or JPEG at any resolution
+Go to **Export** in the menu bar. There are two ways to export plots:
+
+**Export Wizard** — A configuration dialog for publication-ready figures. Pick the plot type (amplification, melt, melt derivative, or doubling time), choose a size preset (single/double column, slide, square, or custom), set DPI and format (PNG/SVG/JPEG), and see a live preview that reflects your Style tab settings at the true target size. Click **Export…** and save.
+
+**Export As Seen** — A quick submenu (PNG/SVG/JPEG) that exports the currently-displayed plot exactly as it appears on screen, upscaled by your configured DPI. On the amplification tab this includes the melt-derivative mini-plot stacked below the main plot, so the exported image matches the on-screen layout one-to-one.
+
+Data exports:
 - **Amplification CSV** — raw or baseline-corrected fluorescence data
 - **Melt CSV** — melt curve data
 - **Results CSV** — detection results table (Tt, Tm, doubling time, call, end RFU)

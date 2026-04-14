@@ -7,7 +7,7 @@ import { checkForUpdates } from '@/lib/update-checker';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { loadSharpFile } from '@/lib/sharp-loader';
 import { isInstrumentFile, isSupportedFile, loadInstrumentFile } from '@/lib/instrument-loader';
-import { exportPlotImage, exportDataCsv, exportResultsCsv, exportMeltCsv, exportAsSharp, saveSession } from '@/lib/export';
+import { exportPlotImage, exportCompositePlotImage, exportDataCsv, exportResultsCsv, exportMeltCsv, exportAsSharp, saveSession } from '@/lib/export';
 import { getRecentFiles, addRecentFile } from '@/lib/recent-files';
 import { getTheme, setTheme, type AppTheme } from '@/lib/theme';
 
@@ -17,11 +17,65 @@ interface MenuItem {
   action?: () => void;
   separator?: boolean;
   disabled?: boolean;
+  /** Optional nested submenu. When present, clicking or hovering shows
+   *  the submenu to the right; the top-level item has no action. */
+  submenu?: MenuItem[];
 }
 
 interface Menu {
   label: string;
   items: MenuItem[];
+}
+
+/** Render a flat list of menu items — used by both top-level dropdowns
+ *  and nested submenus. Separators and disabled items are supported. */
+function MenuItemRow({ item, onClose }: { item: MenuItem; onClose: () => void }) {
+  const [hoverOpen, setHoverOpen] = useState(false);
+
+  if (item.separator) {
+    return <div className="border-t my-1" />;
+  }
+
+  if (item.submenu) {
+    return (
+      <div
+        className="relative"
+        onMouseEnter={() => setHoverOpen(true)}
+        onMouseLeave={() => setHoverOpen(false)}
+      >
+        <button
+          className="w-full flex items-center justify-between px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-40"
+          disabled={item.disabled}
+        >
+          <span>{item.label}</span>
+          <span className="ml-6 text-muted-foreground">▸</span>
+        </button>
+        {hoverOpen && !item.disabled && (
+          <div className="absolute top-0 left-full z-50 min-w-[200px] bg-background border rounded-md shadow-lg py-1">
+            {item.submenu.map((sub, i) => (
+              <MenuItemRow key={i} item={sub} onClose={onClose} />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      className="w-full flex items-center justify-between px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-40 disabled:cursor-default"
+      disabled={item.disabled}
+      onClick={() => {
+        item.action?.();
+        onClose();
+      }}
+    >
+      <span>{item.label}</span>
+      {item.shortcut && (
+        <span className="text-muted-foreground ml-6">{item.shortcut}</span>
+      )}
+    </button>
+  );
 }
 
 function MenuDropdown({ menu, isOpen, onOpen, onClose }: {
@@ -54,26 +108,9 @@ function MenuDropdown({ menu, isOpen, onOpen, onClose }: {
       </button>
       {isOpen && (
         <div className="absolute top-full left-0 z-50 min-w-[200px] bg-background border rounded-md shadow-lg py-1">
-          {menu.items.map((item, i) =>
-            item.separator ? (
-              <div key={i} className="border-t my-1" />
-            ) : (
-              <button
-                key={i}
-                className="w-full flex items-center justify-between px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-40 disabled:cursor-default"
-                disabled={item.disabled}
-                onClick={() => {
-                  item.action?.();
-                  onClose();
-                }}
-              >
-                <span>{item.label}</span>
-                {item.shortcut && (
-                  <span className="text-muted-foreground ml-6">{item.shortcut}</span>
-                )}
-              </button>
-            )
-          )}
+          {menu.items.map((item, i) => (
+            <MenuItemRow key={i} item={item} onClose={onClose} />
+          ))}
         </div>
       )}
     </div>
@@ -98,6 +135,8 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
   const deselectAll = useAppState((s) => s.deselectAll);
   const xAxisMode = useAppState((s) => s.xAxisMode);
   const setPlotTab = useAppState((s) => s.setPlotTab);
+  const plotTab = useAppState((s) => s.plotTab);
+  const setShowExportWizard = useAppState((s) => s.setShowExportWizard);
   const logScale = useAppState((s) => s.logScale);
   const setLogScale = useAppState((s) => s.setLogScale);
   const hiddenWells = useAppState((s) => s.hiddenWells);
@@ -157,11 +196,46 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
     }
   }, [exp, getActiveSourcePath]);
 
-  const handleExportPlot = useCallback(async (format: 'png' | 'svg' | 'jpeg') => {
-    const plotDiv = document.querySelector('.js-plotly-plot') as HTMLElement | null;
-    if (!plotDiv || !exp) return;
-    await exportPlotImage(plotDiv, format, figureDpi, exp.experimentId);
-  }, [exp, figureDpi]);
+  /**
+   * Export the currently-displayed plot(s) at their on-screen size,
+   * upscaled by the user's configured DPI. On the amplification tab
+   * this includes the melt-derivative mini-plot stacked below the
+   * main plot (composite PNG/JPEG — SVG composites fall back to the
+   * main plot only, since stitching two independent Plotly SVGs is
+   * non-trivial and low-value for v1).
+   */
+  const handleExportAsSeen = useCallback(async (format: 'png' | 'svg' | 'jpeg') => {
+    if (!exp) return;
+    const name = exp.experimentId;
+
+    // Pick the plot(s) to export based on the active tab.
+    const byId = (id: string) => document.getElementById(id);
+
+    if (plotTab === 'amplification') {
+      const amp = byId('sharp-plot-amp');
+      const deriv = byId('sharp-plot-amp-deriv');
+      if (!amp) return;
+      if (deriv && (format === 'png' || format === 'jpeg')) {
+        await exportCompositePlotImage([amp, deriv], format, figureDpi, name);
+        return;
+      }
+      // No derivative, or SVG requested — single-plot export
+      await exportPlotImage(amp, format, figureDpi, name);
+      return;
+    }
+
+    if (plotTab === 'melt') {
+      const melt = byId('sharp-plot-melt');
+      if (melt) await exportPlotImage(melt, format, figureDpi, name);
+      return;
+    }
+
+    if (plotTab === 'doubling') {
+      const doubling = byId('sharp-plot-doubling');
+      if (doubling) await exportPlotImage(doubling, format, figureDpi, name);
+      return;
+    }
+  }, [exp, figureDpi, plotTab]);
 
   const undo = useAppState((s) => s.undo);
   const redo = useAppState((s) => s.redo);
@@ -261,9 +335,17 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
     {
       label: 'Export',
       items: [
-        { label: 'Plot as PNG', shortcut: `${MOD_KEY}+Shift+E`, action: () => handleExportPlot('png'), disabled: !hasData },
-        { label: 'Plot as SVG', action: () => handleExportPlot('svg'), disabled: !hasData },
-        { label: 'Plot as JPEG', action: () => handleExportPlot('jpeg'), disabled: !hasData },
+        { label: 'Export Wizard...', action: () => setShowExportWizard(true), disabled: !hasData },
+        { separator: true },
+        {
+          label: 'Export As Seen',
+          disabled: !hasData,
+          submenu: [
+            { label: 'As PNG', shortcut: `${MOD_KEY}+Shift+E`, action: () => handleExportAsSeen('png') },
+            { label: 'As SVG', action: () => handleExportAsSeen('svg') },
+            { label: 'As JPEG', action: () => handleExportAsSeen('jpeg') },
+          ],
+        },
         { separator: true },
         { label: 'Amplification Data (CSV)', action: () => exp && exportDataCsv(exp, xAxisMode, visibleWells), disabled: !hasData },
         { label: 'Melt Data (CSV)', action: () => exp && exportMeltCsv(exp, visibleWells), disabled: !hasData || !exp?.melt },
@@ -312,7 +394,7 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
         } else if (e.key === 's' || e.key === 'S') {
           if (e.shiftKey) {
             e.preventDefault();
-            handleExportPlot('png');
+            handleExportAsSeen('png');
           } else {
             e.preventDefault();
             handleSave();
@@ -334,14 +416,14 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
         } else if (e.key === 'e' || e.key === 'E') {
           if (e.shiftKey) {
             e.preventDefault();
-            handleExportPlot('png');
+            handleExportAsSeen('png');
           }
         }
       }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [handleOpen, handleSave, handleExportPlot, selectAll, undo, redo, handleToggleVisibility, handleGroup, handleUngroup]);
+  }, [handleOpen, handleSave, handleExportAsSeen, selectAll, undo, redo, handleToggleVisibility, handleGroup, handleUngroup]);
 
   return (
     <div className="flex items-center bg-muted/30 border-b shrink-0" data-tauri-drag-region>

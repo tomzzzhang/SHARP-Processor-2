@@ -351,8 +351,16 @@ const sections: Section[] = [
     content: (
       <div className="space-y-3">
         <div>
-          <h4 className="font-semibold text-xs mb-1">Plot Export</h4>
-          <p>Export menu offers PNG, SVG, and JPEG formats. DPI is configurable in the Style tab.</p>
+          <h4 className="font-semibold text-xs mb-1">Plot Export — Two Paths</h4>
+          <p className="mb-2">The Export menu has two ways to produce plot images:</p>
+          <ul className="list-disc pl-5 space-y-1.5">
+            <li>
+              <strong>Export Wizard…</strong> — Floating dialog for publication-ready figures. Pick a plot type (Amplification, Melt with both RFU and −dF/dT, Melt Derivative only, or Doubling Time), choose a size preset or enter custom width/height in inches, set DPI (default 300), and pick a format (PNG, SVG, or JPEG). A live preview renders the figure at its true target pixel dimensions and scales it visually to fit the preview pane — so fonts, line widths, and margins all appear at their real absolute size. Colors, fonts, legend, and grid come from the Style tab, so tweaks there update the preview live. Click <em>Export…</em> to save.
+            </li>
+            <li>
+              <strong>Export As Seen ▸</strong> — Submenu with PNG/SVG/JPEG options. Captures the currently-displayed plot(s) at the on-screen container size and upscales by the Style tab's Figure DPI setting. On the amplification tab, both the main amp plot and the melt-derivative mini-plot below it are stitched into a single image for PNG/JPEG (SVG exports only the main amp plot). Shortcut: <Kbd>{'Ctrl'}+Shift+E</Kbd> for PNG.
+            </li>
+          </ul>
         </div>
 
         <div>
