@@ -159,7 +159,11 @@ function legendLayout(style: ReturnType<typeof usePlotStyle>, showForPlot?: bool
       x: pos.x, y: pos.y,
       xanchor: pos.xanchor as 'left' | 'right' | 'center',
       yanchor: pos.yanchor as 'top' | 'bottom' | 'middle',
-      bgcolor: isDark ? 'rgba(30,30,30,0.85)' : 'rgba(255,255,255,0.8)',
+      // Opaque background + faint border so the legend reads as a
+      // distinct box over dense traces instead of blending into them.
+      bgcolor: isDark ? '#1f1f1f' : '#ffffff',
+      bordercolor: isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)',
+      borderwidth: 1,
     },
   };
 }

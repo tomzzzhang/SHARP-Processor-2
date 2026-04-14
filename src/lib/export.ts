@@ -11,6 +11,20 @@ import { CONTENT_DISPLAY } from '@/lib/constants';
 type ImageFormat = 'png' | 'svg' | 'jpeg';
 
 /**
+ * Resolve a caller-supplied element down to the actual Plotly graph div.
+ * Plotly.toImage requires the element that Plotly.newPlot was called on
+ * (the one with `.js-plotly-plot` and internal `_fullLayout` state).
+ * Callers sometimes pass an outer wrapper div (e.g. a container with
+ * our own `id="sharp-plot-amp"` stable tag) — walk down to the real
+ * graph div if so. Returns the original if nothing better is found.
+ */
+function resolvePlotlyDiv(el: HTMLElement): HTMLElement {
+  if (el.classList.contains('js-plotly-plot')) return el;
+  const inner = el.querySelector('.js-plotly-plot') as HTMLElement | null;
+  return inner ?? el;
+}
+
+/**
  * Export the current plot as an image file.
  * Uses Plotly's toImage to render, then Tauri's save dialog + writeFile.
  */
@@ -32,17 +46,19 @@ export async function exportPlotImage(
   });
   if (!filePath) return null;
 
-  // Get the plot's current on-screen dimensions. Pass these unchanged to
-  // Plotly.toImage and let `scale` upscale the whole figure — canvas,
-  // fonts, line widths, and margins — proportionally. Previously we
-  // pre-multiplied width/height and passed scale: 1, which grew the
-  // canvas without scaling the fonts, producing tiny-text exports that
-  // did not match the on-screen appearance.
-  const rect = plotDiv.querySelector('.plot-container')?.getBoundingClientRect()
-    ?? plotDiv.getBoundingClientRect();
+  // Resolve the actual Plotly graph div (caller may have passed an
+  // outer wrapper with our stable id) and read its on-screen size.
+  // Pass those dimensions to Plotly.toImage and let `scale` upscale the
+  // whole figure — canvas, fonts, line widths, and margins — in lockstep.
+  // Pre-multiplying dimensions while passing scale: 1 (as we did before
+  // v0.1.6) grew the canvas without scaling the fonts. Measuring an
+  // inner child like `.plot-container` instead of the graph div itself
+  // causes Plotly to re-flow the legend outside the figure on re-render.
+  const graphDiv = resolvePlotlyDiv(plotDiv);
+  const rect = graphDiv.getBoundingClientRect();
   const scale = dpi / 96; // screen-DPI baseline
 
-  const result = await Plotly.toImage(plotDiv, {
+  const result = await Plotly.toImage(graphDiv, {
     format,
     width: rect.width,
     height: rect.height,
@@ -99,12 +115,17 @@ export async function exportCompositePlotImage(
 
   const scale = dpi / 96;
 
-  // Capture each plot as a raster image at the scaled DPI.
+  // Capture each plot as a raster image at the scaled DPI. Resolve
+  // each caller-provided div to the actual Plotly graph div (callers
+  // typically pass outer wrappers tagged with stable ids) and measure
+  // the graph div itself — measuring an inner child like
+  // `.plot-container` causes Plotly to re-flow the legend outside the
+  // figure when it re-renders at the requested size.
   const captures: { dataUrl: string; width: number; height: number }[] = [];
   for (const div of plotDivs) {
-    const rect = div.querySelector('.plot-container')?.getBoundingClientRect()
-      ?? div.getBoundingClientRect();
-    const dataUrl = await Plotly.toImage(div, {
+    const graphDiv = resolvePlotlyDiv(div);
+    const rect = graphDiv.getBoundingClientRect();
+    const dataUrl = await Plotly.toImage(graphDiv, {
       format: 'png', // always PNG for compositing, re-encode later
       width: rect.width,
       height: rect.height,
