@@ -59,6 +59,100 @@ function baselineLinear(rfu: number[], xData: number[], start: number, end: numb
   };
 }
 
+/**
+ * Auto-detect the longest contiguous flat region of an amplification curve
+ * suitable for horizontal baseline subtraction.
+ *
+ * Approach: find the quietest 5-point rolling std as a noise floor σ, then
+ * use a two-pointer sweep to find the longest contiguous window whose std
+ * stays below k·σ. Search is capped to the first ~70% of the curve so a
+ * flat plateau past exponential rise is never picked. Returns 1-indexed
+ * cycle bounds matching `applyBaseline`'s convention. Returns null if no
+ * usable flat region (≥5 points) is found.
+ */
+export function findFlatBaselineWindow(rfu: number[]): { start: number; end: number } | null {
+  const n = rfu.length;
+  if (n < 10) return null;
+
+  // --- Step 1: estimate noise floor from quietest 5-point window ---
+  const NOISE_WIN = 5;
+  let sigmaNoise = Infinity;
+  for (let i = 0; i + NOISE_WIN <= n; i++) {
+    let sum = 0;
+    for (let j = i; j < i + NOISE_WIN; j++) sum += rfu[j];
+    const mean = sum / NOISE_WIN;
+    let varSum = 0;
+    for (let j = i; j < i + NOISE_WIN; j++) {
+      const d = rfu[j] - mean;
+      varSum += d * d;
+    }
+    const std = Math.sqrt(varSum / NOISE_WIN);
+    if (std < sigmaNoise) sigmaNoise = std;
+  }
+  if (!Number.isFinite(sigmaNoise)) return null;
+  // Avoid a pathological zero floor (e.g. integer data with a flat run) —
+  // clamp to a tiny absolute minimum so we still accept a small amount of
+  // per-point jitter as "flat."
+  if (sigmaNoise < 1e-9) sigmaNoise = 1e-9;
+
+  // --- Step 2: flatness threshold ---
+  const K = 2.5;
+  const eps = K * sigmaNoise;
+
+  // --- Step 3: longest-flat two-pointer sweep, capped to first 70% ---
+  const jMax = Math.max(9, Math.floor(n * 0.7));
+  // Welford running stats over the window [left..right] inclusive.
+  let left = 0;
+  let count = 0;
+  let mean = 0;
+  let m2 = 0; // sum of squared deviations from mean
+
+  const addPoint = (x: number) => {
+    count++;
+    const delta = x - mean;
+    mean += delta / count;
+    m2 += delta * (x - mean);
+  };
+  const removePoint = (x: number) => {
+    if (count <= 1) {
+      count = 0;
+      mean = 0;
+      m2 = 0;
+      return;
+    }
+    const prevMean = mean;
+    mean = (mean * count - x) / (count - 1);
+    m2 -= (x - prevMean) * (x - mean);
+    if (m2 < 0) m2 = 0; // guard against FP drift
+    count--;
+  };
+  const currentStd = () => (count > 1 ? Math.sqrt(m2 / count) : 0);
+
+  let bestStart = -1;
+  let bestEnd = -1;
+  let bestLen = 0;
+
+  for (let right = 0; right < jMax; right++) {
+    addPoint(rfu[right]);
+    while (currentStd() > eps && left <= right) {
+      removePoint(rfu[left]);
+      left++;
+    }
+    const len = right - left + 1;
+    if (len > bestLen) {
+      bestLen = len;
+      bestStart = left;
+      bestEnd = right;
+    }
+  }
+
+  // --- Step 4: fallback if nothing meaningful found ---
+  if (bestLen < 5 || bestStart < 0) return null;
+
+  // Convert 0-indexed [bestStart..bestEnd] → 1-indexed inclusive [start..end]
+  return { start: bestStart + 1, end: bestEnd + 1 };
+}
+
 export function applyBaseline(
   rfu: number[],
   xData: number[],
