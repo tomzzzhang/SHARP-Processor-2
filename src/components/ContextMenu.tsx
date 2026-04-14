@@ -68,6 +68,10 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
   const removeWellGroup = useAppState((s) => s.removeWellGroup);
   const autoGroupBySample = useAppState((s) => s.autoGroupBySample);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
+  const wellBaselineOverrides = useAppState((s) => s.wellBaselineOverrides);
+  const baselineAuto = useAppState((s) => s.baselineAuto);
+  const setWellBaselineOverride = useAppState((s) => s.setWellBaselineOverride);
+  const clearWellBaselineOverrides = useAppState((s) => s.clearWellBaselineOverrides);
   const wellGroups = useAppState((s) => s.wellGroups);
   const selectionPaletteGroupColors = useAppState((s) => s.selectionPaletteGroupColors);
   const setSelectionPaletteGroupColors = useAppState((s) => s.setSelectionPaletteGroupColors);
@@ -77,6 +81,20 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
 
   const wells = [...selectedWells];
   const n = wells.length;
+
+  // Tri-state for per-well auto baseline across current selection.
+  // Uses the same resolution rule as AnalysisTab: override.auto ?? baselineAuto.
+  const selectionAutoState: 'on' | 'off' | 'mixed' | null = (() => {
+    if (n === 0) return null;
+    let anyOn = false, anyOff = false;
+    for (const w of wells) {
+      const ov = wellBaselineOverrides.get(w);
+      const effective = ov?.auto ?? baselineAuto;
+      if (effective) anyOn = true; else anyOff = true;
+      if (anyOn && anyOff) return 'mixed';
+    }
+    return anyOn ? 'on' : 'off';
+  })();
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -307,6 +325,40 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
         )}
       </div>
       {sep('s6')}
+
+      {/* Baseline submenu */}
+      <div
+        className="relative"
+        onMouseEnter={() => setSubmenu('baseline')}
+      >
+        <button className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-40" disabled={n === 0}>
+          Baseline &rarr;
+        </button>
+        {submenu === 'baseline' && n > 0 && (
+          <SubMenu className="min-w-[160px]">
+            <button
+              className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent"
+              onClick={() => { setWellBaselineOverride(wells, { auto: true }); onClose(); }}
+            >
+              {selectionAutoState === 'on' ? '✓ ' : '   '}Auto
+            </button>
+            <button
+              className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent"
+              onClick={() => { setWellBaselineOverride(wells, { auto: false }); onClose(); }}
+            >
+              {selectionAutoState === 'off' ? '✓ ' : '   '}Manual
+            </button>
+            <div className="border-t my-0.5" />
+            <button
+              className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent"
+              onClick={() => { clearWellBaselineOverrides(wells); onClose(); }}
+            >
+              Follow global default
+            </button>
+          </SubMenu>
+        )}
+      </div>
+      {sep('s7')}
 
       {/* Legend */}
       {itemWithHover('Add to Legend', () => addToLegend(wells), n === 0)}

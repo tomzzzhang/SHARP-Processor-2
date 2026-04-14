@@ -227,8 +227,9 @@ const sections: Section[] = [
           <p className="text-xs font-medium mb-1">Baseline Correction</p>
           <ul className="list-disc pl-5 space-y-0.5 mb-2">
             <li>Enable/disable globally with the checkbox</li>
-            <li>Method: Horizontal (constant) or Linear (slope-based)</li>
-            <li>Start and End cycle spinboxes define the fitting zone</li>
+            <li><strong>Auto baseline</strong> (on by default): finds the longest flat region per well and uses it as a horizontal baseline. Handles early signal dips (helicase warm-up) and different amplification timings automatically.</li>
+            <li>Method &amp; Zone (Horizontal/Linear + Start/End cycles): used only when Auto baseline is off globally, or for individual wells opted out of auto.</li>
+            <li>Per-well opt-out: select wells, right-click → <em>Baseline → Manual</em> (or use the Analysis panel's per-well override section). Opted-out wells fall back to the global manual Method/Zone settings.</li>
             <li>Show raw overlay: draws faint dotted raw curves behind corrected curves</li>
           </ul>
 

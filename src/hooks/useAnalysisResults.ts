@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useAppState } from './useAppState';
-import { analyzeWell, savitzkyGolaySmooth, type WellAnalysisResult } from '@/lib/analysis';
+import { analyzeWell, findFlatBaselineWindow, savitzkyGolaySmooth, type WellAnalysisResult } from '@/lib/analysis';
 
 /**
  * Reactively compute analysis results for all wells in the active experiment.
@@ -11,6 +11,7 @@ export function useAnalysisResults(): Map<string, WellAnalysisResult> {
   const idx = useAppState((s) => s.activeExperimentIndex);
   const xAxisMode = useAppState((s) => s.xAxisMode);
   const baselineEnabled = useAppState((s) => s.baselineEnabled);
+  const baselineAuto = useAppState((s) => s.baselineAuto);
   const baselineMethod = useAppState((s) => s.baselineMethod);
   const baselineStart = useAppState((s) => s.baselineStart);
   const baselineEnd = useAppState((s) => s.baselineEnd);
@@ -58,7 +59,9 @@ export function useAnalysisResults(): Map<string, WellAnalysisResult> {
 
       // Merge per-well baseline overrides if present
       const override = wellBaselineOverrides.get(well);
-      const options = override
+      const effectiveAuto = override?.auto ?? baselineAuto;
+
+      let options = override
         ? {
             ...globalOptions,
             baselineMethod: override.method ?? globalOptions.baselineMethod,
@@ -67,11 +70,25 @@ export function useAnalysisResults(): Map<string, WellAnalysisResult> {
           }
         : globalOptions;
 
+      if (effectiveAuto && options.baselineEnabled) {
+        const flat = findFlatBaselineWindow(rawRfu);
+        if (flat) {
+          // Auto is horizontal-only: force method and override the window.
+          options = {
+            ...options,
+            baselineMethod: 'horizontal',
+            baselineStart: flat.start,
+            baselineEnd: flat.end,
+          };
+        }
+        // Null → quietly fall through to manual range (no warning for v1).
+      }
+
       results.set(well, analyzeWell(rawRfu, xData, options));
     }
 
     return results;
-  }, [exp, xAxisMode, baselineEnabled, baselineMethod, baselineStart, baselineEnd,
+  }, [exp, xAxisMode, baselineEnabled, baselineAuto, baselineMethod, baselineStart, baselineEnd,
       thresholdEnabled, thresholdRfu, fittingEnabled, fitStartFraction, fitEndFraction,
       wellBaselineOverrides, smoothingEnabled, smoothingWindow]);
 }

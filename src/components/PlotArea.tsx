@@ -387,8 +387,10 @@ function AmplificationPlot() {
   const hoveredWell = useAppState((s) => s.hoveredWell);
   const setHoveredWell = useAppState((s) => s.setHoveredWell);
   const baselineEnabled = useAppState((s) => s.baselineEnabled);
+  const baselineAuto = useAppState((s) => s.baselineAuto);
   const baselineStart = useAppState((s) => s.baselineStart);
   const baselineEnd = useAppState((s) => s.baselineEnd);
+  const wellBaselineOverrides = useAppState((s) => s.wellBaselineOverrides);
   const showRawOverlay = useAppState((s) => s.showRawOverlay);
   const thresholdEnabled = useAppState((s) => s.thresholdEnabled);
   const thresholdRfu = useAppState((s) => s.thresholdRfu);
@@ -474,9 +476,19 @@ function AmplificationPlot() {
       style.legendVisibleOnly, visibleWells, baselineEnabled, showRawOverlay,
       analysisResults, wellStyleOverrides, colorMap, hoveredWell, dragPreviewWells, legendContent]);
 
-  // Compute baseline zone x-axis boundaries
+  // Compute baseline zone x-axis boundaries. Only shown when at least one
+  // visible well is in manual baseline mode (auto mode uses per-well windows,
+  // so a single shaded zone wouldn't represent anything meaningful).
   const baselineZoneBounds = useMemo(() => {
     if (!baselineEnabled || !amp) return null;
+    // Are there any visible wells using manual baseline?
+    const anyManual = visibleWells.some((w) => {
+      const ov = wellBaselineOverrides.get(w);
+      const effectiveAuto = ov?.auto ?? baselineAuto;
+      return !effectiveAuto;
+    });
+    if (!anyManual) return null;
+
     const cycle = amp.cycle;
     if (!cycle || cycle.length === 0) return null;
     const xData = xAxisMode === 'cycle' ? cycle : xAxisMode === 'time_s' ? amp.timeS : amp.timeMin;
@@ -485,7 +497,7 @@ function AmplificationPlot() {
     const endIdx = Math.min(cycle.length - 1, baselineEnd - 1);
     if (startIdx >= xData.length || endIdx < 0) return null;
     return { x0: xData[startIdx], x1: xData[endIdx] };
-  }, [baselineEnabled, amp, xAxisMode, baselineStart, baselineEnd]);
+  }, [baselineEnabled, amp, xAxisMode, baselineStart, baselineEnd, baselineAuto, wellBaselineOverrides, visibleWells]);
 
   const layout = useMemo((): Partial<Layout> => {
     const title = exp?.experimentId ?? 'Amplification Plot';

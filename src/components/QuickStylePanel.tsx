@@ -56,6 +56,10 @@ export function QuickStylePanel() {
   const removeWellGroup = useAppState((s) => s.removeWellGroup);
   const autoGroupBySample = useAppState((s) => s.autoGroupBySample);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
+  const wellBaselineOverrides = useAppState((s) => s.wellBaselineOverrides);
+  const baselineAuto = useAppState((s) => s.baselineAuto);
+  const setWellBaselineOverride = useAppState((s) => s.setWellBaselineOverride);
+  const clearWellBaselineOverrides = useAppState((s) => s.clearWellBaselineOverrides);
   const wellGroups = useAppState((s) => s.wellGroups);
   const selectionPaletteGroupColors = useAppState((s) => s.selectionPaletteGroupColors);
   const setSelectionPaletteGroupColors = useAppState((s) => s.setSelectionPaletteGroupColors);
@@ -65,6 +69,18 @@ export function QuickStylePanel() {
 
   const wells = [...selectedWells];
   const n = wells.length;
+
+  const selectionAutoState: 'on' | 'off' | 'mixed' | null = (() => {
+    if (n === 0) return null;
+    let anyOn = false, anyOff = false;
+    for (const w of wells) {
+      const ov = wellBaselineOverrides.get(w);
+      const effective = ov?.auto ?? baselineAuto;
+      if (effective) anyOn = true; else anyOff = true;
+      if (anyOn && anyOff) return 'mixed';
+    }
+    return anyOn ? 'on' : 'off';
+  })();
 
   const handleColorPick = useCallback(() => {
     const input = document.createElement('input');
@@ -230,6 +246,21 @@ export function QuickStylePanel() {
                 </button>
               ))}
             </div>
+          </PanelSection>
+
+          {/* Baseline */}
+          <PanelSection title="Baseline">
+            {btn(
+              `${selectionAutoState === 'on' ? '✓ ' : ''}Auto`,
+              () => setWellBaselineOverride(wells, { auto: true }),
+              n === 0,
+            )}
+            {btn(
+              `${selectionAutoState === 'off' ? '✓ ' : ''}Manual`,
+              () => setWellBaselineOverride(wells, { auto: false }),
+              n === 0,
+            )}
+            {btn('Follow Default', () => clearWellBaselineOverrides(wells), n === 0)}
           </PanelSection>
 
           {/* Legend */}

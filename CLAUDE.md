@@ -1,6 +1,6 @@
 # CLAUDE.md — SHARP Processor 2
 
-**Last Updated:** 2026-04-10 PST
+**Last Updated:** 2026-04-13 PST
 
 ## Project Overview
 
@@ -125,6 +125,7 @@ build.bat                    # Double-click build launcher
 | 24 | Plot bg + melt drag-select | **Done** | Plot background defaults to off-white (#fafafa) instead of theme bg, customizable via Style tab color picker. Melt tab derivative subplot now supports drag-select (yaxis2-aware box select) |
 | 25 | TianLong sample parsing + UX | **Done** | .tlpd parser extracts actual sample names from Well hex blobs (Test Name priority, Sample fallback). Only populated wells shown. Well names mapped to correct plate layout (A1-A8/B1-B8 for Gentier Mini). Dynamic well count from instrument model. SHARP theme sepia toned down. Dark mode number input spinners fixed. Cross-platform npm install fix (removed darwin-arm64 dep) |
 | 26 | Legend improvements | **Done** | Legend content selector (sample name default, well name option) via `legendContent` state. Legend click disabled (`onLegendClick={() => false}`). Legend hover wired to `setHoveredWell` via `useLegendHover` hook using native `plotly_legendhover` event. Well list rows now subscribe to `hoveredWell` and show a brand-red left bar + 18% tint when hovered from anywhere. Legend now on by default. |
+| 27 | Auto baseline | **Done** | Per-well flat-region detection via `findFlatBaselineWindow` in `analysis.ts` — noise floor from min 5-point rolling std, two-pointer Welford sweep for longest window with std ≤ 2.5σ, capped to first 70% of curve. Global `baselineAuto` state (default on) in `useAppState`. `WellBaselineOverride` extended with `auto?: boolean` for per-well opt-in/out. `useAnalysisResults` forces horizontal method and overrides start/end when effective auto. Analysis tab: global "Auto baseline" checkbox + tri-state per-well checkbox (uses Base UI `indeterminate` prop). Context menu + QuickStylePanel: new "Baseline" submenu/section with Auto/Manual/Follow-default. PlotArea: baseline zone shading hidden when all visible wells are auto. |
 
 ## Instrument File Formats & Encryption
 
