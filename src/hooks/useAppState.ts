@@ -20,6 +20,8 @@ export interface WellBaselineOverride {
   method?: 'horizontal' | 'linear';
   start?: number;
   end?: number;
+  /** Per-well opt-in/out of auto baseline. undefined = follow global baselineAuto. */
+  auto?: boolean;
 }
 
 /** State that is isolated per experiment tab */
@@ -42,6 +44,7 @@ export interface ExperimentViewState {
 
   // Analysis - Baseline
   baselineEnabled: boolean;
+  baselineAuto: boolean;     // auto-detect flat baseline region per well
   baselineMethod: 'horizontal' | 'linear';
   baselineStart: number;
   baselineEnd: number;
@@ -105,6 +108,7 @@ function defaultViewState(wellsUsed: string[] = []): ExperimentViewState {
     logScale: false,
     plotTab: 'amplification',
     baselineEnabled: true,
+    baselineAuto: true,
     baselineMethod: DEFAULT_BASELINE_METHOD,
     baselineStart: DEFAULT_BASELINE_START,
     baselineEnd: DEFAULT_BASELINE_END,
@@ -158,6 +162,7 @@ function snapshotViewState(state: AppState): ExperimentViewState {
     logScale: state.logScale,
     plotTab: state.plotTab,
     baselineEnabled: state.baselineEnabled,
+    baselineAuto: state.baselineAuto,
     baselineMethod: state.baselineMethod,
     baselineStart: state.baselineStart,
     baselineEnd: state.baselineEnd,
@@ -269,6 +274,7 @@ interface AppState extends ExperimentViewState {
   setLogScale: (on: boolean) => void;
   setPlotTab: (tab: PlotTab) => void;
   setBaselineEnabled: (on: boolean) => void;
+  setBaselineAuto: (on: boolean) => void;
   setBaselineMethod: (method: 'horizontal' | 'linear') => void;
   setBaselineZone: (start: number, end: number) => void;
   setShowRawOverlay: (on: boolean) => void;
@@ -733,6 +739,7 @@ export const useAppState = create<AppState>((set, get) => ({
   setLogScale: (on) => set({ logScale: on }),
   setPlotTab: (tab) => set({ plotTab: tab }),
   setBaselineEnabled: (on) => { get().pushUndo('Toggle baseline'); set({ baselineEnabled: on }); },
+  setBaselineAuto: (on) => { get().pushUndo('Toggle auto baseline'); set({ baselineAuto: on }); },
   setBaselineMethod: (method) => { get().pushUndo('Change baseline method'); set({ baselineMethod: method }); },
   setBaselineZone: (start, end) => set({ baselineStart: start, baselineEnd: end }),
   setShowRawOverlay: (on) => set({ showRawOverlay: on }),
