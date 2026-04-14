@@ -315,6 +315,8 @@ interface AppState extends ExperimentViewState {
   setFigureDpi: (dpi: number) => void;
   setShowDilutionWizard: (show: boolean) => void;
   setShowExportWizard: (show: boolean) => void;
+  resetStyle: () => void;
+  applyStyleSnapshot: (snapshot: import('../lib/style-presets').StyleSnapshot) => void;
 }
 
 export const useAppState = create<AppState>((set, get) => ({
@@ -789,6 +791,41 @@ export const useAppState = create<AppState>((set, get) => ({
   setFigureDpi: (dpi) => set({ figureDpi: dpi }),
   setShowDilutionWizard: (show) => set({ showDilutionWizard: show }),
   setShowExportWizard: (show) => set({ showExportWizard: show }),
+
+  /** Reset all Style-tab fields to their v2 defaults. */
+  resetStyle: () => {
+    get().pushUndo('Reset style');
+    set({
+      palette: 'SHARP',
+      paletteReversed: false,
+      paletteGroupColors: false,
+      lineWidth: DEFAULT_LINE_WIDTH,
+      fontFamily: DEFAULT_FONT_FAMILY,
+      titleSize: DEFAULT_TITLE_SIZE,
+      labelSize: DEFAULT_LABEL_SIZE,
+      tickSize: DEFAULT_TICK_SIZE,
+      legendSize: DEFAULT_LEGEND_SIZE,
+      showLegend: true,
+      showLegendAmp: true,
+      showLegendMelt: true,
+      showLegendDoubling: true,
+      legendPosition: 'best',
+      legendContent: 'sample',
+      legendVisibleOnly: true,
+      showGrid: true,
+      gridAlpha: DEFAULT_GRID_ALPHA,
+      plotBgColor: '',
+      figureDpi: DEFAULT_FIGURE_DPI,
+    });
+  },
+
+  /** Apply a named style snapshot (loaded from localStorage) to the
+   *  active experiment. All fields of the snapshot are applied in one
+   *  update; fields not in the snapshot are left unchanged. */
+  applyStyleSnapshot: (snapshot) => {
+    get().pushUndo('Apply style preset');
+    set({ ...snapshot });
+  },
 }));
 
 // Dev: expose store for debugging

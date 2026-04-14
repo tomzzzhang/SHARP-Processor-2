@@ -1,8 +1,13 @@
+import { useEffect, useState, useCallback } from 'react';
 import { useAppState } from '@/hooks/useAppState';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { FONT_FAMILIES, LEGEND_POSITIONS, MAIN_PALETTE_NAMES, GRADIENT_PALETTE_NAMES } from '@/lib/constants';
 import { CollapsibleSection } from './CollapsibleSection';
+import {
+  listStylePresets, getStylePreset, saveStylePreset, deleteStylePreset,
+  type StyleSnapshot,
+} from '@/lib/style-presets';
 
 export function StyleTab() {
   const palette = useAppState((s) => s.palette);
@@ -46,6 +51,64 @@ export function StyleTab() {
   const setGridAlpha = useAppState((s) => s.setGridAlpha);
   const setPlotBgColor = useAppState((s) => s.setPlotBgColor);
   const setFigureDpi = useAppState((s) => s.setFigureDpi);
+  const resetStyle = useAppState((s) => s.resetStyle);
+  const applyStyleSnapshot = useAppState((s) => s.applyStyleSnapshot);
+
+  // Preset management
+  const [presetNames, setPresetNames] = useState<string[]>(() => listStylePresets());
+  const refreshPresets = useCallback(() => setPresetNames(listStylePresets()), []);
+
+  // Keep the dropdown fresh if another component writes to localStorage.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'sharp-processor-style-presets') refreshPresets();
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [refreshPresets]);
+
+  const handleSavePreset = useCallback(() => {
+    const name = prompt('Save current style as preset:\n\nEnter a name:');
+    if (!name) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (presetNames.includes(trimmed)) {
+      if (!confirm(`Preset "${trimmed}" already exists. Overwrite?`)) return;
+    }
+    const snapshot: StyleSnapshot = {
+      palette, paletteReversed, paletteGroupColors,
+      lineWidth, fontFamily,
+      titleSize, labelSize, tickSize, legendSize,
+      showLegend, showLegendAmp, showLegendMelt, showLegendDoubling,
+      legendPosition, legendContent, legendVisibleOnly,
+      showGrid, gridAlpha, plotBgColor, figureDpi,
+    };
+    saveStylePreset(trimmed, snapshot);
+    refreshPresets();
+  }, [palette, paletteReversed, paletteGroupColors, lineWidth, fontFamily, titleSize, labelSize, tickSize, legendSize, showLegend, showLegendAmp, showLegendMelt, showLegendDoubling, legendPosition, legendContent, legendVisibleOnly, showGrid, gridAlpha, plotBgColor, figureDpi, presetNames, refreshPresets]);
+
+  const handleLoadPreset = useCallback((name: string) => {
+    if (!name) return;
+    const snapshot = getStylePreset(name);
+    if (!snapshot) {
+      alert(`Preset "${name}" not found.`);
+      refreshPresets();
+      return;
+    }
+    applyStyleSnapshot(snapshot);
+  }, [applyStyleSnapshot, refreshPresets]);
+
+  const handleDeletePreset = useCallback((name: string) => {
+    if (!name) return;
+    if (!confirm(`Delete preset "${name}"?`)) return;
+    deleteStylePreset(name);
+    refreshPresets();
+  }, [refreshPresets]);
+
+  const handleResetStyle = useCallback(() => {
+    if (!confirm('Reset all style settings to defaults?\n\nThis will change palette, fonts, line width, legend, grid, and DPI.')) return;
+    resetStyle();
+  }, [resetStyle]);
 
   return (
     <div className="space-y-3">
@@ -242,10 +305,52 @@ export function StyleTab() {
       </CollapsibleSection>
 
       <CollapsibleSection title="Presets" defaultOpen={false}>
-        <div className="flex gap-1">
-          <Button variant="outline" size="sm" className="flex-1 h-7 text-xs">Save...</Button>
-          <Button variant="outline" size="sm" className="flex-1 h-7 text-xs">Load...</Button>
-          <Button variant="outline" size="sm" className="flex-1 h-7 text-xs">Reset</Button>
+        <div className="space-y-2">
+          {presetNames.length > 0 ? (
+            <div className="flex items-center gap-1">
+              <select
+                defaultValue=""
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v) handleLoadPreset(v);
+                  e.target.value = '';
+                }}
+                className="flex-1 h-7 border rounded px-1 text-xs bg-background"
+              >
+                <option value="">Load preset…</option>
+                {presetNames.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+              <select
+                defaultValue=""
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v) handleDeletePreset(v);
+                  e.target.value = '';
+                }}
+                className="h-7 border rounded px-1 text-xs bg-background"
+                title="Delete a preset"
+              >
+                <option value="">✕</option>
+                {presetNames.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <p className="text-[11px] text-muted-foreground italic">
+              No saved presets. Adjust styles and click Save to store one.
+            </p>
+          )}
+          <div className="flex gap-1">
+            <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={handleSavePreset}>
+              Save…
+            </Button>
+            <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={handleResetStyle}>
+              Reset
+            </Button>
+          </div>
         </div>
       </CollapsibleSection>
     </div>
