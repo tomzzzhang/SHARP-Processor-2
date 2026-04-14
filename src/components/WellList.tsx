@@ -80,6 +80,8 @@ export function WellList() {
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
   const setWellSampleName = useAppState((s) => s.setWellSampleName);
   const setWellContentType = useAppState((s) => s.setWellContentType);
+  const hoveredWell = useAppState((s) => s.hoveredWell);
+  const setHoveredWell = useAppState((s) => s.setHoveredWell);
   const exp = experiments[idx];
 
   const [editingWell, setEditingWell] = useState<string | null>(null);
@@ -138,6 +140,7 @@ export function WellList() {
             const info = exp.wells[well];
             const isSelected = selectedWells.has(well);
             const isHidden = hiddenWells.has(well);
+            const isHovered = hoveredWell === well;
             const color = colorMap.get(well) ?? '#999';
             const displayType = CONTENT_DISPLAY[info?.content ?? ''] ?? info?.content ?? '';
 
@@ -145,9 +148,14 @@ export function WellList() {
               <tr
                 key={well}
                 className={`cursor-pointer hover:bg-accent ${isSelected ? 'bg-accent/50' : ''}`}
-                style={{ height: 22, opacity: isHidden ? 0.4 : 1 }}
+                style={{
+                  height: 22,
+                  opacity: isHidden ? 0.4 : 1,
+                  boxShadow: isHovered ? 'inset 3px 0 0 var(--brand-red), inset 0 0 0 9999px color-mix(in srgb, var(--brand-red) 18%, transparent)' : undefined,
+                }}
                 onMouseDown={(e) => onRowMouseDown(e, well)}
-                onMouseEnter={() => onRowMouseEnter(well)}
+                onMouseEnter={() => { onRowMouseEnter(well); setHoveredWell(well); }}
+                onMouseLeave={() => { if (hoveredWell === well) setHoveredWell(null); }}
               >
                 <td className="px-1 py-0 text-center" onClick={(e) => e.stopPropagation()}>
                   <Checkbox

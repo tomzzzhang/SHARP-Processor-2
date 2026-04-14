@@ -84,6 +84,7 @@ export interface ExperimentViewState {
   showLegendMelt: boolean;
   showLegendDoubling: boolean;
   legendPosition: string;
+  legendContent: 'well' | 'sample';
   legendVisibleOnly: boolean;
   showGrid: boolean;
   gridAlpha: number;
@@ -129,11 +130,12 @@ function defaultViewState(wellsUsed: string[] = []): ExperimentViewState {
     labelSize: DEFAULT_LABEL_SIZE,
     tickSize: DEFAULT_TICK_SIZE,
     legendSize: DEFAULT_LEGEND_SIZE,
-    showLegend: false,
+    showLegend: true,
     showLegendAmp: true,
     showLegendMelt: true,
     showLegendDoubling: true,
     legendPosition: 'best',
+    legendContent: 'sample',
     legendVisibleOnly: true,
     showGrid: true,
     gridAlpha: DEFAULT_GRID_ALPHA,
@@ -186,6 +188,7 @@ function snapshotViewState(state: AppState): ExperimentViewState {
     showLegendMelt: state.showLegendMelt,
     showLegendDoubling: state.showLegendDoubling,
     legendPosition: state.legendPosition,
+    legendContent: state.legendContent,
     legendVisibleOnly: state.legendVisibleOnly,
     showGrid: state.showGrid,
     gridAlpha: state.gridAlpha,
@@ -293,6 +296,7 @@ interface AppState extends ExperimentViewState {
   setShowLegendMelt: (on: boolean) => void;
   setShowLegendDoubling: (on: boolean) => void;
   setLegendPosition: (pos: string) => void;
+  setLegendContent: (content: 'well' | 'sample') => void;
   setLegendVisibleOnly: (on: boolean) => void;
   setPaletteReversed: (reversed: boolean) => void;
   setPaletteGroupColors: (on: boolean) => void;
@@ -763,6 +767,7 @@ export const useAppState = create<AppState>((set, get) => ({
   setShowLegendMelt: (on) => set({ showLegendMelt: on }),
   setShowLegendDoubling: (on) => set({ showLegendDoubling: on }),
   setLegendPosition: (pos) => set({ legendPosition: pos }),
+  setLegendContent: (content) => set({ legendContent: content }),
   setLegendVisibleOnly: (on) => set({ legendVisibleOnly: on }),
   setPaletteReversed: (reversed) => { get().pushUndo('Reverse palette'); set({ paletteReversed: reversed }); },
   setPaletteGroupColors: (on) => { get().pushUndo('Toggle group colors'); set({ paletteGroupColors: on }); },

@@ -17,6 +17,7 @@ export function StyleTab() {
   const showLegendMelt = useAppState((s) => s.showLegendMelt);
   const showLegendDoubling = useAppState((s) => s.showLegendDoubling);
   const legendPosition = useAppState((s) => s.legendPosition);
+  const legendContent = useAppState((s) => s.legendContent);
   const legendVisibleOnly = useAppState((s) => s.legendVisibleOnly);
   const paletteReversed = useAppState((s) => s.paletteReversed);
   const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
@@ -37,6 +38,7 @@ export function StyleTab() {
   const setShowLegendMelt = useAppState((s) => s.setShowLegendMelt);
   const setShowLegendDoubling = useAppState((s) => s.setShowLegendDoubling);
   const setLegendPosition = useAppState((s) => s.setLegendPosition);
+  const setLegendContent = useAppState((s) => s.setLegendContent);
   const setLegendVisibleOnly = useAppState((s) => s.setLegendVisibleOnly);
   const reversePalette = useAppState((s) => s.reversePalette);
   const setPaletteGroupColors = useAppState((s) => s.setPaletteGroupColors);
@@ -174,6 +176,17 @@ export function StyleTab() {
             <Checkbox checked={showLegendDoubling} onCheckedChange={(v) => setShowLegendDoubling(v === true)} disabled={!showLegend} />
             Doubling Time
           </label>
+        </div>
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Content:</span>
+          <select
+            value={legendContent}
+            onChange={(e) => setLegendContent(e.target.value as 'well' | 'sample')}
+            className="flex-1 h-7 border rounded px-1 text-sm bg-background"
+          >
+            <option value="sample">Sample</option>
+            <option value="well">Well</option>
+          </select>
         </div>
         <div className="flex items-center gap-2 text-sm">
           <span className="text-muted-foreground">Position:</span>
