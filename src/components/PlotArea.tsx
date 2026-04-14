@@ -626,7 +626,12 @@ function AmplificationPlot() {
   useLegendHover(plotContainerRef, visibleWells, rawOverlayCount, setHoveredWell);
 
   return (
-    <div ref={plotContainerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
+    <div
+      ref={plotContainerRef}
+      id="sharp-plot-amp"
+      data-sharp-plot="amp"
+      style={{ width: '100%', height: '100%', position: 'relative' }}
+    >
       <Plot
         data={traces} layout={layout}
         useResizeHandler style={{ width: '100%', height: '100%' }}
@@ -837,7 +842,12 @@ function MeltDerivMini() {
   if (!hasDerivative) return null;
 
   return (
-    <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
+    <div
+      ref={containerRef}
+      id="sharp-plot-amp-deriv"
+      data-sharp-plot="amp-deriv"
+      style={{ width: '100%', height: '100%', position: 'relative' }}
+    >
       <Plot
         data={traces} layout={layout}
         useResizeHandler style={{ width: '100%', height: '100%' }}
@@ -1102,7 +1112,12 @@ function MeltPlot() {
   }
 
   return (
-    <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
+    <div
+      ref={containerRef}
+      id="sharp-plot-melt"
+      data-sharp-plot="melt"
+      style={{ width: '100%', height: '100%', position: 'relative' }}
+    >
       <Plot
         data={traces} layout={layout}
         useResizeHandler style={{ width: '100%', height: '100%' }}
@@ -1231,7 +1246,11 @@ function DilutionPlot() {
 
   return (
     <div ref={dilutionRef} className="flex flex-col h-full">
-      <div className="flex-1 min-h-0">
+      <div
+        id="sharp-plot-doubling"
+        data-sharp-plot="doubling"
+        className="flex-1 min-h-0"
+      >
         <Plot data={traces} layout={layout}
           useResizeHandler style={{ width: '100%', height: '100%' }}
           config={PLOT_CONFIG} />
@@ -1379,7 +1398,12 @@ function PerWellDoublingPlot() {
   }
 
   return (
-    <div ref={doublingRef} style={{ width: '100%', height: '100%' }}>
+    <div
+      ref={doublingRef}
+      id="sharp-plot-doubling"
+      data-sharp-plot="doubling"
+      style={{ width: '100%', height: '100%' }}
+    >
       <Plot data={traces} layout={layout}
         useResizeHandler style={{ width: '100%', height: '100%' }}
         config={PLOT_CONFIG} />

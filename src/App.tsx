@@ -9,6 +9,7 @@ import { PlotArea } from './components/PlotArea';
 import { QuickStylePanel } from './components/QuickStylePanel';
 import { ResultsTable } from './components/ResultsTable';
 import { DilutionWizard } from './components/DilutionWizard';
+import { ExportWizard } from './components/ExportWizard';
 import { UserManual } from './components/UserManual';
 import { PlotTabs } from './components/PlotTabs';
 import { useAppState } from './hooks/useAppState';
@@ -24,6 +25,8 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const showWizard = useAppState((s) => s.showDilutionWizard);
   const setShowWizard = useAppState((s) => s.setShowDilutionWizard);
+  const showExportWizard = useAppState((s) => s.showExportWizard);
+  const setShowExportWizard = useAppState((s) => s.setShowExportWizard);
   const [showManual, setShowManual] = useState(false);
   const [updateBanner, setUpdateBanner] = useState<{ version: string; url: string } | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(280);
@@ -283,6 +286,7 @@ function App() {
 
       {/* Dilution wizard floating panel */}
       {showWizard && <DilutionWizard onClose={() => setShowWizard(false)} />}
+      {showExportWizard && <ExportWizard onClose={() => setShowExportWizard(false)} />}
       {showManual && <UserManual onClose={() => setShowManual(false)} />}
     </div>
   );
