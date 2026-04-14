@@ -255,7 +255,7 @@ const sections: Section[] = [
               <tr><TD>Colours</TD><TD>Global palette selector</TD></tr>
               <tr><TD>Lines</TD><TD>Line width (0.3–5.0 pt)</TD></tr>
               <tr><TD>Typography</TD><TD>Font family, title/label/tick/legend sizes</TD></tr>
-              <tr><TD>Legend</TD><TD>Show/hide, position, visible-only filter</TD></tr>
+              <tr><TD>Legend</TD><TD>Show/hide, content (sample name / well), position, visible-only filter</TD></tr>
               <tr><TD>Grid</TD><TD>Show/hide, opacity slider</TD></tr>
               <tr><TD>Figure</TD><TD>Export DPI (72–600)</TD></tr>
               <tr><TD>Presets</TD><TD>Save / Load / Reset style presets</TD></tr>
@@ -277,7 +277,17 @@ const sections: Section[] = [
             <li><strong>Threshold drag</strong> — grab the red dashed line and drag up/down</li>
             <li><strong>Log Scale</strong> — checkbox at bottom-right for logarithmic Y-axis</li>
             <li><strong>Click a trace</strong> — selects that well across grid, list, and table</li>
+            <li><strong>Hover</strong> — highlights the corresponding well on the grid and in the sample list</li>
             <li><strong>Right-click</strong> — context menu (see below)</li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 className="font-semibold text-xs mb-1">Legend</h4>
+          <ul className="list-disc pl-5 space-y-0.5">
+            <li>By default the legend shows <strong>sample names</strong>. Switch to well names via <em>Style → Legend → Content</em></li>
+            <li><strong>Hover a legend entry</strong> — highlights the matching curve, grid cell, and sample list row</li>
+            <li>Legend clicks are disabled (use the <strong>L</strong> checkbox in the sample list to hide/show wells instead)</li>
           </ul>
         </div>
 
