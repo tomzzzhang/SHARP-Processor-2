@@ -264,6 +264,30 @@ function useGroupedColors(
 }
 
 // ── Middle-mouse-button pan hook ─────────────────────────────────────
+/** Attach Plotly legend hover/unhover events to set hoveredWell */
+function useLegendHover(
+  containerRef: React.RefObject<HTMLDivElement | null>,
+  visibleWells: string[],
+  traceOffset: number,
+  setHoveredWell: (well: string | null) => void,
+) {
+  useEffect(() => {
+    const el = containerRef.current?.querySelector('.js-plotly-plot') as any;
+    if (!el?.on) return;
+    const onHover = (e: any) => {
+      const idx = (e.curveNumber ?? 0) - traceOffset;
+      if (idx >= 0 && idx < visibleWells.length) setHoveredWell(visibleWells[idx]);
+    };
+    const onUnhover = () => setHoveredWell(null);
+    el.on('plotly_legendhover', onHover);
+    el.on('plotly_legendunhover', onUnhover);
+    return () => {
+      el.removeAllListeners?.('plotly_legendhover');
+      el.removeAllListeners?.('plotly_legendunhover');
+    };
+  }, [containerRef, visibleWells, traceOffset, setHoveredWell]);
+}
+
 function useMiddleMousePan(containerRef: React.RefObject<HTMLDivElement | null>) {
   useEffect(() => {
     const el = containerRef.current;
@@ -370,6 +394,7 @@ function AmplificationPlot() {
   const thresholdRfu = useAppState((s) => s.thresholdRfu);
   const setThresholdRfu = useAppState((s) => s.setThresholdRfu);
   const showLegendAmp = useAppState((s) => s.showLegendAmp);
+  const legendContent = useAppState((s) => s.legendContent);
   const paletteReversed = useAppState((s) => s.paletteReversed);
   const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
   const style = usePlotStyle();
@@ -431,9 +456,10 @@ function AmplificationPlot() {
       else if (isDragHighlighted === false) { opacity = 0.15; }
       if (isHovered) { lineWidth = Math.max(lineWidth, style.lineWidth * 1.6); }
 
+      const traceName = legendContent === 'sample' ? (exp.wells[well]?.sample ?? well) : well;
       result.push({
         x: xData, y: yData,
-        type: 'scatter' as const, mode: 'lines' as const, name: well,
+        type: 'scatter' as const, mode: 'lines' as const, name: traceName,
         line: {
           color,
           width: lineWidth,
@@ -446,7 +472,7 @@ function AmplificationPlot() {
     return result;
   }, [amp, exp, xAxisMode, selectedWells, hiddenWells, style.lineWidth,
       style.legendVisibleOnly, visibleWells, baselineEnabled, showRawOverlay,
-      analysisResults, wellStyleOverrides, colorMap, hoveredWell, dragPreviewWells]);
+      analysisResults, wellStyleOverrides, colorMap, hoveredWell, dragPreviewWells, legendContent]);
 
   // Compute baseline zone x-axis boundaries
   const baselineZoneBounds = useMemo(() => {
@@ -585,6 +611,7 @@ function AmplificationPlot() {
   const handleUnhover = useCallback(() => setHoveredWell(null), [setHoveredWell]);
 
   useMiddleMousePan(plotContainerRef);
+  useLegendHover(plotContainerRef, visibleWells, rawOverlayCount, setHoveredWell);
 
   return (
     <div ref={plotContainerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
@@ -595,6 +622,8 @@ function AmplificationPlot() {
         onClick={handleClick}
         onHover={handleHover}
         onUnhover={handleUnhover}
+        onLegendClick={() => false}
+        onLegendDoubleClick={() => false}
       />
       <div ref={selectionOverlayRef} style={BOX_SELECT_OVERLAY_STYLE} />
     </div>
@@ -829,6 +858,7 @@ function MeltPlot() {
   const hoveredWell = useAppState((s) => s.hoveredWell);
   const setHoveredWell = useAppState((s) => s.setHoveredWell);
   const showLegendMelt = useAppState((s) => s.showLegendMelt);
+  const legendContent = useAppState((s) => s.legendContent);
   const style = usePlotStyle();
   const analysisResults = useAnalysisResults();
   const dragPreviewWells = useAppState((s) => s.dragPreviewWells);
@@ -891,9 +921,10 @@ function MeltPlot() {
         opacity = Math.min(opacity, 0.25);
         lineWidth = Math.min(lineWidth, style.lineWidth * 0.6);
       }
+      const traceName = legendContent === 'sample' ? (exp?.wells[well]?.sample ?? well) : well;
       result.push({
         x: melt.temperatureC, y: rfuData,
-        type: 'scatter' as const, mode: 'lines' as const, name: well,
+        type: 'scatter' as const, mode: 'lines' as const, name: traceName,
         line: { color, width: lineWidth },
         opacity,
         hoverinfo: 'name' as const, yaxis: 'y', showlegend: showInLegend,
@@ -919,9 +950,10 @@ function MeltPlot() {
           opacity = Math.min(opacity, 0.25);
           lineWidth = Math.min(lineWidth, style.lineWidth * 0.6);
         }
+        const derTraceName = legendContent === 'sample' ? (exp?.wells[well]?.sample ?? well) : well;
         result.push({
           x: melt.temperatureC, y: derData,
-          type: 'scatter' as const, mode: 'lines' as const, name: well,
+          type: 'scatter' as const, mode: 'lines' as const, name: derTraceName,
           line: { color, width: lineWidth },
           opacity,
           hoverinfo: 'name' as const, yaxis: 'y2', showlegend: false,
@@ -929,7 +961,7 @@ function MeltPlot() {
       }
     }
     return result;
-  }, [melt, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells, smoothMeltDeriv, smoothingWindow, meltThresholdEnabled, meltThresholdValue, wellPeakDeriv]);
+  }, [melt, exp, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells, smoothMeltDeriv, smoothingWindow, meltThresholdEnabled, meltThresholdValue, wellPeakDeriv, legendContent]);
 
   const layout = useMemo((): Partial<Layout> => {
     const title = exp?.experimentId ? `${exp.experimentId} — Melt` : 'Melt Curve';
@@ -1051,6 +1083,7 @@ function MeltPlot() {
   const handleUnhover = useCallback(() => setHoveredWell(null), [setHoveredWell]);
 
   useMiddleMousePan(containerRef);
+  useLegendHover(containerRef, visibleWells, 0, setHoveredWell);
 
   if (!melt) {
     return <div className="flex items-center justify-center h-full text-muted-foreground text-sm">No melt data available</div>;
@@ -1065,6 +1098,8 @@ function MeltPlot() {
         onClick={handleClick}
         onHover={handleHover}
         onUnhover={handleUnhover}
+        onLegendClick={() => false}
+        onLegendDoubleClick={() => false}
       />
       <div ref={overlayRef} style={BOX_SELECT_OVERLAY_STYLE} />
     </div>

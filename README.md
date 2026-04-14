@@ -82,6 +82,8 @@ Switch to the **Melt** tab to see raw fluorescence and the negative derivative (
 
 Selecting a well highlights it everywhere — on the grid, in the well list, on the plot, and in the results table.
 
+**Hover to preview.** Moving the mouse over any curve, grid cell, legend entry, or sample list row highlights the same well across all of them. The legend defaults to showing sample names; switch to well names via **Style > Legend > Content**.
+
 ### Correct baselines
 Turn on **Baseline Correction** in the Analysis panel. Choose **Horizontal** (flat) or **Linear** (slope-corrected). Adjust the fitting zone by changing the start and end cycle numbers, or drag the shaded region on the plot.
 
