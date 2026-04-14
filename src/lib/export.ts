@@ -32,16 +32,21 @@ export async function exportPlotImage(
   });
   if (!filePath) return null;
 
-  // Get the plot's current dimensions
+  // Get the plot's current on-screen dimensions. Pass these unchanged to
+  // Plotly.toImage and let `scale` upscale the whole figure — canvas,
+  // fonts, line widths, and margins — proportionally. Previously we
+  // pre-multiplied width/height and passed scale: 1, which grew the
+  // canvas without scaling the fonts, producing tiny-text exports that
+  // did not match the on-screen appearance.
   const rect = plotDiv.querySelector('.plot-container')?.getBoundingClientRect()
     ?? plotDiv.getBoundingClientRect();
-  const scale = dpi / 96; // scale relative to screen DPI
+  const scale = dpi / 96; // screen-DPI baseline
 
   const result = await Plotly.toImage(plotDiv, {
     format,
-    width: rect.width * scale,
-    height: rect.height * scale,
-    scale: 1,
+    width: rect.width,
+    height: rect.height,
+    scale,
   });
 
   if (format === 'svg') {
@@ -57,6 +62,174 @@ export async function exportPlotImage(
       bytes[i] = binary.charCodeAt(i);
     }
     await writeFile(filePath, bytes);
+  }
+
+  return filePath;
+}
+
+/**
+ * Export a stack of on-screen Plotly plots as a single composite image —
+ * used on the Amplification tab to include the melt-derivative mini-plot
+ * below the main amp plot, matching what's displayed. Plots are captured
+ * at the user's current DPI and stitched top-to-bottom via an offscreen
+ * HTMLCanvasElement, preserving each plot's width ratio.
+ *
+ * SVG is not supported for composites — SVG composition of two
+ * independent Plotly figures is non-trivial. Callers should fall back
+ * to single-plot SVG export for that case.
+ */
+export async function exportCompositePlotImage(
+  plotDivs: HTMLElement[],
+  format: 'png' | 'jpeg',
+  dpi: number,
+  defaultName: string,
+): Promise<string | null> {
+  if (plotDivs.length === 0) return null;
+
+  const filters: Record<'png' | 'jpeg', { name: string; extensions: string[] }> = {
+    png: { name: 'PNG Image', extensions: ['png'] },
+    jpeg: { name: 'JPEG Image', extensions: ['jpg', 'jpeg'] },
+  };
+
+  const filePath = await save({
+    defaultPath: `${defaultName}.${format === 'png' ? 'png' : 'jpg'}`,
+    filters: [filters[format]],
+  });
+  if (!filePath) return null;
+
+  const scale = dpi / 96;
+
+  // Capture each plot as a raster image at the scaled DPI.
+  const captures: { dataUrl: string; width: number; height: number }[] = [];
+  for (const div of plotDivs) {
+    const rect = div.querySelector('.plot-container')?.getBoundingClientRect()
+      ?? div.getBoundingClientRect();
+    const dataUrl = await Plotly.toImage(div, {
+      format: 'png', // always PNG for compositing, re-encode later
+      width: rect.width,
+      height: rect.height,
+      scale,
+    });
+    captures.push({
+      dataUrl,
+      width: Math.round(rect.width * scale),
+      height: Math.round(rect.height * scale),
+    });
+  }
+
+  // Build an offscreen canvas sized to the max width × sum of heights,
+  // matching the on-screen vertical stacking (each plot draws at its own
+  // width centered horizontally). For the amp+deriv case both plots share
+  // the container width, so this reduces to a simple stack.
+  const maxWidth = Math.max(...captures.map((c) => c.width));
+  const totalHeight = captures.reduce((sum, c) => sum + c.height, 0);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = maxWidth;
+  canvas.height = totalHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  // Paint a background for JPEG (which has no alpha channel).
+  if (format === 'jpeg') {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, maxWidth, totalHeight);
+  }
+
+  // Draw each captured image in order, top-to-bottom.
+  let y = 0;
+  for (const c of captures) {
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = (e) => reject(e);
+      img.src = c.dataUrl;
+    });
+    const x = Math.round((maxWidth - c.width) / 2);
+    ctx.drawImage(img, x, y, c.width, c.height);
+    y += c.height;
+  }
+
+  // Encode the composite canvas as PNG or JPEG.
+  const mime = format === 'png' ? 'image/png' : 'image/jpeg';
+  const quality = format === 'jpeg' ? 0.95 : undefined;
+  const compositeUrl = canvas.toDataURL(mime, quality);
+  const base64 = compositeUrl.split(',')[1];
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  await writeFile(filePath, bytes);
+
+  return filePath;
+}
+
+/**
+ * Render a freshly-built Plotly figure off-DOM at exact pixel dimensions
+ * and export it as an image. Used by the Export Wizard so the preview
+ * and the exported file are pixel-identical and independent of whatever
+ * is currently on the main plot tab.
+ */
+export async function exportWizardFigure(
+  figure: { data: unknown[]; layout: Partial<Plotly.Layout> },
+  widthPx: number,
+  heightPx: number,
+  format: ImageFormat,
+  defaultName: string,
+): Promise<string | null> {
+  const filters: Record<ImageFormat, { name: string; extensions: string[] }> = {
+    png: { name: 'PNG Image', extensions: ['png'] },
+    svg: { name: 'SVG Image', extensions: ['svg'] },
+    jpeg: { name: 'JPEG Image', extensions: ['jpg', 'jpeg'] },
+  };
+
+  const filePath = await save({
+    defaultPath: `${defaultName}.${format}`,
+    filters: [filters[format]],
+  });
+  if (!filePath) return null;
+
+  // Render off-DOM at the exact target pixel size. The layout has width
+  // and height baked in so fonts, margins, and line widths land at their
+  // intended absolute sizes.
+  const hidden = document.createElement('div');
+  hidden.style.position = 'fixed';
+  hidden.style.left = '-10000px';
+  hidden.style.top = '-10000px';
+  hidden.style.width = `${widthPx}px`;
+  hidden.style.height = `${heightPx}px`;
+  hidden.style.pointerEvents = 'none';
+  document.body.appendChild(hidden);
+
+  try {
+    const layoutWithSize: Partial<Plotly.Layout> = {
+      ...figure.layout,
+      width: widthPx,
+      height: heightPx,
+    };
+    await Plotly.newPlot(hidden, figure.data as Plotly.Data[], layoutWithSize, {
+      staticPlot: true,
+      displayModeBar: false,
+    });
+    const result = await Plotly.toImage(hidden, {
+      format,
+      width: widthPx,
+      height: heightPx,
+      scale: 1,
+    });
+
+    if (format === 'svg') {
+      const svgContent = atob(result.split(',')[1]);
+      await writeTextFile(filePath, svgContent);
+    } else {
+      const base64 = result.split(',')[1];
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      await writeFile(filePath, bytes);
+    }
+  } finally {
+    Plotly.purge(hidden);
+    hidden.remove();
   }
 
   return filePath;
