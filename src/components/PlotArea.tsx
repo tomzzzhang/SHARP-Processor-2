@@ -752,15 +752,19 @@ function MeltDerivMini() {
         line: { color: isDark ? '#ef9a9d' : THRESHOLD_LINE_COLOR, width: 2.5, dash: 'dash' },
       });
     }
+    // Mini plot scales its fonts with the user's Typography settings
+    // (labelSize / tickSize). Previously hardcoded to 9/8, which meant
+    // the Style tab's size sliders had no effect on the derivative
+    // sub-plot below the amp chart.
     return {
       xaxis: {
-        title: { text: 'Temperature (°C)', font: { family: style.fontFamily, size: 9 } },
-        tickfont: { family: style.fontFamily, size: 8 },
+        title: { text: 'Temperature (°C)', font: { family: style.fontFamily, size: style.labelSize } },
+        tickfont: { family: style.fontFamily, size: style.tickSize },
         ...gridStyle(style, isDark),
       },
       yaxis: {
-        title: { text: '-dF/dT', font: { family: style.fontFamily, size: 9 } },
-        tickfont: { family: style.fontFamily, size: 8 },
+        title: { text: '-dF/dT', font: { family: style.fontFamily, size: style.labelSize } },
+        tickfont: { family: style.fontFamily, size: style.tickSize },
         ...gridStyle(style, isDark),
       },
       shapes: shapes as Layout['shapes'],
