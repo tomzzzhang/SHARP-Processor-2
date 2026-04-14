@@ -221,6 +221,7 @@ interface AppState extends ExperimentViewState {
   hoveredWell: string | null;
   dragPreviewWells: Set<string> | null;
   showDilutionWizard: boolean;
+  showExportWizard: boolean;
 
   // Per-experiment state snapshots (index → snapshot)
   _experimentSnapshots: Map<number, ExperimentViewState>;
@@ -313,6 +314,7 @@ interface AppState extends ExperimentViewState {
   setPlotBgColor: (color: string) => void;
   setFigureDpi: (dpi: number) => void;
   setShowDilutionWizard: (show: boolean) => void;
+  setShowExportWizard: (show: boolean) => void;
 }
 
 export const useAppState = create<AppState>((set, get) => ({
@@ -326,6 +328,7 @@ export const useAppState = create<AppState>((set, get) => ({
   hoveredWell: null,
   dragPreviewWells: null,
   showDilutionWizard: false,
+  showExportWizard: false,
 
   // Spread default view state as initial top-level fields
   ...defaultViewState(),
@@ -785,6 +788,7 @@ export const useAppState = create<AppState>((set, get) => ({
   setPlotBgColor: (color) => set({ plotBgColor: color }),
   setFigureDpi: (dpi) => set({ figureDpi: dpi }),
   setShowDilutionWizard: (show) => set({ showDilutionWizard: show }),
+  setShowExportWizard: (show) => set({ showExportWizard: show }),
 }));
 
 // Dev: expose store for debugging
