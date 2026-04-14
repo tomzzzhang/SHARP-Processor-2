@@ -1,5 +1,8 @@
 // ── App version ─────────────────────────────────────────────────────
-export const APP_VERSION = '0.1.4';
+// Injected at build time by Vite (see vite.config.ts) from package.json,
+// so this stays automatically in sync with package.json / tauri.conf.json /
+// Cargo.toml without needing a manual edit each release.
+export const APP_VERSION = __APP_VERSION__;
 export const GITHUB_REPO = 'tomzzzhang/SHARP-Processor-2';
 export const RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`;
 
