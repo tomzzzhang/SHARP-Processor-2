@@ -85,7 +85,9 @@ Selecting a well highlights it everywhere — on the grid, in the well list, on 
 **Hover to preview.** Moving the mouse over any curve, grid cell, legend entry, or sample list row highlights the same well across all of them. The legend defaults to showing sample names; switch to well names via **Style > Legend > Content**.
 
 ### Correct baselines
-Turn on **Baseline Correction** in the Analysis panel. Choose **Horizontal** (flat) or **Linear** (slope-corrected). Adjust the fitting zone by changing the start and end cycle numbers, or drag the shaded region on the plot.
+Turn on **Baseline Correction** in the Analysis panel. **Auto baseline** is on by default — the app finds the longest flat region of each well automatically and uses it as a horizontal baseline. This handles early signal dips (helicase warm-up on SHARP curves) and wells that amplify at different times without any manual tuning.
+
+Need to override? Turn **Auto baseline** off for a global manual range (Horizontal or Linear fit over a cycle window you choose), or right-click specific wells → **Baseline → Manual** to opt just those wells out of auto while everyone else stays auto.
 
 ### Set a detection threshold
 Enable **Threshold Detection** to see a red dashed line on your amplification plot. Drag it up or down to set your threshold level. The app calculates **Tt** (time-to-threshold), **Tm** (melt temperature), **doubling time**, and a **positive/negative call** for each well.

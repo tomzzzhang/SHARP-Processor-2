@@ -6,6 +6,7 @@ import { CollapsibleSection } from './CollapsibleSection';
 
 export function AnalysisTab() {
   const baselineEnabled = useAppState((s) => s.baselineEnabled);
+  const baselineAuto = useAppState((s) => s.baselineAuto);
   const baselineMethod = useAppState((s) => s.baselineMethod);
   const baselineStart = useAppState((s) => s.baselineStart);
   const baselineEnd = useAppState((s) => s.baselineEnd);
@@ -19,6 +20,7 @@ export function AnalysisTab() {
   const wellBaselineOverrides = useAppState((s) => s.wellBaselineOverrides);
 
   const setBaselineEnabled = useAppState((s) => s.setBaselineEnabled);
+  const setBaselineAuto = useAppState((s) => s.setBaselineAuto);
   const setBaselineMethod = useAppState((s) => s.setBaselineMethod);
   const setBaselineZone = useAppState((s) => s.setBaselineZone);
   const setShowRawOverlay = useAppState((s) => s.setShowRawOverlay);
@@ -49,6 +51,22 @@ export function AnalysisTab() {
 
   const hasSelectedOverrides = selectedArr.some((w) => wellBaselineOverrides.has(w));
 
+  // Tri-state for per-well auto baseline across current selection.
+  // 'on' = every selected well is auto, 'off' = every selected well is manual,
+  // 'mixed' = selection spans both modes. A well's effective mode is
+  // override.auto ?? baselineAuto.
+  const selectedAutoState: 'on' | 'off' | 'mixed' | null = useMemo(() => {
+    if (selectedArr.length === 0) return null;
+    let anyOn = false, anyOff = false;
+    for (const w of selectedArr) {
+      const ov = wellBaselineOverrides.get(w);
+      const effective = ov?.auto ?? baselineAuto;
+      if (effective) anyOn = true; else anyOff = true;
+      if (anyOn && anyOff) return 'mixed';
+    }
+    return anyOn ? 'on' : 'off';
+  }, [selectedArr, wellBaselineOverrides, baselineAuto]);
+
   return (
     <div className="space-y-3">
       <CollapsibleSection title="Baseline Correction">
@@ -60,8 +78,18 @@ export function AnalysisTab() {
           Baseline correction
         </label>
 
-        <div className="flex items-center gap-4 text-sm">
-          <span className="text-muted-foreground">Method:</span>
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={baselineAuto}
+            onCheckedChange={(v) => setBaselineAuto(v === true)}
+            disabled={!baselineEnabled}
+          />
+          Auto baseline
+        </label>
+
+        <div className={`space-y-2 transition-opacity ${baselineAuto ? 'opacity-50' : ''}`}>
+          <div className="flex items-center gap-4 text-sm">
+            <span className="text-muted-foreground">Method:</span>
           <label className="flex items-center gap-1">
             <input
               type="radio"
@@ -104,7 +132,14 @@ export function AnalysisTab() {
             onChange={(e) => setBaselineZone(baselineStart, Number(e.target.value))}
             className="w-14 h-6 border rounded px-1 text-center text-sm"
           />
+          </div>
         </div>
+
+        {baselineAuto && (
+          <p className="text-[11px] text-muted-foreground italic">
+            Method/zone above apply only to wells opted out of auto baseline
+          </p>
+        )}
 
         <label className="flex items-center gap-2 text-sm">
           <Checkbox
@@ -130,6 +165,21 @@ export function AnalysisTab() {
               )}
             </div>
 
+            <label className="flex items-center gap-2 text-xs">
+              <Checkbox
+                checked={selectedAutoState === 'on'}
+                indeterminate={selectedAutoState === 'mixed'}
+                onCheckedChange={(v) =>
+                  setWellBaselineOverride(selectedArr, { auto: v === true })
+                }
+              />
+              Auto baseline
+              {selectedAutoState === 'mixed' && (
+                <span className="text-muted-foreground">(mixed)</span>
+              )}
+            </label>
+
+            <div className={`space-y-2 transition-opacity ${selectedAutoState === 'on' ? 'opacity-50' : ''}`}>
             <div className="flex items-center gap-3 text-xs">
               <span className="text-muted-foreground">Method:</span>
               <label className="flex items-center gap-1">
@@ -182,6 +232,7 @@ export function AnalysisTab() {
                 }}
                 className="w-12 h-6 border rounded px-1 text-center text-xs"
               />
+            </div>
             </div>
           </div>
         )}
