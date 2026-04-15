@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { useAppState } from '@/hooks/useAppState';
 import { Button } from '@/components/ui/button';
 import { loadSharpFile } from '@/lib/sharp-loader';
-import { isInstrumentFile, isSupportedFile, loadInstrumentFile } from '@/lib/instrument-loader';
+import { isInstrumentFile, isSupportedFile, loadInstrumentFile, loadBioradFolder } from '@/lib/instrument-loader';
 import { getRecentFiles, addRecentFile } from '@/lib/recent-files';
 
 // Dynamic imports — avoid crash when running outside Tauri (e.g. plain Vite dev)
@@ -14,15 +14,19 @@ export function SidebarHome() {
   const loadExperiment = useAppState((s) => s.loadExperiment);
 
   const openFilePath = useCallback(async (filePath: string) => {
-    if (!isSupportedFile(filePath)) return;
     let experiment;
-    if (isInstrumentFile(filePath)) {
-      experiment = await loadInstrumentFile(filePath);
+    if (isSupportedFile(filePath)) {
+      if (isInstrumentFile(filePath)) {
+        experiment = await loadInstrumentFile(filePath);
+      } else {
+        const fs = await tauriFs;
+        if (!fs) throw new Error('File system not available outside Tauri');
+        const bytes = await fs.readFile(filePath);
+        experiment = await loadSharpFile(bytes.buffer as ArrayBuffer, filePath.split(/[/\\]/).pop()!);
+      }
     } else {
-      const fs = await tauriFs;
-      if (!fs) throw new Error('File system not available outside Tauri');
-      const bytes = await fs.readFile(filePath);
-      experiment = await loadSharpFile(bytes.buffer as ArrayBuffer, filePath.split(/[/\\]/).pop()!);
+      // No recognized extension — assume a BioRad CSV folder export.
+      experiment = await loadBioradFolder(filePath);
     }
     addRecentFile(filePath, experiment.wellsUsed?.length);
     loadExperiment(experiment, filePath);
@@ -48,6 +52,22 @@ export function SidebarHome() {
     if (filePath) await openFilePath(filePath);
   }, [openFilePath]);
 
+  const handleOpenBioradFolder = useCallback(async () => {
+    const dialog = await tauriDialog;
+    if (!dialog) return;
+    const path = await dialog.open({ directory: true, multiple: false });
+    if (!path) return;
+    const dirPath = typeof path === 'string' ? path : path[0];
+    if (!dirPath) return;
+    try {
+      const experiment = await loadBioradFolder(dirPath);
+      addRecentFile(dirPath, experiment.wellsUsed?.length);
+      loadExperiment(experiment, dirPath);
+    } catch (err) {
+      alert(`Failed to load BioRad folder:\n${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [loadExperiment]);
+
   const recentFiles = getRecentFiles();
 
   return (
@@ -61,6 +81,13 @@ export function SidebarHome() {
         onClick={handleOpen}
       >
         Load file...
+      </Button>
+      <Button
+        variant="outline"
+        className="w-full"
+        onClick={handleOpenBioradFolder}
+      >
+        Load BioRad folder...
       </Button>
       <p className="text-xs text-muted-foreground text-center">
         or drag & drop a file anywhere

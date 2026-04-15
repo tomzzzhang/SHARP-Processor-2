@@ -5,7 +5,7 @@ import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { Button } from '@/components/ui/button';
 import { loadSharpFile } from '@/lib/sharp-loader';
-import { isInstrumentFile, isSupportedFile, loadInstrumentFile } from '@/lib/instrument-loader';
+import { isInstrumentFile, isSupportedFile, loadInstrumentFile, loadBioradFolder } from '@/lib/instrument-loader';
 import { exportPlotImage, exportDataCsv, exportResultsCsv, exportMeltCsv, exportAsSharp } from '@/lib/export';
 import { addRecentFile } from '@/lib/recent-files';
 
@@ -26,14 +26,17 @@ export function DataTab() {
   };
 
   const openFilePath = useCallback(async (filePath: string) => {
-    if (!isSupportedFile(filePath)) return;
     try {
       let experiment;
-      if (isInstrumentFile(filePath)) {
-        experiment = await loadInstrumentFile(filePath);
+      if (isSupportedFile(filePath)) {
+        if (isInstrumentFile(filePath)) {
+          experiment = await loadInstrumentFile(filePath);
+        } else {
+          const bytes = await readFile(filePath);
+          experiment = await loadSharpFile(bytes.buffer as ArrayBuffer, filePath.split(/[/\\]/).pop()!);
+        }
       } else {
-        const bytes = await readFile(filePath);
-        experiment = await loadSharpFile(bytes.buffer as ArrayBuffer, filePath.split(/[/\\]/).pop()!);
+        experiment = await loadBioradFolder(filePath);
       }
       addRecentFile(filePath, experiment.wellsUsed?.length);
       loadExperiment(experiment, filePath);
@@ -59,6 +62,20 @@ export function DataTab() {
     const filePath = typeof path === 'string' ? path : path[0];
     if (filePath) await openFilePath(filePath);
   }, [openFilePath]);
+
+  const handleOpenBioradFolder = useCallback(async () => {
+    const path = await dialogOpen({ directory: true, multiple: false });
+    if (!path) return;
+    const dirPath = typeof path === 'string' ? path : path[0];
+    if (!dirPath) return;
+    try {
+      const experiment = await loadBioradFolder(dirPath);
+      addRecentFile(dirPath, experiment.wellsUsed?.length);
+      loadExperiment(experiment, dirPath);
+    } catch (err) {
+      showStatus(`Failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [loadExperiment]);
 
   const visibleWells = exp
     ? exp.wellsUsed.filter((w) => !hiddenWells.has(w))
@@ -175,6 +192,14 @@ export function DataTab() {
         onClick={handleOpen}
       >
         Open another file...
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full"
+        onClick={handleOpenBioradFolder}
+      >
+        Open BioRad folder...
       </Button>
     </div>
   );

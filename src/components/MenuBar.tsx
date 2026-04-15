@@ -6,7 +6,7 @@ import { MOD_KEY, APP_VERSION } from '@/lib/constants';
 import { checkForUpdates } from '@/lib/update-checker';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { loadSharpFile } from '@/lib/sharp-loader';
-import { isInstrumentFile, isSupportedFile, loadInstrumentFile } from '@/lib/instrument-loader';
+import { isInstrumentFile, isSupportedFile, loadInstrumentFile, loadBioradFolder } from '@/lib/instrument-loader';
 import { exportPlotImage, exportCompositePlotImage, exportDataCsv, exportResultsCsv, exportMeltCsv, exportAsSharp, saveSession } from '@/lib/export';
 import { getRecentFiles, addRecentFile } from '@/lib/recent-files';
 import { getTheme, setTheme, type AppTheme } from '@/lib/theme';
@@ -147,13 +147,17 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
   const visibleWells = exp ? exp.wellsUsed.filter((w) => !hiddenWells.has(w)) : [];
 
   const openFilePath = useCallback(async (filePath: string) => {
-    if (!isSupportedFile(filePath)) return;
     let experiment;
-    if (isInstrumentFile(filePath)) {
-      experiment = await loadInstrumentFile(filePath);
+    if (isSupportedFile(filePath)) {
+      if (isInstrumentFile(filePath)) {
+        experiment = await loadInstrumentFile(filePath);
+      } else {
+        const bytes = await readFile(filePath);
+        experiment = await loadSharpFile(bytes.buffer as ArrayBuffer, filePath.split(/[/\\]/).pop()!);
+      }
     } else {
-      const bytes = await readFile(filePath);
-      experiment = await loadSharpFile(bytes.buffer as ArrayBuffer, filePath.split(/[/\\]/).pop()!);
+      // No recognized extension — assume a BioRad folder export.
+      experiment = await loadBioradFolder(filePath);
     }
     addRecentFile(filePath, experiment.wellsUsed?.length);
     loadExperiment(experiment, filePath);
@@ -177,6 +181,20 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
     if (!filePath) return;
     await openFilePath(filePath);
   }, [openFilePath]);
+
+  const handleOpenBioradFolder = useCallback(async () => {
+    const path = await dialogOpen({ directory: true, multiple: false });
+    if (!path) return;
+    const dirPath = typeof path === 'string' ? path : path[0];
+    if (!dirPath) return;
+    try {
+      const experiment = await loadBioradFolder(dirPath);
+      addRecentFile(dirPath, experiment.wellsUsed?.length);
+      loadExperiment(experiment, dirPath);
+    } catch (err) {
+      alert(`Failed to load BioRad folder:\n${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [loadExperiment]);
 
   const handleSave = useCallback(async () => {
     if (!exp) return;
@@ -280,6 +298,7 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
       label: 'File',
       items: [
         { label: 'Open...', shortcut: `${MOD_KEY}+O`, action: handleOpen },
+        { label: 'Open BioRad Folder...', action: handleOpenBioradFolder },
         { separator: true },
         { label: 'Save', shortcut: `${MOD_KEY}+S`, action: handleSave, disabled: !hasData },
         { label: 'Save as .sharp', action: () => exp && exportAsSharp(exp), disabled: !hasData },
