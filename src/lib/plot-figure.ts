@@ -33,7 +33,8 @@ export interface PlotFigureStyle {
   legendSize: number;
   showLegend: boolean;
   legendPosition: string;
-  legendContent: 'well' | 'sample';
+  legendContent: 'well' | 'sample' | 'group';
+  showTitle: boolean;
   showGrid: boolean;
   gridAlpha: number;
   plotBgColor: string;   // '' = white
@@ -160,10 +161,44 @@ function computeColorMap(input: BuildFigureInput): Map<string, string> {
 }
 
 function traceName(well: string, input: BuildFigureInput): string {
+  if (input.style.legendContent === 'group') {
+    const g = input.wellGroups.get(well);
+    if (g) return g;
+    return input.exp.wells[well]?.sample ?? well;
+  }
   if (input.style.legendContent === 'sample') {
     return input.exp.wells[well]?.sample ?? well;
   }
   return well;
+}
+
+/** Legend-group key + "is representative for this group" per well. In
+ *  group mode, wells in the same group share a legendgroup and only the
+ *  first one keeps `showlegend: true`. */
+function computeLegendGroups(input: BuildFigureInput): Map<string, { group: string; isRep: boolean }> {
+  const out = new Map<string, { group: string; isRep: boolean }>();
+  const picked = new Set<string>();
+  for (const well of input.visibleWells) {
+    let group: string;
+    if (input.style.legendContent === 'group') {
+      const g = input.wellGroups.get(well);
+      group = g ? `grp:${g}` : `well:${well}`;
+    } else {
+      group = `well:${well}`;
+    }
+    const isRep = !picked.has(group);
+    if (isRep) picked.add(group);
+    out.set(well, { group, isRep });
+  }
+  return out;
+}
+
+function titleText(base: string, style: PlotFigureStyle): string {
+  return style.showTitle ? base : '';
+}
+
+function topMarginFor(style: PlotFigureStyle): number {
+  return style.showTitle ? 50 : 20;
 }
 
 function lineStyleFor(well: string, input: BuildFigureInput): { dash?: string; width?: number } {
@@ -185,6 +220,7 @@ function buildAmp(input: BuildFigureInput): { data: Data[]; layout: Partial<Layo
     xAxisMode === 'time_s' ? amp.timeS :
     amp.timeMin;
   const colorMap = computeColorMap(input);
+  const legendGroups = computeLegendGroups(input);
 
   for (const well of visibleWells) {
     const raw = amp.wells[well];
@@ -193,17 +229,19 @@ function buildAmp(input: BuildFigureInput): { data: Data[]; layout: Partial<Layo
     const y = (baselineEnabled && analysis?.correctedRfu) || raw;
     const color = colorMap.get(well) ?? '#999';
     const lsOv = lineStyleFor(well, input);
+    const lg = legendGroups.get(well)!;
     data.push({
       x: xData, y,
       type: 'scatter', mode: 'lines',
       name: traceName(well, input),
+      legendgroup: lg.group,
       line: {
         color,
         width: lsOv.width ?? style.lineWidth,
         dash: (lsOv.dash as PlotData['line']['dash']) ?? 'solid',
       },
       hoverinfo: 'name',
-      showlegend: true,
+      showlegend: lg.isRep,
     });
   }
 
@@ -220,7 +258,7 @@ function buildAmp(input: BuildFigureInput): { data: Data[]; layout: Partial<Layo
   const legendPos = resolveLegendPosition(style.legendPosition);
 
   const layout: Partial<Layout> = {
-    title: { text: exp.experimentId ?? 'Amplification', font: { family: style.fontFamily, size: style.titleSize } },
+    title: { text: titleText(exp.experimentId ?? 'Amplification', style), font: { family: style.fontFamily, size: style.titleSize } },
     xaxis: {
       title: { text: X_AXIS_LABELS[xAxisMode], font: { family: style.fontFamily, size: style.labelSize } },
       tickfont: { family: style.fontFamily, size: style.tickSize },
@@ -243,7 +281,7 @@ function buildAmp(input: BuildFigureInput): { data: Data[]; layout: Partial<Layo
       bordercolor: style.isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)',
       borderwidth: 1,
     },
-    margin: { l: 70, r: 20, t: 50, b: 50 },
+    margin: { l: 70, r: 20, t: topMarginFor(style), b: 50 },
     plot_bgcolor: plotBg, paper_bgcolor: plotBg,
     font: { color: plotFontColor(style.isDark) },
   };
@@ -262,6 +300,7 @@ function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Dat
   const hasDerivative = Object.keys(melt.derivative).length > 0;
   const smoothDeriv = smoothingEnabled && smoothingMeltDerivative;
   const colorMap = computeColorMap(input);
+  const legendGroups = computeLegendGroups(input);
 
   // RFU traces (skip if derivative-only)
   if (!derivativeOnly) {
@@ -270,17 +309,19 @@ function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Dat
       if (!rfu) continue;
       const color = colorMap.get(well) ?? '#999';
       const lsOv = lineStyleFor(well, input);
+      const lg = legendGroups.get(well)!;
       data.push({
         x: melt.temperatureC, y: rfu,
         type: 'scatter', mode: 'lines',
         name: traceName(well, input),
+        legendgroup: lg.group,
         line: {
           color,
           width: lsOv.width ?? style.lineWidth,
           dash: (lsOv.dash as PlotData['line']['dash']) ?? 'solid',
         },
         hoverinfo: 'name',
-        showlegend: true,
+        showlegend: lg.isRep,
         yaxis: 'y',
       });
     }
@@ -294,17 +335,21 @@ function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Dat
       if (smoothDeriv) der = savitzkyGolaySmooth(der, smoothingWindow);
       const color = colorMap.get(well) ?? '#999';
       const lsOv = lineStyleFor(well, input);
+      const lg = legendGroups.get(well)!;
       data.push({
         x: melt.temperatureC, y: der,
         type: 'scatter', mode: 'lines',
         name: traceName(well, input),
+        legendgroup: lg.group,
         line: {
           color,
           width: lsOv.width ?? style.lineWidth,
           dash: (lsOv.dash as PlotData['line']['dash']) ?? 'solid',
         },
         hoverinfo: 'name',
-        showlegend: derivativeOnly,     // legend on derivative only when standalone
+        // legend on derivative only when standalone; otherwise the RFU
+        // trace above carries the entry for the group.
+        showlegend: derivativeOnly && lg.isRep,
         yaxis: derivativeOnly ? 'y' : 'y2',
       });
     }
@@ -323,12 +368,12 @@ function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Dat
     });
   }
 
-  const titleText = derivativeOnly
+  const rawTitle = derivativeOnly
     ? `${exp.experimentId ?? ''} — Melt Derivative`.trim().replace(/^—\s*/, '')
     : `${exp.experimentId ?? ''} — Melt`.trim().replace(/^—\s*/, '');
 
   const baseLayout: Partial<Layout> = {
-    title: { text: titleText || 'Melt', font: { family: style.fontFamily, size: style.titleSize } },
+    title: { text: titleText(rawTitle || 'Melt', style), font: { family: style.fontFamily, size: style.titleSize } },
     shapes: shapes as Layout['shapes'],
     showlegend: style.showLegend,
     legend: {
@@ -340,7 +385,7 @@ function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Dat
       bordercolor: style.isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)',
       borderwidth: 1,
     },
-    margin: { l: 70, r: 20, t: 50, b: 50 },
+    margin: { l: 70, r: 20, t: topMarginFor(style), b: 50 },
     plot_bgcolor: plotBg, paper_bgcolor: plotBg,
     font: { color: plotFontColor(style.isDark) },
   };
@@ -417,7 +462,10 @@ function buildDoubling(input: BuildFigureInput): { data: Data[]; layout: Partial
 
   const layout: Partial<Layout> = {
     title: {
-      text: `${exp.experimentId ?? ''} — Doubling Time`.trim().replace(/^—\s*/, '') || 'Doubling Time',
+      text: titleText(
+        `${exp.experimentId ?? ''} — Doubling Time`.trim().replace(/^—\s*/, '') || 'Doubling Time',
+        style,
+      ),
       font: { family: style.fontFamily, size: style.titleSize },
     },
     xaxis: {
@@ -431,7 +479,7 @@ function buildDoubling(input: BuildFigureInput): { data: Data[]; layout: Partial
       ...gridStyle(style),
     },
     showlegend: false,
-    margin: { l: 70, r: 20, t: 50, b: 50 },
+    margin: { l: 70, r: 20, t: topMarginFor(style), b: 50 },
     plot_bgcolor: plotBg, paper_bgcolor: plotBg,
     font: { color: plotFontColor(style.isDark) },
   };
