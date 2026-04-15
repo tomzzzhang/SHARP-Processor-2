@@ -181,6 +181,10 @@ function legendLayout(style: ReturnType<typeof usePlotStyle>, showForPlot?: bool
       bgcolor: isDark ? '#1f1f1f' : '#ffffff',
       bordercolor: isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)',
       borderwidth: 1,
+      // Default is 10px between legendgroups. Since every trace carries
+      // its own `legendgroup`, that gap gets inserted between every
+      // entry — collapse it.
+      tracegroupgap: 0,
     },
   };
 }
