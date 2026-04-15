@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useAppState } from '@/hooks/useAppState';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
@@ -75,9 +75,15 @@ export function StyleTab() {
     return raw;
   }, [activeExp, hiddenWells, wellGroups, legendContent, legendOrder]);
 
-  // HTML5 drag & drop for the reorder list
+  // Pointer-event reorder (HTML5 drag is intercepted by the Tauri
+  // webview as a file drop, so we handle mousedown/move/up manually).
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [dropOverKey, setDropOverKey] = useState<string | null>(null);
+  const rowRefs = useRef(new Map<string, HTMLDivElement | null>());
+  const dragKeyRef = useRef<string | null>(null);
+  const dropOverKeyRef = useRef<string | null>(null);
+  dragKeyRef.current = dragKey;
+  dropOverKeyRef.current = dropOverKey;
 
   const handleReorder = useCallback((fromKey: string, toKey: string) => {
     if (fromKey === toKey) return;
@@ -94,6 +100,40 @@ export function StyleTab() {
   const handleResetLegendOrder = useCallback(() => {
     setLegendOrder([]);
   }, [setLegendOrder]);
+
+  const startDrag = useCallback((key: string, e: React.PointerEvent) => {
+    e.preventDefault();
+    setDragKey(key);
+
+    const onMove = (ev: PointerEvent) => {
+      // Hit-test the row refs by Y coordinate.
+      let hit: string | null = null;
+      for (const [k, el] of rowRefs.current) {
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        if (ev.clientY >= rect.top && ev.clientY <= rect.bottom) {
+          hit = k;
+          break;
+        }
+      }
+      if (hit !== dropOverKeyRef.current) setDropOverKey(hit);
+    };
+
+    const onUp = () => {
+      const from = dragKeyRef.current;
+      const to = dropOverKeyRef.current;
+      if (from && to) handleReorder(from, to);
+      setDragKey(null);
+      setDropOverKey(null);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+    };
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
+  }, [handleReorder]);
   const paletteReversed = useAppState((s) => s.paletteReversed);
   const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
   const showGrid = useAppState((s) => s.showGrid);
@@ -365,30 +405,12 @@ export function StyleTab() {
                 return (
                   <div
                     key={entry.key}
-                    draggable
-                    onDragStart={(e) => {
-                      setDragKey(entry.key);
-                      e.dataTransfer.effectAllowed = 'move';
-                    }}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = 'move';
-                      if (dropOverKey !== entry.key) setDropOverKey(entry.key);
-                    }}
-                    onDragLeave={() => {
-                      if (dropOverKey === entry.key) setDropOverKey(null);
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      if (dragKey) handleReorder(dragKey, entry.key);
-                      setDragKey(null);
-                      setDropOverKey(null);
-                    }}
-                    onDragEnd={() => { setDragKey(null); setDropOverKey(null); }}
-                    className={`flex items-center gap-2 px-2 py-1 text-xs cursor-grab active:cursor-grabbing border-b border-border last:border-b-0 ${isDragging ? 'opacity-40' : ''} ${isOver ? 'bg-accent' : 'hover:bg-muted/40'}`}
+                    ref={(el) => { rowRefs.current.set(entry.key, el); }}
+                    onPointerDown={(e) => startDrag(entry.key, e)}
+                    className={`flex items-center gap-2 px-2 py-1 text-xs select-none cursor-grab active:cursor-grabbing border-b border-border last:border-b-0 touch-none ${isDragging ? 'opacity-40' : ''} ${isOver ? 'bg-accent' : 'hover:bg-muted/40'}`}
                     title={entry.key}
                   >
-                    <span className="text-muted-foreground select-none">⋮⋮</span>
+                    <span className="text-muted-foreground">⋮⋮</span>
                     <span className="flex-1 truncate">{entry.label}</span>
                   </div>
                 );
