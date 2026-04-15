@@ -24,6 +24,8 @@ export function StyleTab() {
   const legendPosition = useAppState((s) => s.legendPosition);
   const legendContent = useAppState((s) => s.legendContent);
   const legendVisibleOnly = useAppState((s) => s.legendVisibleOnly);
+  const showTitle = useAppState((s) => s.showTitle);
+  const setShowTitle = useAppState((s) => s.setShowTitle);
   const paletteReversed = useAppState((s) => s.paletteReversed);
   const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
   const showGrid = useAppState((s) => s.showGrid);
@@ -81,11 +83,12 @@ export function StyleTab() {
       titleSize, labelSize, tickSize, legendSize,
       showLegend, showLegendAmp, showLegendMelt, showLegendDoubling,
       legendPosition, legendContent, legendVisibleOnly,
+      showTitle,
       showGrid, gridAlpha, plotBgColor, figureDpi,
     };
     saveStylePreset(trimmed, snapshot);
     refreshPresets();
-  }, [palette, paletteReversed, paletteGroupColors, lineWidth, fontFamily, titleSize, labelSize, tickSize, legendSize, showLegend, showLegendAmp, showLegendMelt, showLegendDoubling, legendPosition, legendContent, legendVisibleOnly, showGrid, gridAlpha, plotBgColor, figureDpi, presetNames, refreshPresets]);
+  }, [palette, paletteReversed, paletteGroupColors, lineWidth, fontFamily, titleSize, labelSize, tickSize, legendSize, showLegend, showLegendAmp, showLegendMelt, showLegendDoubling, legendPosition, legendContent, legendVisibleOnly, showTitle, showGrid, gridAlpha, plotBgColor, figureDpi, presetNames, refreshPresets]);
 
   const handleLoadPreset = useCallback((name: string) => {
     if (!name) return;
@@ -180,6 +183,10 @@ export function StyleTab() {
       </CollapsibleSection>
 
       <CollapsibleSection title="Typography" defaultOpen={false}>
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox checked={showTitle} onCheckedChange={(v) => setShowTitle(v === true)} />
+          Show plot title
+        </label>
         <div className="flex items-center gap-2 text-sm">
           <span className="text-muted-foreground">Font:</span>
           <select
@@ -244,11 +251,12 @@ export function StyleTab() {
           <span className="text-muted-foreground">Content:</span>
           <select
             value={legendContent}
-            onChange={(e) => setLegendContent(e.target.value as 'well' | 'sample')}
+            onChange={(e) => setLegendContent(e.target.value as 'well' | 'sample' | 'group')}
             className="flex-1 h-7 border rounded px-1 text-sm bg-background"
           >
             <option value="sample">Sample</option>
             <option value="well">Well</option>
+            <option value="group">Group (one entry per group)</option>
           </select>
         </div>
         <div className="flex items-center gap-2 text-sm">

@@ -24,8 +24,9 @@ export interface StyleSnapshot {
   showLegendMelt: boolean;
   showLegendDoubling: boolean;
   legendPosition: string;
-  legendContent: 'well' | 'sample';
+  legendContent: 'well' | 'sample' | 'group';
   legendVisibleOnly: boolean;
+  showTitle: boolean;
   showGrid: boolean;
   gridAlpha: number;
   plotBgColor: string;

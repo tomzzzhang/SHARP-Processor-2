@@ -141,7 +141,24 @@ function usePlotStyle() {
     showLegend: useAppState((s) => s.showLegend),
     legendPosition: useAppState((s) => s.legendPosition),
     legendVisibleOnly: useAppState((s) => s.legendVisibleOnly),
+    showTitle: useAppState((s) => s.showTitle),
   };
+}
+
+/** Build a Plotly `title` object honoring the user's Show title toggle.
+ *  When hidden, we still pass a title object with empty text so downstream
+ *  margin reservations stay consistent with the layout that builds it. */
+function titleField(text: string, style: ReturnType<typeof usePlotStyle>) {
+  return {
+    text: style.showTitle ? text : '',
+    font: { family: style.fontFamily, size: style.titleSize },
+  };
+}
+
+/** Top margin for a plot — collapse when the title is hidden so the
+ *  chart fills the panel. */
+function topMargin(style: ReturnType<typeof usePlotStyle>, withTitle = 50, withoutTitle = 20) {
+  return style.showTitle ? withTitle : withoutTitle;
 }
 
 function legendLayout(style: ReturnType<typeof usePlotStyle>, showForPlot?: boolean, traces?: Data[], isDark = false) {
@@ -181,6 +198,84 @@ function plotFontColor(isDark: boolean) {
 function getWellLineStyle(well: string, overrides: Map<string, unknown>) {
   const ov = overrides.get(well) as { lineStyle?: string; lineWidth?: number } | undefined;
   return { dash: ov?.lineStyle, width: ov?.lineWidth };
+}
+
+/**
+ * Compute per-well legend info for a given `legendContent` mode.
+ *
+ * Returns a map: well -> { name, group, isLegendRep }
+ *   - `name` is what Plotly shows as the trace name in the legend
+ *   - `group` is the Plotly `legendgroup` key (so all members share a row
+ *     visually, even though we disable legend-click)
+ *   - `isLegendRep` is true for exactly one well per legend-group — the
+ *     one that carries `showlegend: true`. In visible-only mode, the
+ *     representative is the first selected well in the group; otherwise
+ *     the first visible well in the group. If no trace in a group is
+ *     selected and visible-only is on, no rep is assigned (→ group has
+ *     no legend entry).
+ *
+ * For `legendContent === 'group'`, wells that are NOT in any group each
+ * get their own single-member legend-group keyed by the well name (so
+ * they still show up as individual entries in the legend).
+ */
+function computeLegendInfo(
+  visibleWells: string[],
+  wellGroups: Map<string, string>,
+  experimentWells: Record<string, { sample: string }> | undefined,
+  selectedWells: Set<string>,
+  legendContent: 'well' | 'sample' | 'group',
+  legendVisibleOnly: boolean,
+): Map<string, { name: string; group: string; isLegendRep: boolean }> {
+  const info = new Map<string, { name: string; group: string; isLegendRep: boolean }>();
+
+  // First pass: assign name + group key per well
+  for (const well of visibleWells) {
+    let name: string;
+    let group: string;
+    if (legendContent === 'group') {
+      const g = wellGroups.get(well);
+      if (g) {
+        name = g;
+        group = `grp:${g}`;
+      } else {
+        // Ungrouped wells still get their own legend entry
+        name = experimentWells?.[well]?.sample ?? well;
+        group = `well:${well}`;
+      }
+    } else if (legendContent === 'sample') {
+      name = experimentWells?.[well]?.sample ?? well;
+      group = `well:${well}`;
+    } else {
+      name = well;
+      group = `well:${well}`;
+    }
+    info.set(well, { name, group, isLegendRep: false });
+  }
+
+  // Second pass: pick one representative per group
+  const repPicked = new Set<string>();
+  const hasSelection = selectedWells.size > 0;
+  const isSelected = (w: string) => !hasSelection || selectedWells.has(w);
+
+  // Prefer a selected well as the legend rep when visible-only is on
+  if (legendVisibleOnly) {
+    for (const well of visibleWells) {
+      const entry = info.get(well)!;
+      if (repPicked.has(entry.group)) continue;
+      if (!isSelected(well)) continue;
+      entry.isLegendRep = true;
+      repPicked.add(entry.group);
+    }
+  } else {
+    for (const well of visibleWells) {
+      const entry = info.get(well)!;
+      if (repPicked.has(entry.group)) continue;
+      entry.isLegendRep = true;
+      repPicked.add(entry.group);
+    }
+  }
+
+  return info;
 }
 
 /**
@@ -401,6 +496,7 @@ function AmplificationPlot() {
   const setThresholdRfu = useAppState((s) => s.setThresholdRfu);
   const showLegendAmp = useAppState((s) => s.showLegendAmp);
   const legendContent = useAppState((s) => s.legendContent);
+  const legendVisibleOnly = useAppState((s) => s.legendVisibleOnly);
   const paletteReversed = useAppState((s) => s.paletteReversed);
   const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
   const style = usePlotStyle();
@@ -422,6 +518,11 @@ function AmplificationPlot() {
     exp?.wellsUsed ?? [], visibleWells, style.palette, wellGroups, wellStyleOverrides,
     analysisResults as Map<string, { tt?: number | null }>, paletteReversed,
     paletteGroupColors
+  );
+
+  const legendInfo = useMemo(
+    () => computeLegendInfo(visibleWells, wellGroups, exp?.wells, selectedWells, legendContent, legendVisibleOnly),
+    [visibleWells, wellGroups, exp?.wells, selectedWells, legendContent, legendVisibleOnly]
   );
 
   const traces = useMemo((): Data[] => {
@@ -453,7 +554,7 @@ function AmplificationPlot() {
       const isDragHighlighted = dragPreviewWells ? dragPreviewWells.has(well) : null;
       const analysis = analysisResults.get(well);
       const yData = (baselineEnabled && analysis?.correctedRfu) || amp.wells[well];
-      const showInLegend = !style.legendVisibleOnly || isSelected;
+      const li = legendInfo.get(well)!;
 
       // During drag select: highlight wells inside box, grey out everything else
       let lineWidth = lsOverride.width ?? (isSelected ? style.lineWidth : style.lineWidth * 0.6);
@@ -462,23 +563,23 @@ function AmplificationPlot() {
       else if (isDragHighlighted === false) { opacity = 0.15; }
       if (isHovered) { lineWidth = Math.max(lineWidth, style.lineWidth * 1.6); }
 
-      const traceName = legendContent === 'sample' ? (exp.wells[well]?.sample ?? well) : well;
       result.push({
         x: xData, y: yData,
-        type: 'scatter' as const, mode: 'lines' as const, name: traceName,
+        type: 'scatter' as const, mode: 'lines' as const, name: li.name,
+        legendgroup: li.group,
         line: {
           color,
           width: lineWidth,
           dash: lsOverride.dash as 'solid' | 'dash' | 'dot' | 'dashdot' | undefined,
         },
         opacity,
-        hoverinfo: 'name' as const, showlegend: showInLegend,
+        hoverinfo: 'name' as const, showlegend: li.isLegendRep,
       });
     }
     return result;
   }, [amp, exp, xAxisMode, selectedWells, hiddenWells, style.lineWidth,
       style.legendVisibleOnly, visibleWells, baselineEnabled, showRawOverlay,
-      analysisResults, wellStyleOverrides, colorMap, hoveredWell, dragPreviewWells, legendContent]);
+      analysisResults, wellStyleOverrides, colorMap, hoveredWell, dragPreviewWells, legendInfo]);
 
   // Compute baseline zone x-axis boundaries. Only shown when at least one
   // visible well is in manual baseline mode (auto mode uses per-well windows,
@@ -528,7 +629,7 @@ function AmplificationPlot() {
       });
     }
     return {
-      title: { text: title, font: { family: style.fontFamily, size: style.titleSize } },
+      title: titleField(title, style),
       xaxis: {
         title: { text: X_AXIS_LABELS[xAxisMode], font: { family: style.fontFamily, size: style.labelSize } },
         tickfont: { family: style.fontFamily, size: style.tickSize },
@@ -543,7 +644,7 @@ function AmplificationPlot() {
       shapes,
       dragmode: false as Layout['dragmode'],
       autosize: true,
-      margin: { l: 70, r: 20, t: 50, b: 50 },
+      margin: { l: 70, r: 20, t: topMargin(style), b: 50 },
       plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) },
       ...legendLayout(style, showLegendAmp, traces, isDark),
       datarevision: Date.now(),
@@ -889,6 +990,7 @@ function MeltPlot() {
   const setHoveredWell = useAppState((s) => s.setHoveredWell);
   const showLegendMelt = useAppState((s) => s.showLegendMelt);
   const legendContent = useAppState((s) => s.legendContent);
+  const legendVisibleOnly = useAppState((s) => s.legendVisibleOnly);
   const style = usePlotStyle();
   const analysisResults = useAnalysisResults();
   const dragPreviewWells = useAppState((s) => s.dragPreviewWells);
@@ -911,6 +1013,11 @@ function MeltPlot() {
     exp?.wellsUsed ?? [], visibleWells, style.palette, wellGroups, wellStyleOverrides,
     analysisResults as Map<string, { tt?: number | null }>, paletteReversed,
     paletteGroupColors
+  );
+
+  const legendInfo = useMemo(
+    () => computeLegendInfo(visibleWells, wellGroups, exp?.wells, selectedWells, legendContent, legendVisibleOnly),
+    [visibleWells, wellGroups, exp?.wells, selectedWells, legendContent, legendVisibleOnly]
   );
 
   const hasDerivative = melt && Object.keys(melt.derivative).length > 0;
@@ -940,7 +1047,7 @@ function MeltPlot() {
       const isDragHighlighted = dragPreviewWells ? dragPreviewWells.has(well) : null;
       const rfuData = melt.rfu[well];
       if (!rfuData) continue;
-      const showInLegend = !style.legendVisibleOnly || isSelected;
+      const li = legendInfo.get(well)!;
       let lineWidth = isSelected ? style.lineWidth : style.lineWidth * 0.6;
       let opacity = isSelected ? 1.0 : 0.25;
       if (isDragHighlighted === true) { lineWidth = style.lineWidth * 1.4; opacity = 1.0; }
@@ -951,13 +1058,13 @@ function MeltPlot() {
         opacity = Math.min(opacity, 0.25);
         lineWidth = Math.min(lineWidth, style.lineWidth * 0.6);
       }
-      const traceName = legendContent === 'sample' ? (exp?.wells[well]?.sample ?? well) : well;
       result.push({
         x: melt.temperatureC, y: rfuData,
-        type: 'scatter' as const, mode: 'lines' as const, name: traceName,
+        type: 'scatter' as const, mode: 'lines' as const, name: li.name,
+        legendgroup: li.group,
         line: { color, width: lineWidth },
         opacity,
-        hoverinfo: 'name' as const, yaxis: 'y', showlegend: showInLegend,
+        hoverinfo: 'name' as const, yaxis: 'y', showlegend: li.isLegendRep,
       });
     }
 
@@ -980,10 +1087,11 @@ function MeltPlot() {
           opacity = Math.min(opacity, 0.25);
           lineWidth = Math.min(lineWidth, style.lineWidth * 0.6);
         }
-        const derTraceName = legendContent === 'sample' ? (exp?.wells[well]?.sample ?? well) : well;
+        const li = legendInfo.get(well)!;
         result.push({
           x: melt.temperatureC, y: derData,
-          type: 'scatter' as const, mode: 'lines' as const, name: derTraceName,
+          type: 'scatter' as const, mode: 'lines' as const, name: li.name,
+          legendgroup: li.group,
           line: { color, width: lineWidth },
           opacity,
           hoverinfo: 'name' as const, yaxis: 'y2', showlegend: false,
@@ -991,7 +1099,7 @@ function MeltPlot() {
       }
     }
     return result;
-  }, [melt, exp, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells, smoothMeltDeriv, smoothingWindow, meltThresholdEnabled, meltThresholdValue, wellPeakDeriv, legendContent]);
+  }, [melt, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells, smoothMeltDeriv, smoothingWindow, meltThresholdEnabled, meltThresholdValue, wellPeakDeriv, legendInfo]);
 
   const layout = useMemo((): Partial<Layout> => {
     const title = exp?.experimentId ? `${exp.experimentId} — Melt` : 'Melt Curve';
@@ -1006,21 +1114,21 @@ function MeltPlot() {
     }
     if (hasDerivative) {
       return {
-        title: { text: title, font: { family: style.fontFamily, size: style.titleSize } },
+        title: titleField(title, style),
         xaxis: { title: { text: 'Temperature (°C)', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, ...grid },
         yaxis: { title: { text: 'RFU', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, domain: [0.55, 1], ...grid },
         yaxis2: { title: { text: '-dF/dT', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, domain: [0, 0.45], anchor: 'x', ...grid },
         shapes: shapes as Layout['shapes'],
-        dragmode: false as Layout['dragmode'], autosize: true, margin: { l: 70, r: 20, t: 50, b: 50 },
+        dragmode: false as Layout['dragmode'], autosize: true, margin: { l: 70, r: 20, t: topMargin(style), b: 50 },
         plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) }, ...legendLayout(style, showLegendMelt, traces, isDark),
         datarevision: Date.now(),
       };
     }
     return {
-      title: { text: title, font: { family: style.fontFamily, size: style.titleSize } },
+      title: titleField(title, style),
       xaxis: { title: { text: 'Temperature (°C)', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, ...grid },
       yaxis: { title: { text: 'RFU', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, ...grid },
-      dragmode: false as Layout['dragmode'], autosize: true, margin: { l: 70, r: 20, t: 50, b: 50 },
+      dragmode: false as Layout['dragmode'], autosize: true, margin: { l: 70, r: 20, t: topMargin(style), b: 50 },
       plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) }, ...legendLayout(style, showLegendMelt, traces, isDark),
       datarevision: Date.now(),
     };
@@ -1220,7 +1328,7 @@ function DilutionPlot() {
   const layout = useMemo((): Partial<Layout> => {
     const title = exp?.experimentId ? `${exp.experimentId} — Standard Curve` : 'Standard Curve';
     return {
-      title: { text: title, font: { family: style.fontFamily, size: style.titleSize } },
+      title: titleField(title, style),
       xaxis: {
         title: { text: `log₂(Concentration${unit ? ', ' + unit : ''})`, font: { family: style.fontFamily, size: style.labelSize } },
         tickfont: { family: style.fontFamily, size: style.tickSize }, ...gridStyle(style, isDark),
@@ -1229,7 +1337,7 @@ function DilutionPlot() {
         title: { text: `${xLabel} (${X_AXIS_LABELS[xAxisMode]})`, font: { family: style.fontFamily, size: style.labelSize } },
         tickfont: { family: style.fontFamily, size: style.tickSize }, ...gridStyle(style, isDark),
       },
-      autosize: true, margin: { l: 70, r: 20, t: 50, b: 50 },
+      autosize: true, margin: { l: 70, r: 20, t: topMargin(style), b: 50 },
       plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) },
       datarevision: Date.now(),
     };
@@ -1390,10 +1498,10 @@ function PerWellDoublingPlot() {
   const layout = useMemo((): Partial<Layout> => {
     const title = exp?.experimentId ? `${exp.experimentId} — Doubling Time` : 'Doubling Time';
     return {
-      title: { text: title, font: { family: style.fontFamily, size: style.titleSize } },
+      title: titleField(title, style),
       xaxis: { title: { text: `${xLabel} (${X_AXIS_LABELS[xAxisMode]})`, font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, ...gridStyle(style, isDark) },
       yaxis: { title: { text: 'Doubling Time', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, ...gridStyle(style, isDark) },
-      autosize: true, margin: { l: 70, r: 20, t: 50, b: 50 },
+      autosize: true, margin: { l: 70, r: 20, t: topMargin(style), b: 50 },
       plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) }, ...legendLayout(style, showLegendDoubling, traces, isDark),
       datarevision: Date.now(),
     };

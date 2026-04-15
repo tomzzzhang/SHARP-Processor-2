@@ -87,7 +87,8 @@ export interface ExperimentViewState {
   showLegendMelt: boolean;
   showLegendDoubling: boolean;
   legendPosition: string;
-  legendContent: 'well' | 'sample';
+  legendContent: 'well' | 'sample' | 'group';
+  showTitle: boolean;
   legendVisibleOnly: boolean;
   showGrid: boolean;
   gridAlpha: number;
@@ -140,6 +141,7 @@ function defaultViewState(wellsUsed: string[] = []): ExperimentViewState {
     showLegendDoubling: true,
     legendPosition: 'best',
     legendContent: 'sample',
+    showTitle: true,
     legendVisibleOnly: true,
     showGrid: true,
     gridAlpha: DEFAULT_GRID_ALPHA,
@@ -194,6 +196,7 @@ function snapshotViewState(state: AppState): ExperimentViewState {
     showLegendDoubling: state.showLegendDoubling,
     legendPosition: state.legendPosition,
     legendContent: state.legendContent,
+    showTitle: state.showTitle,
     legendVisibleOnly: state.legendVisibleOnly,
     showGrid: state.showGrid,
     gridAlpha: state.gridAlpha,
@@ -303,7 +306,8 @@ interface AppState extends ExperimentViewState {
   setShowLegendMelt: (on: boolean) => void;
   setShowLegendDoubling: (on: boolean) => void;
   setLegendPosition: (pos: string) => void;
-  setLegendContent: (content: 'well' | 'sample') => void;
+  setLegendContent: (content: 'well' | 'sample' | 'group') => void;
+  setShowTitle: (on: boolean) => void;
   setLegendVisibleOnly: (on: boolean) => void;
   setPaletteReversed: (reversed: boolean) => void;
   setPaletteGroupColors: (on: boolean) => void;
@@ -780,6 +784,7 @@ export const useAppState = create<AppState>((set, get) => ({
   setShowLegendDoubling: (on) => set({ showLegendDoubling: on }),
   setLegendPosition: (pos) => set({ legendPosition: pos }),
   setLegendContent: (content) => set({ legendContent: content }),
+  setShowTitle: (on) => { get().pushUndo('Toggle title'); set({ showTitle: on }); },
   setLegendVisibleOnly: (on) => set({ legendVisibleOnly: on }),
   setPaletteReversed: (reversed) => { get().pushUndo('Reverse palette'); set({ paletteReversed: reversed }); },
   setPaletteGroupColors: (on) => { get().pushUndo('Toggle group colors'); set({ paletteGroupColors: on }); },
@@ -811,6 +816,7 @@ export const useAppState = create<AppState>((set, get) => ({
       showLegendDoubling: true,
       legendPosition: 'best',
       legendContent: 'sample',
+      showTitle: true,
       legendVisibleOnly: true,
       showGrid: true,
       gridAlpha: DEFAULT_GRID_ALPHA,
