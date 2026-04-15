@@ -14,7 +14,7 @@ import { UserManual } from './components/UserManual';
 import { PlotTabs } from './components/PlotTabs';
 import { useAppState } from './hooks/useAppState';
 import { loadSharpFile } from './lib/sharp-loader';
-import { isInstrumentFile, isSupportedFile, loadInstrumentFile } from './lib/instrument-loader';
+import { isInstrumentFile, isSupportedFile, loadInstrumentFile, loadBioradFolder } from './lib/instrument-loader';
 import { addRecentFile } from './lib/recent-files';
 import { checkForUpdates } from './lib/update-checker';
 
@@ -65,21 +65,22 @@ function App() {
   }, []);
 
   const handleFilePath = useCallback(async (filePath: string) => {
-    if (!isSupportedFile(filePath)) {
-      setError(`Unsupported file type: ${filePath}`);
-      return;
-    }
     setLoading(true);
     setError(null);
     try {
       let experiment;
-      if (isInstrumentFile(filePath)) {
-        experiment = await loadInstrumentFile(filePath);
+      if (isSupportedFile(filePath)) {
+        if (isInstrumentFile(filePath)) {
+          experiment = await loadInstrumentFile(filePath);
+        } else {
+          const fs = await tauriFs;
+          if (!fs) throw new Error('File system not available outside Tauri');
+          const bytes = await fs.readFile(filePath);
+          experiment = await loadSharpFile(bytes.buffer as ArrayBuffer, filePath.split(/[/\\]/).pop()!);
+        }
       } else {
-        const fs = await tauriFs;
-        if (!fs) throw new Error('File system not available outside Tauri');
-        const bytes = await fs.readFile(filePath);
-        experiment = await loadSharpFile(bytes.buffer as ArrayBuffer, filePath.split(/[/\\]/).pop()!);
+        // No recognized extension — treat as a BioRad CSV export folder.
+        experiment = await loadBioradFolder(filePath);
       }
       addRecentFile(filePath, experiment.wellsUsed?.length);
       loadExperiment(experiment, filePath);
