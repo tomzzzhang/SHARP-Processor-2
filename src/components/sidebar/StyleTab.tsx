@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAppState } from '@/hooks/useAppState';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
@@ -24,8 +24,76 @@ export function StyleTab() {
   const legendPosition = useAppState((s) => s.legendPosition);
   const legendContent = useAppState((s) => s.legendContent);
   const legendVisibleOnly = useAppState((s) => s.legendVisibleOnly);
+  const legendOrder = useAppState((s) => s.legendOrder);
+  const setLegendOrder = useAppState((s) => s.setLegendOrder);
   const showTitle = useAppState((s) => s.showTitle);
   const setShowTitle = useAppState((s) => s.setShowTitle);
+
+  // Current visible wells + groups — used to build the reorder list so
+  // the user can drag the legend entries that actually exist.
+  const experiments = useAppState((s) => s.experiments);
+  const activeIdx = useAppState((s) => s.activeExperimentIndex);
+  const hiddenWells = useAppState((s) => s.hiddenWells);
+  const wellGroups = useAppState((s) => s.wellGroups);
+  const activeExp = experiments[activeIdx];
+
+  /** Current legend entries in their effective display order. Each
+   *  entry has a stable `key` matching what PlotArea uses for
+   *  `legendgroup`, so reordering here matches what Plotly renders. */
+  const legendEntries = useMemo(() => {
+    if (!activeExp) return [] as { key: string; label: string }[];
+    const visible = activeExp.wellsUsed.filter((w) => !hiddenWells.has(w));
+    const seen = new Set<string>();
+    const raw: { key: string; label: string }[] = [];
+    for (const well of visible) {
+      let key: string, label: string;
+      if (legendContent === 'group') {
+        const g = wellGroups.get(well);
+        if (g) { key = `grp:${g}`; label = g; }
+        else { key = `well:${well}`; label = activeExp.wells[well]?.sample ?? well; }
+      } else if (legendContent === 'sample') {
+        key = `well:${well}`; label = activeExp.wells[well]?.sample ?? well;
+      } else {
+        key = `well:${well}`; label = well;
+      }
+      if (seen.has(key)) continue;
+      seen.add(key);
+      raw.push({ key, label });
+    }
+    // Sort by legendOrder rank (entries in the order array first, in
+    // that order; everything else follows in natural order).
+    const rank = new Map<string, number>();
+    legendOrder.forEach((k, i) => rank.set(k, i));
+    raw.sort((a, b) => {
+      const ra = rank.get(a.key);
+      const rb = rank.get(b.key);
+      if (ra !== undefined && rb !== undefined) return ra - rb;
+      if (ra !== undefined) return -1;
+      if (rb !== undefined) return 1;
+      return 0;
+    });
+    return raw;
+  }, [activeExp, hiddenWells, wellGroups, legendContent, legendOrder]);
+
+  // HTML5 drag & drop for the reorder list
+  const [dragKey, setDragKey] = useState<string | null>(null);
+  const [dropOverKey, setDropOverKey] = useState<string | null>(null);
+
+  const handleReorder = useCallback((fromKey: string, toKey: string) => {
+    if (fromKey === toKey) return;
+    const keys = legendEntries.map((e) => e.key);
+    const fromIdx = keys.indexOf(fromKey);
+    const toIdx = keys.indexOf(toKey);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const reordered = [...keys];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+    setLegendOrder(reordered);
+  }, [legendEntries, setLegendOrder]);
+
+  const handleResetLegendOrder = useCallback(() => {
+    setLegendOrder([]);
+  }, [setLegendOrder]);
   const paletteReversed = useAppState((s) => s.paletteReversed);
   const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
   const showGrid = useAppState((s) => s.showGrid);
@@ -275,6 +343,59 @@ export function StyleTab() {
           <Checkbox checked={legendVisibleOnly} onCheckedChange={(v) => setLegendVisibleOnly(v === true)} />
           Visible wells only
         </label>
+
+        {activeExp && legendEntries.length > 1 && (
+          <div className="pt-1">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-muted-foreground">Order (drag to reorder)</span>
+              {legendOrder.length > 0 && (
+                <button
+                  className="text-[10px] text-muted-foreground hover:text-foreground underline"
+                  onClick={handleResetLegendOrder}
+                  title="Revert to natural order"
+                >
+                  reset
+                </button>
+              )}
+            </div>
+            <div className="border rounded overflow-hidden">
+              {legendEntries.map((entry) => {
+                const isDragging = dragKey === entry.key;
+                const isOver = dropOverKey === entry.key && dragKey !== entry.key;
+                return (
+                  <div
+                    key={entry.key}
+                    draggable
+                    onDragStart={(e) => {
+                      setDragKey(entry.key);
+                      e.dataTransfer.effectAllowed = 'move';
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      if (dropOverKey !== entry.key) setDropOverKey(entry.key);
+                    }}
+                    onDragLeave={() => {
+                      if (dropOverKey === entry.key) setDropOverKey(null);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (dragKey) handleReorder(dragKey, entry.key);
+                      setDragKey(null);
+                      setDropOverKey(null);
+                    }}
+                    onDragEnd={() => { setDragKey(null); setDropOverKey(null); }}
+                    className={`flex items-center gap-2 px-2 py-1 text-xs cursor-grab active:cursor-grabbing border-b border-border last:border-b-0 ${isDragging ? 'opacity-40' : ''} ${isOver ? 'bg-accent' : 'hover:bg-muted/40'}`}
+                    title={entry.key}
+                  >
+                    <span className="text-muted-foreground select-none">⋮⋮</span>
+                    <span className="flex-1 truncate">{entry.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </CollapsibleSection>
 
       <CollapsibleSection title="Grid & Export" defaultOpen={false}>

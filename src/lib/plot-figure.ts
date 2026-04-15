@@ -47,6 +47,7 @@ export interface BuildFigureInput {
   wellGroups: Map<string, string>;
   wellStyleOverrides: Map<string, { color?: string; lineStyle?: string; lineWidth?: number }>;
   analysisResults: Map<string, WellAnalysisResult>;
+  legendOrder: string[];
   style: PlotFigureStyle;
   xAxisMode: XAxisMode;
   logScale: boolean;
@@ -201,6 +202,12 @@ function topMarginFor(style: PlotFigureStyle): number {
   return style.showTitle ? 50 : 20;
 }
 
+function buildLegendRanks(legendOrder: string[]): Map<string, number> {
+  const ranks = new Map<string, number>();
+  legendOrder.forEach((key, i) => ranks.set(key, 10 + i));
+  return ranks;
+}
+
 function lineStyleFor(well: string, input: BuildFigureInput): { dash?: string; width?: number } {
   const ov = input.wellStyleOverrides.get(well);
   return { dash: ov?.lineStyle, width: ov?.lineWidth };
@@ -221,6 +228,7 @@ function buildAmp(input: BuildFigureInput): { data: Data[]; layout: Partial<Layo
     amp.timeMin;
   const colorMap = computeColorMap(input);
   const legendGroups = computeLegendGroups(input);
+  const legendRanks = buildLegendRanks(input.legendOrder);
 
   for (const well of visibleWells) {
     const raw = amp.wells[well];
@@ -235,6 +243,7 @@ function buildAmp(input: BuildFigureInput): { data: Data[]; layout: Partial<Layo
       type: 'scatter', mode: 'lines',
       name: traceName(well, input),
       legendgroup: lg.group,
+      legendrank: legendRanks.get(lg.group) ?? 1000,
       line: {
         color,
         width: lsOv.width ?? style.lineWidth,
@@ -302,6 +311,7 @@ function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Dat
   const smoothDeriv = smoothingEnabled && smoothingMeltDerivative;
   const colorMap = computeColorMap(input);
   const legendGroups = computeLegendGroups(input);
+  const legendRanks = buildLegendRanks(input.legendOrder);
 
   // RFU traces (skip if derivative-only)
   if (!derivativeOnly) {
@@ -316,6 +326,7 @@ function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Dat
         type: 'scatter', mode: 'lines',
         name: traceName(well, input),
         legendgroup: lg.group,
+        legendrank: legendRanks.get(lg.group) ?? 1000,
         line: {
           color,
           width: lsOv.width ?? style.lineWidth,
@@ -342,6 +353,7 @@ function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Dat
         type: 'scatter', mode: 'lines',
         name: traceName(well, input),
         legendgroup: lg.group,
+        legendrank: legendRanks.get(lg.group) ?? 1000,
         line: {
           color,
           width: lsOv.width ?? style.lineWidth,

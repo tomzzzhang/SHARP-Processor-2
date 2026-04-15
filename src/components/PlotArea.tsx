@@ -161,6 +161,16 @@ function topMargin(style: ReturnType<typeof usePlotStyle>, withTitle = 50, witho
   return style.showTitle ? withTitle : withoutTitle;
 }
 
+/** Build a {groupKey → Plotly legendrank} lookup. Groups listed in
+ *  `legendOrder` get sequential ranks starting at 10; groups not in the
+ *  order array fall back to 1000 (Plotly's default) so they land after
+ *  the explicitly-ranked entries in natural order. */
+function buildLegendRanks(legendOrder: string[]): Map<string, number> {
+  const ranks = new Map<string, number>();
+  legendOrder.forEach((key, i) => ranks.set(key, 10 + i));
+  return ranks;
+}
+
 function legendLayout(style: ReturnType<typeof usePlotStyle>, showForPlot?: boolean, traces?: Data[], isDark = false) {
   const show = showForPlot ?? true;
   let pos: { x: number; y: number; xanchor: string; yanchor: string };
@@ -501,6 +511,7 @@ function AmplificationPlot() {
   const showLegendAmp = useAppState((s) => s.showLegendAmp);
   const legendContent = useAppState((s) => s.legendContent);
   const legendVisibleOnly = useAppState((s) => s.legendVisibleOnly);
+  const legendOrder = useAppState((s) => s.legendOrder);
   const paletteReversed = useAppState((s) => s.paletteReversed);
   const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
   const style = usePlotStyle();
@@ -528,6 +539,8 @@ function AmplificationPlot() {
     () => computeLegendInfo(visibleWells, wellGroups, exp?.wells, selectedWells, legendContent, legendVisibleOnly),
     [visibleWells, wellGroups, exp?.wells, selectedWells, legendContent, legendVisibleOnly]
   );
+
+  const legendRanks = useMemo(() => buildLegendRanks(legendOrder), [legendOrder]);
 
   const traces = useMemo((): Data[] => {
     if (!amp) {
@@ -571,6 +584,7 @@ function AmplificationPlot() {
         x: xData, y: yData,
         type: 'scatter' as const, mode: 'lines' as const, name: li.name,
         legendgroup: li.group,
+        legendrank: legendRanks.get(li.group) ?? 1000,
         line: {
           color,
           width: lineWidth,
@@ -583,7 +597,7 @@ function AmplificationPlot() {
     return result;
   }, [amp, exp, xAxisMode, selectedWells, hiddenWells, style.lineWidth,
       style.legendVisibleOnly, visibleWells, baselineEnabled, showRawOverlay,
-      analysisResults, wellStyleOverrides, colorMap, hoveredWell, dragPreviewWells, legendInfo]);
+      analysisResults, wellStyleOverrides, colorMap, hoveredWell, dragPreviewWells, legendInfo, legendRanks]);
 
   // Compute baseline zone x-axis boundaries. Only shown when at least one
   // visible well is in manual baseline mode (auto mode uses per-well windows,
@@ -995,6 +1009,7 @@ function MeltPlot() {
   const showLegendMelt = useAppState((s) => s.showLegendMelt);
   const legendContent = useAppState((s) => s.legendContent);
   const legendVisibleOnly = useAppState((s) => s.legendVisibleOnly);
+  const legendOrder = useAppState((s) => s.legendOrder);
   const style = usePlotStyle();
   const analysisResults = useAnalysisResults();
   const dragPreviewWells = useAppState((s) => s.dragPreviewWells);
@@ -1023,6 +1038,8 @@ function MeltPlot() {
     () => computeLegendInfo(visibleWells, wellGroups, exp?.wells, selectedWells, legendContent, legendVisibleOnly),
     [visibleWells, wellGroups, exp?.wells, selectedWells, legendContent, legendVisibleOnly]
   );
+
+  const legendRanks = useMemo(() => buildLegendRanks(legendOrder), [legendOrder]);
 
   const hasDerivative = melt && Object.keys(melt.derivative).length > 0;
   const smoothMeltDeriv = smoothingEnabled && smoothingMeltDerivative;
@@ -1066,6 +1083,7 @@ function MeltPlot() {
         x: melt.temperatureC, y: rfuData,
         type: 'scatter' as const, mode: 'lines' as const, name: li.name,
         legendgroup: li.group,
+        legendrank: legendRanks.get(li.group) ?? 1000,
         line: { color, width: lineWidth },
         opacity,
         hoverinfo: 'name' as const, yaxis: 'y', showlegend: li.isLegendRep,
@@ -1096,6 +1114,7 @@ function MeltPlot() {
           x: melt.temperatureC, y: derData,
           type: 'scatter' as const, mode: 'lines' as const, name: li.name,
           legendgroup: li.group,
+          legendrank: legendRanks.get(li.group) ?? 1000,
           line: { color, width: lineWidth },
           opacity,
           hoverinfo: 'name' as const, yaxis: 'y2', showlegend: false,
@@ -1103,7 +1122,7 @@ function MeltPlot() {
       }
     }
     return result;
-  }, [melt, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells, smoothMeltDeriv, smoothingWindow, meltThresholdEnabled, meltThresholdValue, wellPeakDeriv, legendInfo]);
+  }, [melt, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells, smoothMeltDeriv, smoothingWindow, meltThresholdEnabled, meltThresholdValue, wellPeakDeriv, legendInfo, legendRanks]);
 
   const layout = useMemo((): Partial<Layout> => {
     const title = exp?.experimentId ? `${exp.experimentId} — Melt` : 'Melt Curve';
