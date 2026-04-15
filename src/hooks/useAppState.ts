@@ -88,6 +88,7 @@ export interface ExperimentViewState {
   showLegendDoubling: boolean;
   legendPosition: string;
   legendContent: 'well' | 'sample' | 'group';
+  legendOrder: string[];
   showTitle: boolean;
   legendVisibleOnly: boolean;
   showGrid: boolean;
@@ -141,6 +142,7 @@ function defaultViewState(wellsUsed: string[] = []): ExperimentViewState {
     showLegendDoubling: true,
     legendPosition: 'best',
     legendContent: 'sample',
+    legendOrder: [],
     showTitle: true,
     legendVisibleOnly: true,
     showGrid: true,
@@ -196,6 +198,7 @@ function snapshotViewState(state: AppState): ExperimentViewState {
     showLegendDoubling: state.showLegendDoubling,
     legendPosition: state.legendPosition,
     legendContent: state.legendContent,
+    legendOrder: state.legendOrder,
     showTitle: state.showTitle,
     legendVisibleOnly: state.legendVisibleOnly,
     showGrid: state.showGrid,
@@ -307,6 +310,7 @@ interface AppState extends ExperimentViewState {
   setShowLegendDoubling: (on: boolean) => void;
   setLegendPosition: (pos: string) => void;
   setLegendContent: (content: 'well' | 'sample' | 'group') => void;
+  setLegendOrder: (order: string[]) => void;
   setShowTitle: (on: boolean) => void;
   setLegendVisibleOnly: (on: boolean) => void;
   setPaletteReversed: (reversed: boolean) => void;
@@ -783,7 +787,8 @@ export const useAppState = create<AppState>((set, get) => ({
   setShowLegendMelt: (on) => set({ showLegendMelt: on }),
   setShowLegendDoubling: (on) => set({ showLegendDoubling: on }),
   setLegendPosition: (pos) => set({ legendPosition: pos }),
-  setLegendContent: (content) => set({ legendContent: content }),
+  setLegendContent: (content) => set({ legendContent: content, legendOrder: [] }),
+  setLegendOrder: (order) => { get().pushUndo('Reorder legend'); set({ legendOrder: order }); },
   setShowTitle: (on) => { get().pushUndo('Toggle title'); set({ showTitle: on }); },
   setLegendVisibleOnly: (on) => set({ legendVisibleOnly: on }),
   setPaletteReversed: (reversed) => { get().pushUndo('Reverse palette'); set({ paletteReversed: reversed }); },
@@ -816,6 +821,7 @@ export const useAppState = create<AppState>((set, get) => ({
       showLegendDoubling: true,
       legendPosition: 'best',
       legendContent: 'sample',
+      legendOrder: [],
       showTitle: true,
       legendVisibleOnly: true,
       showGrid: true,
