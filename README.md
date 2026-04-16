@@ -53,12 +53,13 @@
 | Instrument | File type you'll have |
 |---|---|
 | BioRad CFX96 | `.pcrd` |
+| BioRad CFX96 (CSV export folder) | Folder of CSVs from CFX Manager |
 | TianLong Gentier (Mini / 48 / 96) | `.tlpd` |
 | ThermoFisher QuantStudio | `.eds` |
 | Agilent AriaMx | `.amxd` or `.adxd` |
 | Previously saved SHARP files | `.sharp` |
 
-You don't need to export from your instrument software first — SHARP Processor reads the raw instrument files directly.
+You don't need to export from your instrument software first — SHARP Processor reads the raw instrument files directly. For BioRad, you can also open the CSV export folder from CFX Manager via **File → Open BioRad Folder**.
 
 You can open multiple experiments at the same time. Each one gets its own tab.
 
@@ -97,9 +98,13 @@ Switch to the **Doubling Time** tab for exponential growth fitting results. The 
 
 ### Change colors and styles
 - Right-click any well or curve to change its **color**, **line style**, or **line width**
+- Pick from **palette-based swatches** (SHARP, Tableau, Colorblind Safe, Paired) or use a custom hex color
 - Assign wells to **groups** — grouped wells automatically share colors
 - Choose from **18 color palettes** including colorblind-safe options
+- **Assign palette by arrow** — draw an arrow across curves to assign palette colors in visual order
 - Switch between **3 themes**: Classic (greyscale), SHARP (brand red), or SHARP Dark
+- **Built-in style presets** (Default, Publication, Presentation) — one-click to optimize for different outputs
+- Toggle **title**, **axis labels**, and **tick labels** on/off individually via the Typography panel
 
 ### Export your results
 Go to **Export** in the menu bar. There are two ways to export plots:
@@ -134,7 +139,7 @@ Data exports:
 
 | Instrument | Model(s) | Wells | File type |
 |---|---|---|---|
-| BioRad | CFX96 | 96 | `.pcrd` |
+| BioRad | CFX96 | 96 | `.pcrd` or CSV folder |
 | TianLong | Gentier Mini | 16 | `.tlpd` |
 | TianLong | Gentier 48 | 48 | `.tlpd` |
 | TianLong | Gentier 96 | 96 | `.tlpd` |
@@ -196,7 +201,7 @@ Your `.sharp` files from v1 work in v2 without any changes.
 | Styling | Tailwind CSS v4, shadcn/ui |
 | Charts | Plotly.js (react-plotly.js) |
 | State management | Zustand |
-| Instrument parsing | Python sidecar (bundled) |
+| Instrument parsing | Pure TypeScript (most formats) + Python sidecar (fallback) |
 
 ### Instrument File Parsing
 
