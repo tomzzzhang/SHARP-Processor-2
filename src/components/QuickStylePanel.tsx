@@ -205,7 +205,6 @@ export function QuickStylePanel() {
                 onChange={(c) => setWellStyleOverride(wells, { color: c })}
               />
             )}
-            {btn('Reverse Colors', reverseSelectionColors, n === 0)}
             {btn('Clear Overrides', () => clearWellStyleOverrides(wells), n === 0)}
           </PanelSection>
 
@@ -242,6 +241,7 @@ export function QuickStylePanel() {
                 </button>
               ))}
             </div>
+            {btn('Reverse Colors', reverseSelectionColors, n === 0)}
           </PanelSection>
 
           {/* Baseline */}
