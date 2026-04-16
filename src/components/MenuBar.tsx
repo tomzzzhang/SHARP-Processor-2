@@ -147,20 +147,24 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
   const visibleWells = exp ? exp.wellsUsed.filter((w) => !hiddenWells.has(w)) : [];
 
   const openFilePath = useCallback(async (filePath: string) => {
-    let experiment;
-    if (isSupportedFile(filePath)) {
-      if (isInstrumentFile(filePath)) {
-        experiment = await loadInstrumentFile(filePath);
+    try {
+      let experiment;
+      if (isSupportedFile(filePath)) {
+        if (isInstrumentFile(filePath)) {
+          experiment = await loadInstrumentFile(filePath);
+        } else {
+          const bytes = await readFile(filePath);
+          experiment = await loadSharpFile(bytes.buffer as ArrayBuffer, filePath.split(/[/\\]/).pop()!);
+        }
       } else {
-        const bytes = await readFile(filePath);
-        experiment = await loadSharpFile(bytes.buffer as ArrayBuffer, filePath.split(/[/\\]/).pop()!);
+        // No recognized extension — assume a BioRad folder export.
+        experiment = await loadBioradFolder(filePath);
       }
-    } else {
-      // No recognized extension — assume a BioRad folder export.
-      experiment = await loadBioradFolder(filePath);
+      addRecentFile(filePath, experiment.wellsUsed?.length);
+      loadExperiment(experiment, filePath);
+    } catch (err) {
+      alert(`Failed to open:\n${filePath}\n\n${err instanceof Error ? err.message : String(err)}`);
     }
-    addRecentFile(filePath, experiment.wellsUsed?.length);
-    loadExperiment(experiment, filePath);
   }, [loadExperiment]);
 
   const handleOpen = useCallback(async () => {
