@@ -272,7 +272,6 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
         )}
       </div>
       {itemWithHover('Clear Style Overrides', () => clearWellStyleOverrides(wells), n === 0)}
-      {itemWithHover('Reverse Colors', reverseSelectionColors, n === 0)}
       {sep('s5')}
 
       {/* Palette submenu */}
@@ -326,6 +325,14 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
                 </SubMenu>
               )}
             </div>
+            <div className="border-t my-1" />
+            <button
+              className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent"
+              onMouseEnter={() => setSubmenu('palette')}
+              onClick={() => { reverseSelectionColors(); onClose(); }}
+            >
+              Reverse Colors
+            </button>
           </SubMenu>
         )}
       </div>
