@@ -164,7 +164,7 @@ export function QuickStylePanel() {
 
       {/* Panel content */}
       {expanded && (
-        <div className="w-[160px] overflow-y-auto p-2 space-y-2 text-xs">
+        <div className="w-auto min-w-[140px] overflow-y-auto p-2 space-y-2 text-xs">
           <div className="font-semibold text-muted-foreground">Quick Actions</div>
           <div className="text-[10px] text-muted-foreground">
             {n > 0 ? `${n} well${n > 1 ? 's' : ''} selected` : 'No selection'}

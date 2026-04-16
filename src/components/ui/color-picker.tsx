@@ -36,8 +36,8 @@ export function ColorPicker({ value, onChange, label }: ColorPickerProps) {
   useEffect(() => {
     if (!open || !triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
-    const popW = 220;
-    const popH = 180;
+    const popW = 180;
+    const popH = 160;
     let left = rect.left;
     let top = rect.bottom + 4;
     // Keep on screen
@@ -79,15 +79,15 @@ export function ColorPicker({ value, onChange, label }: ColorPickerProps) {
   const popover = open ? createPortal(
     <div
       ref={popoverRef}
-      className="fixed z-[9999] bg-background border rounded-lg shadow-lg p-3"
-      style={{ top: pos.top, left: pos.left, width: 220 }}
+      className="fixed z-[9999] bg-background border rounded-lg shadow-lg p-2.5"
+      style={{ top: pos.top, left: pos.left, width: 180 }}
     >
       {/* Swatch grid */}
-      <div className="grid grid-cols-6 gap-1.5 mb-3">
+      <div className="grid grid-cols-6 gap-1 mb-2">
         {SWATCHES.map((c) => (
           <button
             key={c}
-            className={`w-6 h-6 rounded cursor-pointer border transition-transform hover:scale-110 ${
+            className={`w-5 h-5 rounded-sm cursor-pointer border transition-transform hover:scale-110 ${
               value === c ? 'ring-2 ring-primary ring-offset-1' : 'border-border'
             }`}
             style={{ backgroundColor: c }}
@@ -162,12 +162,12 @@ export function InlineColorPicker({ value, onChange }: InlineColorPickerProps) {
   }, [customColor, onChange]);
 
   return (
-    <div className="p-2" style={{ width: 210 }}>
-      <div className="grid grid-cols-6 gap-1.5 mb-2">
+    <div className="p-1.5" style={{ width: 170 }}>
+      <div className="grid grid-cols-6 gap-1 mb-2">
         {SWATCHES.map((c) => (
           <button
             key={c}
-            className={`w-6 h-6 rounded cursor-pointer border transition-transform hover:scale-110 ${
+            className={`w-5 h-5 rounded-sm cursor-pointer border transition-transform hover:scale-110 ${
               value === c ? 'ring-2 ring-primary ring-offset-1' : 'border-border'
             }`}
             style={{ backgroundColor: c }}
