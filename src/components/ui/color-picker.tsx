@@ -162,13 +162,13 @@ export function InlineColorPicker({ value, onChange }: InlineColorPickerProps) {
   }, [customColor, onChange]);
 
   return (
-    <div className="p-1.5" style={{ width: 170 }}>
-      <div className="grid grid-cols-6 gap-1 mb-2">
+    <div className="p-1">
+      <div className="grid grid-cols-6 gap-0.5 mb-1.5">
         {SWATCHES.map((c) => (
           <button
             key={c}
-            className={`w-5 h-5 rounded-sm cursor-pointer border transition-transform hover:scale-110 ${
-              value === c ? 'ring-2 ring-primary ring-offset-1' : 'border-border'
+            className={`w-4 h-4 rounded-sm cursor-pointer border hover:scale-110 ${
+              value === c ? 'ring-1 ring-primary ring-offset-1' : 'border-border'
             }`}
             style={{ backgroundColor: c }}
             onClick={() => onChange(c)}
@@ -177,23 +177,23 @@ export function InlineColorPicker({ value, onChange }: InlineColorPickerProps) {
           />
         ))}
       </div>
-      <div className="flex items-center gap-1.5 border-t pt-2">
+      <div className="flex items-center gap-1 border-t pt-1.5">
         <input
           type="color"
           value={customColor}
           onChange={(e) => setCustomColor(e.target.value)}
-          className="w-6 h-6 border rounded cursor-pointer p-0 shrink-0"
+          className="w-5 h-5 border rounded cursor-pointer p-0 shrink-0"
         />
         <input
           type="text"
           value={customColor}
           onChange={(e) => setCustomColor(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') handleApply(); }}
-          className="flex-1 h-6 border rounded px-1 text-[10px] bg-background font-mono"
+          className="flex-1 h-5 border rounded px-1 text-[9px] bg-background font-mono min-w-0"
           placeholder="#hex"
         />
         <button
-          className="h-6 px-1.5 text-[10px] border rounded bg-primary text-primary-foreground hover:bg-primary/90"
+          className="h-5 px-1 text-[9px] border rounded bg-primary text-primary-foreground hover:bg-primary/90"
           onClick={handleApply}
           type="button"
         >
