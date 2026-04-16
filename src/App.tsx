@@ -191,97 +191,102 @@ function App() {
         }}
       />
 
-      {/* Main area */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Experiment tab bar */}
-        {experiments.length > 0 && (
-          <div className="flex items-end bg-muted/20 border-b shrink-0 overflow-hidden">
-            {experiments.map((exp, i) => {
-              const isActive = i === activeExperimentIndex;
-              return (
-                <div
-                  key={`${exp?.experimentId ?? 'welcome'}-${i}`}
-                  className={`group flex items-center gap-1 py-1.5 text-xs cursor-pointer border-r transition-all overflow-hidden ${
-                    isActive
-                      ? 'bg-background border-b-2 border-b-[var(--brand-red-mid)] font-medium shrink-0 px-3'
-                      : 'hover:bg-accent/50 text-muted-foreground shrink px-2'
-                  }`}
-                  style={isActive ? { maxWidth: 200 } : { minWidth: 28, maxWidth: 100 }}
-                  onClick={() => switchExperiment(i)}
-                  title={exp?.experimentId ?? 'Welcome'}
-                >
-                  <span className="truncate">
-                    {exp?.experimentId ?? 'Welcome'}
-                  </span>
-                  {isActive && (
-                    <button
-                      className="ml-1 w-4 h-4 rounded-sm flex items-center justify-center text-muted-foreground hover:bg-destructive/20 hover:text-destructive shrink-0"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeExperiment(i);
-                      }}
-                      title="Close experiment"
-                    >
-                      ×
-                    </button>
-                  )}
+      {/* Main area: content column + QuickStylePanel full-height */}
+      <div className="flex-1 flex min-w-0 min-h-0">
+        {/* Content column: tabs + plot + results */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Experiment tab bar */}
+          {experiments.length > 0 && (
+            <div className="flex items-end bg-muted/20 border-b shrink-0 overflow-hidden">
+              {experiments.map((exp, i) => {
+                const isActive = i === activeExperimentIndex;
+                return (
+                  <div
+                    key={`${exp?.experimentId ?? 'welcome'}-${i}`}
+                    className={`group flex items-center gap-1 py-1.5 text-xs cursor-pointer border-r transition-all overflow-hidden ${
+                      isActive
+                        ? 'bg-background border-b-2 border-b-[var(--brand-red-mid)] font-medium shrink-0 px-3'
+                        : 'hover:bg-accent/50 text-muted-foreground shrink px-2'
+                    }`}
+                    style={isActive ? { maxWidth: 200 } : { minWidth: 28, maxWidth: 100 }}
+                    onClick={() => switchExperiment(i)}
+                    title={exp?.experimentId ?? 'Welcome'}
+                  >
+                    <span className="truncate">
+                      {exp?.experimentId ?? 'Welcome'}
+                    </span>
+                    {isActive && (
+                      <button
+                        className="ml-1 w-4 h-4 rounded-sm flex items-center justify-center text-muted-foreground hover:bg-destructive/20 hover:text-destructive shrink-0"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeExperiment(i);
+                        }}
+                        title="Close experiment"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+              <button
+                className="px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
+                onClick={addEmptyTab}
+                title="New tab"
+              >
+                +
+              </button>
+            </div>
+          )}
+
+          {/* Plot tabs + X-axis selector + Log Scale */}
+          <PlotTabs />
+
+          {/* Error message */}
+          {error && (
+            <div className="px-3 py-1 bg-destructive/10 text-destructive text-sm border-b">
+              {error}
+              <button className="ml-2 underline" onClick={() => setError(null)}>dismiss</button>
+            </div>
+          )}
+
+          {/* Plot area */}
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <PlotArea />
+          </div>
+
+          {/* Results table resize handle + table */}
+          {experiments[activeExperimentIndex] != null && (
+            <>
+              <div
+                className="flex-shrink-0 flex items-center justify-center cursor-row-resize hover:bg-accent active:bg-border transition-colors"
+                style={{ height: 7, borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  tableDragging.current = true;
+                  tableDragStartY.current = e.clientY;
+                  tableDragStartH.current = tableHeight;
+                  document.body.style.cursor = 'row-resize';
+                  document.body.style.userSelect = 'none';
+                }}
+              >
+                <div className="flex gap-1">
+                  <div className="w-1 h-1 rounded-full bg-muted-foreground/40" />
+                  <div className="w-1 h-1 rounded-full bg-muted-foreground/40" />
+                  <div className="w-1 h-1 rounded-full bg-muted-foreground/40" />
                 </div>
-              );
-            })}
-            <button
-              className="px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
-              onClick={addEmptyTab}
-              title="New tab"
-            >
-              +
-            </button>
-          </div>
-        )}
+              </div>
 
-        {/* Plot tabs + X-axis selector + Log Scale */}
-        <PlotTabs />
-
-        {/* Error message */}
-        {error && (
-          <div className="px-3 py-1 bg-destructive/10 text-destructive text-sm border-b">
-            {error}
-            <button className="ml-2 underline" onClick={() => setError(null)}>dismiss</button>
-          </div>
-        )}
-
-        {/* Plot area + quick panel */}
-        <div className="flex flex-1 min-h-0 overflow-hidden">
-          <PlotArea />
-          <QuickStylePanel />
+              <div className="overflow-auto" style={{ height: tableHeight }}>
+                <ResultsTable />
+              </div>
+            </>
+          )}
         </div>
 
-        {/* Results table resize handle + table */}
-        {experiments[activeExperimentIndex] != null && (
-          <>
-            <div
-              className="flex-shrink-0 flex items-center justify-center cursor-row-resize hover:bg-accent active:bg-border transition-colors"
-              style={{ height: 7, borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                tableDragging.current = true;
-                tableDragStartY.current = e.clientY;
-                tableDragStartH.current = tableHeight;
-                document.body.style.cursor = 'row-resize';
-                document.body.style.userSelect = 'none';
-              }}
-            >
-              <div className="flex gap-1">
-                <div className="w-1 h-1 rounded-full bg-muted-foreground/40" />
-                <div className="w-1 h-1 rounded-full bg-muted-foreground/40" />
-                <div className="w-1 h-1 rounded-full bg-muted-foreground/40" />
-              </div>
-            </div>
-
-            <div className="overflow-auto" style={{ height: tableHeight }}>
-              <ResultsTable />
-            </div>
-          </>
-        )}
+        {/* QuickStylePanel — full height, right edge */}
+        <QuickStylePanel />
       </div>
       </div>
 
