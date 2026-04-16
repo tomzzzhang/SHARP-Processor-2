@@ -121,28 +121,32 @@ export function ColorPicker({ value, onChange, label }: ColorPickerProps) {
       </div>
 
       {/* Custom color row */}
-      <div className="flex items-center gap-2 border-t pt-2">
-        <input
-          type="color"
-          value={customColor}
-          onChange={(e) => setCustomColor(e.target.value)}
-          className="w-7 h-7 border rounded cursor-pointer p-0 shrink-0"
-        />
-        <input
-          type="text"
-          value={customColor}
-          onChange={(e) => setCustomColor(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') handleApply(); }}
-          className="flex-1 h-7 border rounded px-1.5 text-xs bg-background font-mono"
-          placeholder="#hexcolor"
-        />
-        <button
-          className="h-7 px-2 text-xs border rounded bg-primary text-primary-foreground hover:bg-primary/90"
-          onClick={handleApply}
-          type="button"
-        >
-          OK
-        </button>
+      <div className="border-t pt-2">
+        <div className="text-[9px] text-muted-foreground mb-1">Custom</div>
+        <div className="flex items-center gap-1.5">
+          <input
+            type="color"
+            value={customColor}
+            onChange={(e) => setCustomColor(e.target.value)}
+            className="w-7 h-7 border rounded cursor-pointer p-0 shrink-0"
+            title="Open color picker"
+          />
+          <input
+            type="text"
+            value={customColor}
+            onChange={(e) => setCustomColor(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleApply(); }}
+            className="flex-1 h-7 border rounded px-1.5 text-xs bg-background font-mono"
+            placeholder="#hexcolor"
+          />
+          <button
+            className="h-7 px-2.5 text-xs font-medium border rounded bg-primary text-primary-foreground hover:bg-primary/90"
+            onClick={handleApply}
+            type="button"
+          >
+            OK
+          </button>
+        </div>
       </div>
     </div>,
     document.body,
