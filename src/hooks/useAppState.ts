@@ -90,6 +90,8 @@ export interface ExperimentViewState {
   legendContent: 'well' | 'sample' | 'group';
   legendOrder: string[];
   showTitle: boolean;
+  showLabels: boolean;
+  showTicks: boolean;
   legendVisibleOnly: boolean;
   showGrid: boolean;
   gridAlpha: number;
@@ -144,6 +146,8 @@ function defaultViewState(wellsUsed: string[] = []): ExperimentViewState {
     legendContent: 'sample',
     legendOrder: [],
     showTitle: true,
+    showLabels: true,
+    showTicks: true,
     legendVisibleOnly: true,
     showGrid: true,
     gridAlpha: DEFAULT_GRID_ALPHA,
@@ -200,6 +204,8 @@ function snapshotViewState(state: AppState): ExperimentViewState {
     legendContent: state.legendContent,
     legendOrder: state.legendOrder,
     showTitle: state.showTitle,
+    showLabels: state.showLabels,
+    showTicks: state.showTicks,
     legendVisibleOnly: state.legendVisibleOnly,
     showGrid: state.showGrid,
     gridAlpha: state.gridAlpha,
@@ -312,6 +318,8 @@ interface AppState extends ExperimentViewState {
   setLegendContent: (content: 'well' | 'sample' | 'group') => void;
   setLegendOrder: (order: string[]) => void;
   setShowTitle: (on: boolean) => void;
+  setShowLabels: (on: boolean) => void;
+  setShowTicks: (on: boolean) => void;
   setLegendVisibleOnly: (on: boolean) => void;
   setPaletteReversed: (reversed: boolean) => void;
   setPaletteGroupColors: (on: boolean) => void;
@@ -321,6 +329,8 @@ interface AppState extends ExperimentViewState {
   setGridAlpha: (alpha: number) => void;
   setPlotBgColor: (color: string) => void;
   setFigureDpi: (dpi: number) => void;
+  paletteArrowMode: boolean;
+  setPaletteArrowMode: (on: boolean) => void;
   setShowDilutionWizard: (show: boolean) => void;
   setShowExportWizard: (show: boolean) => void;
   resetStyle: () => void;
@@ -790,6 +800,8 @@ export const useAppState = create<AppState>((set, get) => ({
   setLegendContent: (content) => set({ legendContent: content, legendOrder: [] }),
   setLegendOrder: (order) => { get().pushUndo('Reorder legend'); set({ legendOrder: order }); },
   setShowTitle: (on) => { get().pushUndo('Toggle title'); set({ showTitle: on }); },
+  setShowLabels: (on) => { get().pushUndo('Toggle labels'); set({ showLabels: on }); },
+  setShowTicks: (on) => { get().pushUndo('Toggle ticks'); set({ showTicks: on }); },
   setLegendVisibleOnly: (on) => set({ legendVisibleOnly: on }),
   setPaletteReversed: (reversed) => { get().pushUndo('Reverse palette'); set({ paletteReversed: reversed }); },
   setPaletteGroupColors: (on) => { get().pushUndo('Toggle group colors'); set({ paletteGroupColors: on }); },
@@ -799,6 +811,8 @@ export const useAppState = create<AppState>((set, get) => ({
   setGridAlpha: (alpha) => set({ gridAlpha: alpha }),
   setPlotBgColor: (color) => set({ plotBgColor: color }),
   setFigureDpi: (dpi) => set({ figureDpi: dpi }),
+  paletteArrowMode: false,
+  setPaletteArrowMode: (on) => set({ paletteArrowMode: on }),
   setShowDilutionWizard: (show) => set({ showDilutionWizard: show }),
   setShowExportWizard: (show) => set({ showExportWizard: show }),
 
@@ -823,6 +837,8 @@ export const useAppState = create<AppState>((set, get) => ({
       legendContent: 'sample',
       legendOrder: [],
       showTitle: true,
+    showLabels: true,
+    showTicks: true,
       legendVisibleOnly: true,
       showGrid: true,
       gridAlpha: DEFAULT_GRID_ALPHA,

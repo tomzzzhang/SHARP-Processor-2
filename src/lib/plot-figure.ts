@@ -35,6 +35,8 @@ export interface PlotFigureStyle {
   legendPosition: string;
   legendContent: 'well' | 'sample' | 'group';
   showTitle: boolean;
+  showLabels: boolean;
+  showTicks: boolean;
   showGrid: boolean;
   gridAlpha: number;
   plotBgColor: string;   // '' = white
@@ -83,6 +85,14 @@ const LEGEND_POS_MAP: Record<string, { x: number; y: number; xanchor: string; ya
 function resolveLegendPosition(position: string): { x: number; y: number; xanchor: string; yanchor: string } {
   if (position === 'best') return LEGEND_POS_MAP['upper right'];
   return LEGEND_POS_MAP[position] ?? LEGEND_POS_MAP['upper right'];
+}
+
+function pfAxisLabel(text: string, style: PlotFigureStyle) {
+  return { text: style.showLabels ? text : '', font: { family: style.fontFamily, size: style.labelSize } };
+}
+
+function pfTickProps(style: PlotFigureStyle) {
+  return { tickfont: { family: style.fontFamily, size: style.tickSize }, showticklabels: style.showTicks };
 }
 
 function gridStyle(style: PlotFigureStyle) {
@@ -198,8 +208,15 @@ function titleText(base: string, style: PlotFigureStyle): string {
   return style.showTitle ? base : '';
 }
 
-function topMarginFor(style: PlotFigureStyle): number {
-  return style.showTitle ? 50 : 20;
+function computeMargins(style: PlotFigureStyle) {
+  const labelContrib = style.showLabels ? style.labelSize * 1.5 : 0;
+  const tickContrib = style.showTicks ? style.tickSize * 2 : 0;
+  return {
+    l: Math.round(40 + labelContrib + tickContrib),
+    r: 20,
+    t: Math.round(style.showTitle ? 20 + style.titleSize * 1.5 : 20),
+    b: Math.round(30 + labelContrib + style.tickSize * 1.2),
+  };
 }
 
 function buildLegendRanks(legendOrder: string[]): Map<string, number> {
@@ -269,14 +286,14 @@ function buildAmp(input: BuildFigureInput): { data: Data[]; layout: Partial<Layo
   const layout: Partial<Layout> = {
     title: { text: titleText(exp.experimentId ?? 'Amplification', style), font: { family: style.fontFamily, size: style.titleSize } },
     xaxis: {
-      title: { text: X_AXIS_LABELS[xAxisMode], font: { family: style.fontFamily, size: style.labelSize } },
-      tickfont: { family: style.fontFamily, size: style.tickSize },
+      title: pfAxisLabel(X_AXIS_LABELS[xAxisMode], style),
+      ...pfTickProps(style),
       ...gridStyle(style),
     },
     yaxis: {
-      title: { text: baselineEnabled ? 'RFU (corrected)' : 'RFU', font: { family: style.fontFamily, size: style.labelSize } },
+      title: pfAxisLabel(baselineEnabled ? 'RFU (corrected)' : 'RFU', style),
       type: logScale ? 'log' : 'linear',
-      tickfont: { family: style.fontFamily, size: style.tickSize },
+      ...pfTickProps(style),
       ...gridStyle(style),
     },
     shapes: shapes as Layout['shapes'],
@@ -291,7 +308,7 @@ function buildAmp(input: BuildFigureInput): { data: Data[]; layout: Partial<Layo
       borderwidth: 1,
       tracegroupgap: 0,
     },
-    margin: { l: 70, r: 20, t: topMarginFor(style), b: 50 },
+    margin: computeMargins(style),
     plot_bgcolor: plotBg, paper_bgcolor: plotBg,
     font: { color: plotFontColor(style.isDark) },
   };
@@ -399,14 +416,14 @@ function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Dat
       borderwidth: 1,
       tracegroupgap: 0,
     },
-    margin: { l: 70, r: 20, t: topMarginFor(style), b: 50 },
+    margin: computeMargins(style),
     plot_bgcolor: plotBg, paper_bgcolor: plotBg,
     font: { color: plotFontColor(style.isDark) },
   };
 
   const xaxis = {
-    title: { text: 'Temperature (°C)', font: { family: style.fontFamily, size: style.labelSize } },
-    tickfont: { family: style.fontFamily, size: style.tickSize },
+    title: pfAxisLabel('Temperature (°C)', style),
+    ...pfTickProps(style),
     ...gridStyle(style),
   };
 
@@ -417,8 +434,8 @@ function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Dat
         ...baseLayout,
         xaxis,
         yaxis: {
-          title: { text: derivativeOnly ? '-dF/dT' : 'RFU', font: { family: style.fontFamily, size: style.labelSize } },
-          tickfont: { family: style.fontFamily, size: style.tickSize },
+          title: pfAxisLabel(derivativeOnly ? '-dF/dT' : 'RFU', style),
+          ...pfTickProps(style),
           ...gridStyle(style),
         },
       },
@@ -432,14 +449,14 @@ function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Dat
       ...baseLayout,
       xaxis,
       yaxis: {
-        title: { text: 'RFU', font: { family: style.fontFamily, size: style.labelSize } },
-        tickfont: { family: style.fontFamily, size: style.tickSize },
+        title: pfAxisLabel('RFU', style),
+        ...pfTickProps(style),
         domain: [0.55, 1],
         ...gridStyle(style),
       },
       yaxis2: {
-        title: { text: '-dF/dT', font: { family: style.fontFamily, size: style.labelSize } },
-        tickfont: { family: style.fontFamily, size: style.tickSize },
+        title: pfAxisLabel('-dF/dT', style),
+        ...pfTickProps(style),
         domain: [0, 0.45], anchor: 'x',
         ...gridStyle(style),
       },
@@ -483,17 +500,17 @@ function buildDoubling(input: BuildFigureInput): { data: Data[]; layout: Partial
       font: { family: style.fontFamily, size: style.titleSize },
     },
     xaxis: {
-      title: { text: `${xLabel} (${X_AXIS_LABELS[xAxisMode]})`, font: { family: style.fontFamily, size: style.labelSize } },
-      tickfont: { family: style.fontFamily, size: style.tickSize },
+      title: pfAxisLabel(`${xLabel} (${X_AXIS_LABELS[xAxisMode]})`, style),
+      ...pfTickProps(style),
       ...gridStyle(style),
     },
     yaxis: {
-      title: { text: 'Doubling Time', font: { family: style.fontFamily, size: style.labelSize } },
-      tickfont: { family: style.fontFamily, size: style.tickSize },
+      title: pfAxisLabel('Doubling Time', style),
+      ...pfTickProps(style),
       ...gridStyle(style),
     },
     showlegend: false,
-    margin: { l: 70, r: 20, t: topMarginFor(style), b: 50 },
+    margin: computeMargins(style),
     plot_bgcolor: plotBg, paper_bgcolor: plotBg,
     font: { color: plotFontColor(style.isDark) },
   };

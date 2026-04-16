@@ -142,6 +142,24 @@ function usePlotStyle() {
     legendPosition: useAppState((s) => s.legendPosition),
     legendVisibleOnly: useAppState((s) => s.legendVisibleOnly),
     showTitle: useAppState((s) => s.showTitle),
+    showLabels: useAppState((s) => s.showLabels),
+    showTicks: useAppState((s) => s.showTicks),
+  };
+}
+
+/** Build an axis title object — returns empty text when labels are hidden. */
+function axisLabel(text: string, style: ReturnType<typeof usePlotStyle>) {
+  return {
+    text: style.showLabels ? text : '',
+    font: { family: style.fontFamily, size: style.labelSize },
+  };
+}
+
+/** Extra axis props for tick visibility. */
+function tickProps(style: ReturnType<typeof usePlotStyle>) {
+  return {
+    tickfont: { family: style.fontFamily, size: style.tickSize },
+    showticklabels: style.showTicks,
   };
 }
 
@@ -155,10 +173,30 @@ function titleField(text: string, style: ReturnType<typeof usePlotStyle>) {
   };
 }
 
-/** Top margin for a plot — collapse when the title is hidden so the
- *  chart fills the panel. */
-function topMargin(style: ReturnType<typeof usePlotStyle>, withTitle = 50, withoutTitle = 20) {
-  return style.showTitle ? withTitle : withoutTitle;
+/** Compute plot margins that scale with font sizes so text doesn't
+ *  overlap the chart area. When labels or ticks are hidden, their
+ *  contribution is excluded. */
+function computeMargins(style: ReturnType<typeof usePlotStyle>) {
+  const labelContrib = style.showLabels ? style.labelSize * 1.5 : 0;
+  const tickContrib = style.showTicks ? style.tickSize * 2 : 0;
+  return {
+    l: Math.round(40 + labelContrib + tickContrib),
+    r: 20,
+    t: Math.round(style.showTitle ? 20 + style.titleSize * 1.5 : 20),
+    b: Math.round(30 + labelContrib + style.tickSize * 1.2),
+  };
+}
+
+/** Compact margins for sub-plots (MeltDerivMini). */
+function computeMiniMargins(style: ReturnType<typeof usePlotStyle>) {
+  const labelContrib = style.showLabels ? style.labelSize * 1.2 : 0;
+  const tickContrib = style.showTicks ? style.tickSize * 1.5 : 0;
+  return {
+    l: Math.round(30 + labelContrib + tickContrib),
+    r: 10,
+    t: 10,
+    b: Math.round(20 + labelContrib + style.tickSize),
+  };
 }
 
 /** Build a {groupKey → Plotly legendrank} lookup. Groups listed in
@@ -207,6 +245,25 @@ function gridStyle(style: ReturnType<typeof usePlotStyle>, isDark = false) {
 /** Global Plotly font color for dark/light mode */
 function plotFontColor(isDark: boolean) {
   return isDark ? 'rgba(255,255,255,0.87)' : '#212224';
+}
+
+/**
+ * 2D segment–segment intersection.
+ * Returns the parameter `t` along segment A (0=start, 1=end) at the
+ * intersection with segment B, or null if no intersection.
+ */
+function segmentIntersectT(
+  ax0: number, ay0: number, ax1: number, ay1: number,
+  bx0: number, by0: number, bx1: number, by1: number,
+): number | null {
+  const dax = ax1 - ax0, day = ay1 - ay0;
+  const dbx = bx1 - bx0, dby = by1 - by0;
+  const denom = dax * dby - day * dbx;
+  if (Math.abs(denom) < 1e-12) return null;
+  const t = ((bx0 - ax0) * dby - (by0 - ay0) * dbx) / denom;
+  const u = ((bx0 - ax0) * day - (by0 - ay0) * dax) / denom;
+  if (t >= 0 && t <= 1 && u >= 0 && u <= 1) return t;
+  return null;
 }
 
 function getWellLineStyle(well: string, overrides: Map<string, unknown>) {
@@ -499,6 +556,9 @@ function AmplificationPlot() {
   const toggleWellSelection = useAppState((s) => s.toggleWellSelection);
   const hoveredWell = useAppState((s) => s.hoveredWell);
   const setHoveredWell = useAppState((s) => s.setHoveredWell);
+  const paletteArrowMode = useAppState((s) => s.paletteArrowMode);
+  const setPaletteArrowMode = useAppState((s) => s.setPaletteArrowMode);
+  const setWellStyleOverride = useAppState((s) => s.setWellStyleOverride);
   const baselineEnabled = useAppState((s) => s.baselineEnabled);
   const baselineAuto = useAppState((s) => s.baselineAuto);
   const baselineStart = useAppState((s) => s.baselineStart);
@@ -649,20 +709,20 @@ function AmplificationPlot() {
     return {
       title: titleField(title, style),
       xaxis: {
-        title: { text: X_AXIS_LABELS[xAxisMode], font: { family: style.fontFamily, size: style.labelSize } },
-        tickfont: { family: style.fontFamily, size: style.tickSize },
+        title: axisLabel(X_AXIS_LABELS[xAxisMode], style),
+        ...tickProps(style),
         ...gridStyle(style, isDark),
       },
       yaxis: {
-        title: { text: baselineEnabled ? 'RFU (corrected)' : 'RFU', font: { family: style.fontFamily, size: style.labelSize } },
+        title: axisLabel(baselineEnabled ? 'RFU (corrected)' : 'RFU', style),
         type: logScale ? 'log' : 'linear',
-        tickfont: { family: style.fontFamily, size: style.tickSize },
+        ...tickProps(style),
         ...gridStyle(style, isDark),
       },
       shapes,
       dragmode: false as Layout['dragmode'],
       autosize: true,
-      margin: { l: 70, r: 20, t: topMargin(style), b: 50 },
+      margin: computeMargins(style),
       plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) },
       ...legendLayout(style, showLegendAmp, traces, isDark),
       datarevision: Date.now(),
@@ -712,12 +772,55 @@ function AmplificationPlot() {
 
   const handleDragEnd = useCallback(() => setDragPreviewWells(null), []);
 
-  const { containerRef: plotContainerRef, overlayRef: selectionOverlayRef, traceClickedRef } = useBoxSelect({
+  // Palette arrow callback — compute curve intersections, apply palette
+  const handlePaletteArrow = useCallback((ax0: number, ay0: number, ax1: number, ay1: number) => {
+    if (!amp || !exp) return;
+    const xData = xAxisMode === 'cycle' ? amp.cycle : xAxisMode === 'time_s' ? amp.timeS : amp.timeMin;
+    const baselineEn = baselineEnabled;
+    const results = analysisResults;
+
+    // For each visible well, find the first intersection t-value along the arrow.
+    const hits: Array<{ well: string; t: number }> = [];
+    for (const well of visibleWells) {
+      const rawY = amp.wells[well];
+      if (!rawY) continue;
+      const analysis = results.get(well);
+      const yData = (baselineEn && analysis?.correctedRfu) || rawY;
+
+      let firstT: number | null = null;
+      // Check each pair of consecutive data points for intersection with the arrow segment
+      for (let i = 0; i < xData.length - 1; i++) {
+        const t = segmentIntersectT(
+          ax0, ay0, ax1, ay1,
+          xData[i], yData[i], xData[i + 1], yData[i + 1]
+        );
+        if (t !== null && (firstT === null || t < firstT)) {
+          firstT = t;
+        }
+      }
+      if (firstT !== null) hits.push({ well, t: firstT });
+    }
+
+    if (hits.length === 0) { setPaletteArrowMode(false); return; }
+
+    // Sort by t (position along arrow direction)
+    hits.sort((a, b) => a.t - b.t);
+    const colors = getPaletteColors(style.palette, hits.length);
+    const pushUndo = useAppState.getState().pushUndo;
+    pushUndo('Arrow palette');
+    for (let i = 0; i < hits.length; i++) {
+      setWellStyleOverride([hits[i].well], { color: colors[i] });
+    }
+    setPaletteArrowMode(false);
+  }, [amp, exp, xAxisMode, visibleWells, baselineEnabled, analysisResults, style.palette, setPaletteArrowMode, setWellStyleOverride]);
+
+  const { containerRef: plotContainerRef, overlayRef: selectionOverlayRef, arrowOverlayRef, traceClickedRef } = useBoxSelect({
     onSelect: handleBoxSelect,
     onDragMove: handleDragMove,
     onDragEnd: handleDragEnd,
     onEmptyClick: deselectAll,
     threshold: { enabled: thresholdEnabled, rfu: thresholdRfu, setRfu: setThresholdRfu },
+    paletteArrow: { active: paletteArrowMode, onApply: handlePaletteArrow },
   });
 
   const handleClick = useCallback((event: Readonly<PlotMouseEvent>) => {
@@ -766,6 +869,7 @@ function AmplificationPlot() {
         onLegendDoubleClick={() => false}
       />
       <div ref={selectionOverlayRef} style={BOX_SELECT_OVERLAY_STYLE} />
+      <svg ref={arrowOverlayRef} style={{ position: 'absolute', top: 0, left: 0, display: 'none', pointerEvents: 'none', zIndex: 11 }} />
     </div>
   );
 }
@@ -877,19 +981,19 @@ function MeltDerivMini() {
     // sub-plot below the amp chart.
     return {
       xaxis: {
-        title: { text: 'Temperature (°C)', font: { family: style.fontFamily, size: style.labelSize } },
-        tickfont: { family: style.fontFamily, size: style.tickSize },
+        title: axisLabel('Temperature (°C)', style),
+        ...tickProps(style),
         ...gridStyle(style, isDark),
       },
       yaxis: {
-        title: { text: '-dF/dT', font: { family: style.fontFamily, size: style.labelSize } },
-        tickfont: { family: style.fontFamily, size: style.tickSize },
+        title: axisLabel('-dF/dT', style),
+        ...tickProps(style),
         ...gridStyle(style, isDark),
       },
       shapes: shapes as Layout['shapes'],
       dragmode: false as Layout['dragmode'],
       autosize: true,
-      margin: { l: 60, r: 10, t: 10, b: 35 },
+      margin: computeMiniMargins(style),
       plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) },
       showlegend: false,
       datarevision: Date.now(),
@@ -1138,20 +1242,20 @@ function MeltPlot() {
     if (hasDerivative) {
       return {
         title: titleField(title, style),
-        xaxis: { title: { text: 'Temperature (°C)', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, ...grid },
-        yaxis: { title: { text: 'RFU', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, domain: [0.55, 1], ...grid },
-        yaxis2: { title: { text: '-dF/dT', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, domain: [0, 0.45], anchor: 'x', ...grid },
+        xaxis: { title: axisLabel('Temperature (°C)', style), ...tickProps(style), ...grid },
+        yaxis: { title: axisLabel('RFU', style), ...tickProps(style), domain: [0.55, 1], ...grid },
+        yaxis2: { title: axisLabel('-dF/dT', style), ...tickProps(style), domain: [0, 0.45], anchor: 'x', ...grid },
         shapes: shapes as Layout['shapes'],
-        dragmode: false as Layout['dragmode'], autosize: true, margin: { l: 70, r: 20, t: topMargin(style), b: 50 },
+        dragmode: false as Layout['dragmode'], autosize: true, margin: computeMargins(style),
         plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) }, ...legendLayout(style, showLegendMelt, traces, isDark),
         datarevision: Date.now(),
       };
     }
     return {
       title: titleField(title, style),
-      xaxis: { title: { text: 'Temperature (°C)', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, ...grid },
-      yaxis: { title: { text: 'RFU', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, ...grid },
-      dragmode: false as Layout['dragmode'], autosize: true, margin: { l: 70, r: 20, t: topMargin(style), b: 50 },
+      xaxis: { title: axisLabel('Temperature (°C)', style), ...tickProps(style), ...grid },
+      yaxis: { title: axisLabel('RFU', style), ...tickProps(style), ...grid },
+      dragmode: false as Layout['dragmode'], autosize: true, margin: computeMargins(style),
       plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) }, ...legendLayout(style, showLegendMelt, traces, isDark),
       datarevision: Date.now(),
     };
@@ -1353,14 +1457,14 @@ function DilutionPlot() {
     return {
       title: titleField(title, style),
       xaxis: {
-        title: { text: `log₂(Concentration${unit ? ', ' + unit : ''})`, font: { family: style.fontFamily, size: style.labelSize } },
-        tickfont: { family: style.fontFamily, size: style.tickSize }, ...gridStyle(style, isDark),
+        title: axisLabel(`log₂(Concentration${unit ? ', ' + unit : ''})`, style),
+        ...tickProps(style), ...gridStyle(style, isDark),
       },
       yaxis: {
-        title: { text: `${xLabel} (${X_AXIS_LABELS[xAxisMode]})`, font: { family: style.fontFamily, size: style.labelSize } },
-        tickfont: { family: style.fontFamily, size: style.tickSize }, ...gridStyle(style, isDark),
+        title: axisLabel(`${xLabel} (${X_AXIS_LABELS[xAxisMode]})`, style),
+        ...tickProps(style), ...gridStyle(style, isDark),
       },
-      autosize: true, margin: { l: 70, r: 20, t: topMargin(style), b: 50 },
+      autosize: true, margin: computeMargins(style),
       plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) },
       datarevision: Date.now(),
     };
@@ -1522,9 +1626,9 @@ function PerWellDoublingPlot() {
     const title = exp?.experimentId ? `${exp.experimentId} — Doubling Time` : 'Doubling Time';
     return {
       title: titleField(title, style),
-      xaxis: { title: { text: `${xLabel} (${X_AXIS_LABELS[xAxisMode]})`, font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, ...gridStyle(style, isDark) },
-      yaxis: { title: { text: 'Doubling Time', font: { family: style.fontFamily, size: style.labelSize } }, tickfont: { family: style.fontFamily, size: style.tickSize }, ...gridStyle(style, isDark) },
-      autosize: true, margin: { l: 70, r: 20, t: topMargin(style), b: 50 },
+      xaxis: { title: axisLabel(`${xLabel} (${X_AXIS_LABELS[xAxisMode]})`, style), ...tickProps(style), ...gridStyle(style, isDark) },
+      yaxis: { title: axisLabel('Doubling Time', style), ...tickProps(style), ...gridStyle(style, isDark) },
+      autosize: true, margin: computeMargins(style),
       plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) }, ...legendLayout(style, showLegendDoubling, traces, isDark),
       datarevision: Date.now(),
     };

@@ -27,11 +27,60 @@ export interface StyleSnapshot {
   legendContent: 'well' | 'sample' | 'group';
   legendVisibleOnly: boolean;
   showTitle: boolean;
+  showLabels: boolean;
+  showTicks: boolean;
   showGrid: boolean;
   gridAlpha: number;
   plotBgColor: string;
   figureDpi: number;
 }
+
+// ── Built-in presets (not saved to localStorage) ────────────────────
+
+const BUILTIN_BASE: Omit<StyleSnapshot, 'palette' | 'paletteReversed' | 'paletteGroupColors' | 'lineWidth' | 'titleSize' | 'labelSize' | 'tickSize' | 'legendSize' | 'showGrid' | 'gridAlpha' | 'plotBgColor' | 'figureDpi'> = {
+  fontFamily: 'Geist Variable, Arial, sans-serif',
+  showLegend: true,
+  showLegendAmp: true,
+  showLegendMelt: true,
+  showLegendDoubling: true,
+  legendPosition: 'best',
+  legendContent: 'sample',
+  legendVisibleOnly: true,
+  showTitle: true,
+  showLabels: true,
+  showTicks: true,
+};
+
+export const BUILTIN_PRESETS: Record<string, StyleSnapshot> = {
+  'Default': {
+    ...BUILTIN_BASE,
+    palette: 'SHARP', paletteReversed: false, paletteGroupColors: false,
+    lineWidth: 1.8,
+    titleSize: 12, labelSize: 10, tickSize: 9, legendSize: 8,
+    showGrid: true, gridAlpha: 0.3,
+    plotBgColor: '', figureDpi: 100,
+  },
+  'Publication': {
+    ...BUILTIN_BASE,
+    palette: 'SHARP', paletteReversed: false, paletteGroupColors: false,
+    lineWidth: 2.0,
+    titleSize: 16, labelSize: 14, tickSize: 12, legendSize: 10,
+    showGrid: false, gridAlpha: 0.3,
+    plotBgColor: '#ffffff', figureDpi: 300,
+    legendVisibleOnly: true,
+  },
+  'Presentation': {
+    ...BUILTIN_BASE,
+    palette: 'SHARP', paletteReversed: false, paletteGroupColors: false,
+    lineWidth: 2.5,
+    titleSize: 20, labelSize: 16, tickSize: 14, legendSize: 12,
+    showGrid: true, gridAlpha: 0.15,
+    plotBgColor: '#ffffff', figureDpi: 150,
+    legendVisibleOnly: false,
+  },
+};
+
+export const BUILTIN_PRESET_NAMES = Object.keys(BUILTIN_PRESETS);
 
 const STORAGE_KEY = 'sharp-processor-style-presets';
 
@@ -62,11 +111,19 @@ function writeStore(store: PresetStore): void {
   }
 }
 
+/** List all preset names: built-in first, then user-saved sorted alpha. */
 export function listStylePresets(): string[] {
-  return Object.keys(readStore().presets).sort((a, b) => a.localeCompare(b));
+  const userNames = Object.keys(readStore().presets).sort((a, b) => a.localeCompare(b));
+  return [...BUILTIN_PRESET_NAMES, ...userNames];
+}
+
+/** Is this a built-in (non-deletable) preset? */
+export function isBuiltinPreset(name: string): boolean {
+  return name in BUILTIN_PRESETS;
 }
 
 export function getStylePreset(name: string): StyleSnapshot | null {
+  if (name in BUILTIN_PRESETS) return BUILTIN_PRESETS[name];
   return readStore().presets[name] ?? null;
 }
 
