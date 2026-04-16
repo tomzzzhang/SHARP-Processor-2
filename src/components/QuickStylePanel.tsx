@@ -12,7 +12,7 @@ function PanelSection({ title, defaultOpen = true, children }: { title: string; 
     <div className="space-y-0.5">
       <button
         type="button"
-        className="w-full flex items-center justify-between text-[10px] font-semibold text-foreground/70 uppercase cursor-pointer hover:text-foreground transition-colors"
+        className="w-full flex items-center justify-between text-[9px] font-semibold text-foreground/70 uppercase cursor-pointer hover:text-foreground transition-colors"
         onClick={() => setOpen((o) => !o)}
       >
         <span>{title}</span>
@@ -137,12 +137,12 @@ export function QuickStylePanel() {
     <Button
       variant="outline"
       size="sm"
-      className="w-full h-6 text-[10px] justify-between"
+      className="w-full h-5 text-[9px] px-1.5 justify-between"
       disabled={disabled}
       onClick={action}
     >
-      <span>{label}</span>
-      {shortcut && <span className="text-muted-foreground text-[8px] ml-1">{shortcut}</span>}
+      <span className="truncate">{label}</span>
+      {shortcut && <span className="text-muted-foreground text-[7px] ml-0.5">{shortcut}</span>}
     </Button>
   );
 
@@ -164,10 +164,10 @@ export function QuickStylePanel() {
 
       {/* Panel content */}
       {expanded && (
-        <div className="w-auto min-w-[140px] overflow-y-auto p-2 space-y-2 text-xs">
-          <div className="font-semibold text-muted-foreground">Quick Actions</div>
-          <div className="text-[10px] text-muted-foreground">
-            {n > 0 ? `${n} well${n > 1 ? 's' : ''} selected` : 'No selection'}
+        <div className="w-[120px] overflow-y-auto p-1.5 space-y-1.5 text-[10px]">
+          <div className="text-[9px] font-semibold text-muted-foreground">Quick Actions</div>
+          <div className="text-[9px] text-muted-foreground">
+            {n > 0 ? `${n} well${n > 1 ? 's' : ''}` : 'No selection'}
           </div>
 
           {/* Visibility */}
