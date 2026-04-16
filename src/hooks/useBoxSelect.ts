@@ -25,6 +25,13 @@ interface BoxSelectOptions {
     value: number;
     setValue: (v: number) => void;
   };
+  /** Optional: palette arrow mode — when active, drag draws an arrow
+   *  instead of a box. On mouse-up the callback receives the start and
+   *  end points in data coordinates. */
+  paletteArrow?: {
+    active: boolean;
+    onApply: (x0: number, y0: number, x1: number, y1: number) => void;
+  };
 }
 
 /**
@@ -35,10 +42,12 @@ interface BoxSelectOptions {
  * so we implement selection via raw mouse events + Plotly's internal p2d axis conversion.
  */
 export function useBoxSelect(options: BoxSelectOptions) {
-  const { onSelect, onDragMove, onDragEnd, onEmptyClick, threshold, meltThreshold } = options;
+  const { onSelect, onDragMove, onDragEnd, onEmptyClick, threshold, meltThreshold, paletteArrow } = options;
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const arrowOverlayRef = useRef<SVGSVGElement>(null);
   const boxSelecting = useRef(false);
+  const arrowDragging = useRef(false);
   const boxStartX = useRef(0);
   const boxStartY = useRef(0);
   const thresholdDragging = useRef(false);
@@ -59,6 +68,8 @@ export function useBoxSelect(options: BoxSelectOptions) {
   thresholdRef.current = threshold;
   const meltThresholdRef = useRef(meltThreshold);
   meltThresholdRef.current = meltThreshold;
+  const paletteArrowRef = useRef(paletteArrow);
+  paletteArrowRef.current = paletteArrow;
 
   const getPlotDiv = useCallback(() => {
     return containerRef.current?.querySelector('.js-plotly-plot') as
@@ -157,6 +168,17 @@ export function useBoxSelect(options: BoxSelectOptions) {
         document.body.style.userSelect = 'none';
         return;
       }
+      // Palette arrow mode takes priority over box-select
+      const pa = paletteArrowRef.current;
+      if (pa?.active && isInPlotArea(e.clientX, e.clientY)) {
+        e.preventDefault();
+        arrowDragging.current = true;
+        boxStartX.current = e.clientX;
+        boxStartY.current = e.clientY;
+        document.body.style.userSelect = 'none';
+        container.style.cursor = 'crosshair';
+        return;
+      }
       // Start box selection if click is inside the plot area
       if (isInPlotArea(e.clientX, e.clientY)) {
         boxSelecting.current = true;
@@ -170,8 +192,11 @@ export function useBoxSelect(options: BoxSelectOptions) {
       const t = thresholdRef.current;
       const mt = meltThresholdRef.current;
       // Threshold hover cursor
-      if (!thresholdDragging.current && !meltThresholdDragging.current && !boxSelecting.current) {
-        if (t?.enabled && isNearThreshold(e.clientY)) {
+      if (!thresholdDragging.current && !meltThresholdDragging.current && !boxSelecting.current && !arrowDragging.current) {
+        const pa = paletteArrowRef.current;
+        if (pa?.active && isInPlotArea(e.clientX, e.clientY)) {
+          container.style.cursor = 'crosshair';
+        } else if (t?.enabled && isNearThreshold(e.clientY)) {
           container.style.cursor = 'ns-resize';
         } else if (mt?.enabled && isNearMeltThreshold(e.clientY)) {
           container.style.cursor = 'ns-resize';
@@ -191,6 +216,22 @@ export function useBoxSelect(options: BoxSelectOptions) {
         e.preventDefault();
         const yVal = pixelToYValue(e.clientY);
         if (yVal != null && yVal > 0) meltThresholdRef.current?.setValue(Math.round(yVal));
+        return;
+      }
+      // Arrow drag overlay
+      if (arrowDragging.current && arrowOverlayRef.current) {
+        e.preventDefault();
+        const containerRect = container.getBoundingClientRect();
+        const x1 = boxStartX.current - containerRect.left;
+        const y1 = boxStartY.current - containerRect.top;
+        const x2 = e.clientX - containerRect.left;
+        const y2 = e.clientY - containerRect.top;
+        const svg = arrowOverlayRef.current;
+        svg.style.display = 'block';
+        svg.setAttribute('viewBox', `0 0 ${containerRect.width} ${containerRect.height}`);
+        svg.style.width = `${containerRect.width}px`;
+        svg.style.height = `${containerRect.height}px`;
+        svg.innerHTML = `<defs><marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="rgba(170,32,38,0.9)" /></marker></defs><line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="rgba(170,32,38,0.8)" stroke-width="2" marker-end="url(#arrowhead)" />`;
         return;
       }
       // Box selection overlay
@@ -241,6 +282,24 @@ export function useBoxSelect(options: BoxSelectOptions) {
         document.body.style.userSelect = '';
         return;
       }
+      if (arrowDragging.current) {
+        arrowDragging.current = false;
+        document.body.style.userSelect = '';
+        container.style.cursor = '';
+        if (arrowOverlayRef.current) arrowOverlayRef.current.style.display = 'none';
+        const dx = Math.abs(e.clientX - boxStartX.current);
+        const dy = Math.abs(e.clientY - boxStartY.current);
+        if (dx > 10 || dy > 10) {
+          const x0 = pixelToXValue(boxStartX.current);
+          const y0 = pixelToYValue(boxStartY.current);
+          const x1 = pixelToXValue(e.clientX);
+          const y1 = pixelToYValue(e.clientY);
+          if (x0 != null && y0 != null && x1 != null && y1 != null) {
+            paletteArrowRef.current?.onApply(x0, y0, x1, y1);
+          }
+        }
+        return;
+      }
       if (boxSelecting.current) {
         boxSelecting.current = false;
         document.body.style.userSelect = '';
@@ -284,7 +343,7 @@ export function useBoxSelect(options: BoxSelectOptions) {
     };
   }, [isNearThreshold, isNearMeltThreshold, isInPlotArea, pixelToYValue, pixelToY2Value, pixelToXValue]);
 
-  return { containerRef, overlayRef, traceClickedRef };
+  return { containerRef, overlayRef, arrowOverlayRef, traceClickedRef };
 }
 
 /** JSX for the selection overlay div — place inside the container with position:relative */

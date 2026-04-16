@@ -4,8 +4,10 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { FONT_FAMILIES, LEGEND_POSITIONS, MAIN_PALETTE_NAMES, GRADIENT_PALETTE_NAMES } from '@/lib/constants';
 import { CollapsibleSection } from './CollapsibleSection';
+import { ColorPicker } from '@/components/ui/color-picker';
 import {
   listStylePresets, getStylePreset, saveStylePreset, deleteStylePreset,
+  isBuiltinPreset,
   type StyleSnapshot,
 } from '@/lib/style-presets';
 
@@ -28,6 +30,10 @@ export function StyleTab() {
   const setLegendOrder = useAppState((s) => s.setLegendOrder);
   const showTitle = useAppState((s) => s.showTitle);
   const setShowTitle = useAppState((s) => s.setShowTitle);
+  const showLabels = useAppState((s) => s.showLabels);
+  const setShowLabels = useAppState((s) => s.setShowLabels);
+  const showTicks = useAppState((s) => s.showTicks);
+  const setShowTicks = useAppState((s) => s.setShowTicks);
 
   // Current visible wells + groups — used to build the reorder list so
   // the user can drag the legend entries that actually exist.
@@ -136,6 +142,8 @@ export function StyleTab() {
   }, [handleReorder]);
   const paletteReversed = useAppState((s) => s.paletteReversed);
   const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
+  const paletteArrowMode = useAppState((s) => s.paletteArrowMode);
+  const setPaletteArrowMode = useAppState((s) => s.setPaletteArrowMode);
   const showGrid = useAppState((s) => s.showGrid);
   const gridAlpha = useAppState((s) => s.gridAlpha);
   const plotBgColor = useAppState((s) => s.plotBgColor);
@@ -191,12 +199,12 @@ export function StyleTab() {
       titleSize, labelSize, tickSize, legendSize,
       showLegend, showLegendAmp, showLegendMelt, showLegendDoubling,
       legendPosition, legendContent, legendVisibleOnly,
-      showTitle,
+      showTitle, showLabels, showTicks,
       showGrid, gridAlpha, plotBgColor, figureDpi,
     };
     saveStylePreset(trimmed, snapshot);
     refreshPresets();
-  }, [palette, paletteReversed, paletteGroupColors, lineWidth, fontFamily, titleSize, labelSize, tickSize, legendSize, showLegend, showLegendAmp, showLegendMelt, showLegendDoubling, legendPosition, legendContent, legendVisibleOnly, showTitle, showGrid, gridAlpha, plotBgColor, figureDpi, presetNames, refreshPresets]);
+  }, [palette, paletteReversed, paletteGroupColors, lineWidth, fontFamily, titleSize, labelSize, tickSize, legendSize, showLegend, showLegendAmp, showLegendMelt, showLegendDoubling, legendPosition, legendContent, legendVisibleOnly, showTitle, showLabels, showTicks, showGrid, gridAlpha, plotBgColor, figureDpi, presetNames, refreshPresets]);
 
   const handleLoadPreset = useCallback((name: string) => {
     if (!name) return;
@@ -211,6 +219,7 @@ export function StyleTab() {
 
   const handleDeletePreset = useCallback((name: string) => {
     if (!name) return;
+    if (isBuiltinPreset(name)) return; // built-ins cannot be deleted
     if (!confirm(`Delete preset "${name}"?`)) return;
     deleteStylePreset(name);
     refreshPresets();
@@ -249,6 +258,14 @@ export function StyleTab() {
           <Checkbox checked={paletteGroupColors} onCheckedChange={(v) => setPaletteGroupColors(v === true)} />
           Group coloring
         </label>
+        <Button
+          variant={paletteArrowMode ? 'default' : 'outline'}
+          size="sm"
+          className="w-full h-7 text-xs"
+          onClick={() => setPaletteArrowMode(!paletteArrowMode)}
+        >
+          {paletteArrowMode ? 'Draw arrow on plot...' : 'Assign palette by arrow'}
+        </Button>
 
         <div className="border-t pt-2 mt-1">
           <div className="flex items-center gap-2 text-sm">
@@ -269,11 +286,9 @@ export function StyleTab() {
         <div className="border-t pt-2 mt-1">
           <div className="flex items-center gap-2 text-sm">
             <span className="text-muted-foreground">Plot bg:</span>
-            <input
-              type="color"
+            <ColorPicker
               value={plotBgColor || '#fafafa'}
-              onChange={(e) => setPlotBgColor(e.target.value)}
-              className="w-7 h-7 border rounded cursor-pointer p-0"
+              onChange={(c) => setPlotBgColor(c)}
             />
             <Button
               variant="outline"
@@ -283,18 +298,11 @@ export function StyleTab() {
             >
               Auto
             </Button>
-            {plotBgColor && (
-              <span className="text-xs text-muted-foreground">{plotBgColor}</span>
-            )}
           </div>
         </div>
       </CollapsibleSection>
 
       <CollapsibleSection title="Typography" defaultOpen={false}>
-        <label className="flex items-center gap-2 text-sm">
-          <Checkbox checked={showTitle} onCheckedChange={(v) => setShowTitle(v === true)} />
-          Show plot title
-        </label>
         <div className="flex items-center gap-2 text-sm">
           <span className="text-muted-foreground">Font:</span>
           <select
@@ -307,28 +315,32 @@ export function StyleTab() {
             ))}
           </select>
         </div>
-        <div className="text-xs text-muted-foreground font-medium">Sizes:</div>
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <div className="flex items-center gap-1">
-            <span>Title:</span>
+        <div className="text-xs text-muted-foreground font-medium">Element sizes:</div>
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1.5 text-sm">
+            <Checkbox checked={showTitle} onCheckedChange={(v) => setShowTitle(v === true)} />
+            <span className="w-14">Title:</span>
             <input type="number" min={6} max={24} value={titleSize}
               onChange={(e) => setTitleSize(Number(e.target.value))}
-              className="w-12 h-7 border rounded px-1 text-center text-sm" />
+              className="w-12 h-7 border rounded px-1 text-center text-sm" disabled={!showTitle} />
           </div>
-          <div className="flex items-center gap-1">
-            <span>Labels:</span>
+          <div className="flex items-center gap-1.5 text-sm">
+            <Checkbox checked={showLabels} onCheckedChange={(v) => setShowLabels(v === true)} />
+            <span className="w-14">Labels:</span>
             <input type="number" min={6} max={24} value={labelSize}
               onChange={(e) => setLabelSize(Number(e.target.value))}
-              className="w-12 h-7 border rounded px-1 text-center text-sm" />
+              className="w-12 h-7 border rounded px-1 text-center text-sm" disabled={!showLabels} />
           </div>
-          <div className="flex items-center gap-1">
-            <span>Ticks:</span>
+          <div className="flex items-center gap-1.5 text-sm">
+            <Checkbox checked={showTicks} onCheckedChange={(v) => setShowTicks(v === true)} />
+            <span className="w-14">Ticks:</span>
             <input type="number" min={6} max={20} value={tickSize}
               onChange={(e) => setTickSize(Number(e.target.value))}
-              className="w-12 h-7 border rounded px-1 text-center text-sm" />
+              className="w-12 h-7 border rounded px-1 text-center text-sm" disabled={!showTicks} />
           </div>
-          <div className="flex items-center gap-1">
-            <span>Legend:</span>
+          <div className="flex items-center gap-1.5 text-sm">
+            <span className="w-[18px]" /> {/* spacer to align with checkboxes above */}
+            <span className="w-14">Legend:</span>
             <input type="number" min={6} max={20} value={legendSize}
               onChange={(e) => setLegendSize(Number(e.target.value))}
               className="w-12 h-7 border rounded px-1 text-center text-sm" />
@@ -457,22 +469,22 @@ export function StyleTab() {
 
       <CollapsibleSection title="Presets" defaultOpen={false}>
         <div className="space-y-2">
-          {presetNames.length > 0 ? (
-            <div className="flex items-center gap-1">
-              <select
-                defaultValue=""
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (v) handleLoadPreset(v);
-                  e.target.value = '';
-                }}
-                className="flex-1 h-7 border rounded px-1 text-xs bg-background"
-              >
-                <option value="">Load preset…</option>
-                {presetNames.map((n) => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
-              </select>
+          <div className="flex items-center gap-1">
+            <select
+              defaultValue=""
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v) handleLoadPreset(v);
+                e.target.value = '';
+              }}
+              className="flex-1 h-7 border rounded px-1 text-xs bg-background"
+            >
+              <option value="">Load preset…</option>
+              {presetNames.map((n) => (
+                <option key={n} value={n}>{isBuiltinPreset(n) ? `${n} (built-in)` : n}</option>
+              ))}
+            </select>
+            {presetNames.some((n) => !isBuiltinPreset(n)) && (
               <select
                 defaultValue=""
                 onChange={(e) => {
@@ -484,16 +496,12 @@ export function StyleTab() {
                 title="Delete a preset"
               >
                 <option value="">✕</option>
-                {presetNames.map((n) => (
+                {presetNames.filter((n) => !isBuiltinPreset(n)).map((n) => (
                   <option key={n} value={n}>{n}</option>
                 ))}
               </select>
-            </div>
-          ) : (
-            <p className="text-[11px] text-muted-foreground italic">
-              No saved presets. Adjust styles and click Save to store one.
-            </p>
-          )}
+            )}
+          </div>
           <div className="flex gap-1">
             <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={handleSavePreset}>
               Save…

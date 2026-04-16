@@ -90,6 +90,8 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
   const legendPosition = useAppState((s) => s.legendPosition);
   const legendContent = useAppState((s) => s.legendContent);
   const showTitle = useAppState((s) => s.showTitle);
+  const showLabels = useAppState((s) => s.showLabels);
+  const showTicks = useAppState((s) => s.showTicks);
   const showGrid = useAppState((s) => s.showGrid);
   const gridAlpha = useAppState((s) => s.gridAlpha);
   const plotBgColor = useAppState((s) => s.plotBgColor);
@@ -119,11 +121,11 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
     palette, paletteReversed, paletteGroupColors,
     lineWidth, fontFamily, titleSize, labelSize, tickSize, legendSize,
     showLegend, legendPosition, legendContent,
-    showTitle,
+    showTitle, showLabels, showTicks,
     showGrid, gridAlpha,
     plotBgColor,
     isDark,
-  }), [palette, paletteReversed, paletteGroupColors, lineWidth, fontFamily, titleSize, labelSize, tickSize, legendSize, showLegend, legendPosition, legendContent, showTitle, showGrid, gridAlpha, plotBgColor, isDark]);
+  }), [palette, paletteReversed, paletteGroupColors, lineWidth, fontFamily, titleSize, labelSize, tickSize, legendSize, showLegend, legendPosition, legendContent, showTitle, showLabels, showTicks, showGrid, gridAlpha, plotBgColor, isDark]);
 
   const visibleWells = useMemo(
     () => (exp ? exp.wellsUsed.filter((w) => !hiddenWells.has(w)) : []),
