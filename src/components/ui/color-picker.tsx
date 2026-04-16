@@ -1,27 +1,55 @@
 /**
- * Color picker with a swatch grid + custom hex input + OK button.
+ * Color picker with palette-based swatch rows + custom hex input + OK.
  * Uses fixed positioning so it won't be clipped by overflow:hidden parents.
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { getPaletteColors, TABLEAU_10, COLORBLIND_SAFE, PAIRED } from '@/lib/constants';
 
-/** 24 common swatches — roughly mirroring design-tool palettes. */
-const SWATCHES = [
-  // Row 1: grays
-  '#000000', '#333333', '#666666', '#999999', '#cccccc', '#ffffff',
-  // Row 2: warm
-  '#c42a30', '#e15759', '#f28e2b', '#edc948', '#ff9da7', '#fdbf6f',
-  // Row 3: cool
-  '#4e79a7', '#0072B2', '#56B4E9', '#76b7b2', '#009E73', '#59a14f',
-  // Row 4: accents
-  '#b07aa1', '#CC79A7', '#6a3d9a', '#b15928', '#9c755f', '#bab0ac',
+/** Palette-based swatch series. Each row is labeled with the palette
+ *  name and shows its colors as clickable chips. */
+const SWATCH_SERIES: { label: string; colors: string[] }[] = [
+  { label: 'Basics', colors: ['#000000', '#444444', '#888888', '#bbbbbb', '#ffffff', '#c42a30', '#2563eb', '#16a34a'] },
+  { label: 'SHARP', colors: getPaletteColors('SHARP', 6) },
+  { label: 'Tableau', colors: TABLEAU_10 },
+  { label: 'CB Safe', colors: COLORBLIND_SAFE },
+  { label: 'Paired', colors: PAIRED },
 ];
+
+/** Flat list of all swatch colors for the InlineColorPicker (compact). */
+const INLINE_SWATCHES = [
+  '#000000', '#444444', '#888888', '#bbbbbb', '#ffffff',
+  ...getPaletteColors('SHARP', 5),
+  ...TABLEAU_10,
+  ...COLORBLIND_SAFE.slice(0, 6),
+];
+
+// ── Shared swatch button ──────────────────────────────────────────
+
+function Swatch({ color, selected, size = 'md', onClick }: {
+  color: string; selected?: boolean; size?: 'sm' | 'md'; onClick: () => void;
+}) {
+  const dim = size === 'sm' ? 'w-4 h-4' : 'w-[18px] h-[18px]';
+  const ring = selected
+    ? 'ring-2 ring-primary ring-offset-1'
+    : 'border-border';
+  return (
+    <button
+      className={`${dim} rounded-sm cursor-pointer border hover:scale-110 transition-transform ${ring}`}
+      style={{ backgroundColor: color }}
+      onClick={onClick}
+      title={color}
+      type="button"
+    />
+  );
+}
+
+// ── ColorPicker (popover, for StyleTab) ───────────────────────────
 
 interface ColorPickerProps {
   value: string;
   onChange: (color: string) => void;
-  /** Optional label shown next to the chip. */
   label?: string;
 }
 
@@ -32,21 +60,18 @@ export function ColorPicker({ value, onChange, label }: ColorPickerProps) {
   const popoverRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
-  // Position the popover below the trigger using fixed coords
   useEffect(() => {
     if (!open || !triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
-    const popW = 180;
-    const popH = 160;
+    const popW = 220;
+    const popH = 260;
     let left = rect.left;
     let top = rect.bottom + 4;
-    // Keep on screen
     if (left + popW > window.innerWidth) left = window.innerWidth - popW - 8;
     if (top + popH > window.innerHeight) top = rect.top - popH - 4;
     setPos({ top, left });
   }, [open]);
 
-  // Close on outside click
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
@@ -61,7 +86,6 @@ export function ColorPicker({ value, onChange, label }: ColorPickerProps) {
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  // Sync custom color when value changes externally
   useEffect(() => {
     if (value) setCustomColor(value);
   }, [value]);
@@ -80,21 +104,19 @@ export function ColorPicker({ value, onChange, label }: ColorPickerProps) {
     <div
       ref={popoverRef}
       className="fixed z-[9999] bg-background border rounded-lg shadow-lg p-2.5"
-      style={{ top: pos.top, left: pos.left, width: 180 }}
+      style={{ top: pos.top, left: pos.left, width: 220 }}
     >
-      {/* Swatch grid */}
-      <div className="grid grid-cols-6 gap-1 mb-2">
-        {SWATCHES.map((c) => (
-          <button
-            key={c}
-            className={`w-5 h-5 rounded-sm cursor-pointer border transition-transform hover:scale-110 ${
-              value === c ? 'ring-2 ring-primary ring-offset-1' : 'border-border'
-            }`}
-            style={{ backgroundColor: c }}
-            onClick={() => handleSwatchClick(c)}
-            title={c}
-            type="button"
-          />
+      {/* Palette rows */}
+      <div className="space-y-1.5 mb-2">
+        {SWATCH_SERIES.map((series) => (
+          <div key={series.label}>
+            <div className="text-[9px] text-muted-foreground mb-0.5">{series.label}</div>
+            <div className="flex flex-wrap gap-1">
+              {series.colors.map((c, i) => (
+                <Swatch key={`${c}-${i}`} color={c} selected={value === c} onClick={() => handleSwatchClick(c)} />
+              ))}
+            </div>
+          </div>
         ))}
       </div>
 
@@ -144,11 +166,8 @@ export function ColorPicker({ value, onChange, label }: ColorPickerProps) {
   );
 }
 
-/**
- * Inline color swatch grid — for embedding inside context menus or
- * panels where a full popover isn't needed. Renders the swatch grid
- * + custom row directly (no trigger button, no popover).
- */
+// ── InlineColorPicker (for context menu / QuickStylePanel) ────────
+
 interface InlineColorPickerProps {
   value?: string;
   onChange: (color: string) => void;
@@ -163,18 +182,9 @@ export function InlineColorPicker({ value, onChange }: InlineColorPickerProps) {
 
   return (
     <div className="p-1">
-      <div className="grid grid-cols-6 gap-0.5 mb-1.5">
-        {SWATCHES.map((c) => (
-          <button
-            key={c}
-            className={`w-4 h-4 rounded-sm cursor-pointer border hover:scale-110 ${
-              value === c ? 'ring-1 ring-primary ring-offset-1' : 'border-border'
-            }`}
-            style={{ backgroundColor: c }}
-            onClick={() => onChange(c)}
-            title={c}
-            type="button"
-          />
+      <div className="flex flex-wrap gap-0.5 mb-1.5">
+        {INLINE_SWATCHES.map((c, i) => (
+          <Swatch key={`${c}-${i}`} color={c} selected={value === c} size="sm" onClick={() => onChange(c)} />
         ))}
       </div>
       <div className="flex items-center gap-1 border-t pt-1.5">
