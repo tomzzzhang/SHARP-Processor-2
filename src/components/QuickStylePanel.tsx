@@ -3,6 +3,7 @@ import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { Button } from '@/components/ui/button';
 import { MAIN_PALETTE_NAMES, GRADIENT_PALETTE_NAMES, MOD_KEY, getPaletteColors } from '@/lib/constants';
+import { InlineColorPicker } from '@/components/ui/color-picker';
 import type { ContentType } from '@/types/experiment';
 
 function PanelSection({ title, defaultOpen = true, children }: { title: string; defaultOpen?: boolean; children: ReactNode }) {
@@ -81,15 +82,6 @@ export function QuickStylePanel() {
     }
     return anyOn ? 'on' : 'off';
   })();
-
-  const handleColorPick = useCallback(() => {
-    const input = document.createElement('input');
-    input.type = 'color';
-    input.onchange = () => {
-      setWellStyleOverride(wells, { color: input.value });
-    };
-    input.click();
-  }, [wells, setWellStyleOverride]);
 
   const handleGroup = useCallback(() => {
     const name = prompt('Group name:');
@@ -208,7 +200,11 @@ export function QuickStylePanel() {
 
           {/* Style */}
           <PanelSection title="Style">
-            {btn('Color...', handleColorPick, n === 0)}
+            {n > 0 && (
+              <InlineColorPicker
+                onChange={(c) => setWellStyleOverride(wells, { color: c })}
+              />
+            )}
             {btn('Reverse Colors', reverseSelectionColors, n === 0)}
             {btn('Clear Overrides', () => clearWellStyleOverrides(wells), n === 0)}
           </PanelSection>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { MAIN_PALETTE_NAMES, GRADIENT_PALETTE_NAMES, getPaletteColors } from '@/lib/constants';
+import { InlineColorPicker } from '@/components/ui/color-picker';
 import type { ContentType } from '@/types/experiment';
 
 interface ContextMenuProps {
@@ -136,16 +137,6 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
 
   const sep = (key: string) => <div key={key} className="border-t my-0.5" />;
 
-  const handleColorPick = useCallback(() => {
-    const input = document.createElement('input');
-    input.type = 'color';
-    input.onchange = () => {
-      setWellStyleOverride(wells, { color: input.value });
-      onClose();
-    };
-    input.click();
-  }, [wells, setWellStyleOverride, onClose]);
-
   const handleGroupPrompt = useCallback(() => {
     const name = prompt('Group name:');
     if (name) {
@@ -244,7 +235,21 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
       {sep('s4')}
 
       {/* Style */}
-      {itemWithHover('Color...', handleColorPick, n === 0)}
+      <div
+        className="relative"
+        onMouseEnter={() => setSubmenu('color')}
+      >
+        <button className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-40" disabled={n === 0}>
+          Color &rarr;
+        </button>
+        {submenu === 'color' && n > 0 && (
+          <SubMenu className="min-w-[220px]">
+            <InlineColorPicker
+              onChange={(c) => { setWellStyleOverride(wells, { color: c }); onClose(); }}
+            />
+          </SubMenu>
+        )}
+      </div>
       <div
         className="relative"
         onMouseEnter={() => setSubmenu('linestyle')}

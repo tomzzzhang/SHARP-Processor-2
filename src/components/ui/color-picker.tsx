@@ -1,9 +1,10 @@
 /**
- * Color picker with a swatch grid + custom hex input + Apply button.
- * Renders as a popover anchored to a small color chip.
+ * Color picker with a swatch grid + custom hex input + OK button.
+ * Uses fixed positioning so it won't be clipped by overflow:hidden parents.
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 
 /** 24 common swatches — roughly mirroring design-tool palettes. */
 const SWATCHES = [
@@ -27,8 +28,23 @@ interface ColorPickerProps {
 export function ColorPicker({ value, onChange, label }: ColorPickerProps) {
   const [open, setOpen] = useState(false);
   const [customColor, setCustomColor] = useState(value || '#000000');
+  const [pos, setPos] = useState({ top: 0, left: 0 });
   const popoverRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+
+  // Position the popover below the trigger using fixed coords
+  useEffect(() => {
+    if (!open || !triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const popW = 220;
+    const popH = 180;
+    let left = rect.left;
+    let top = rect.bottom + 4;
+    // Keep on screen
+    if (left + popW > window.innerWidth) left = window.innerWidth - popW - 8;
+    if (top + popH > window.innerHeight) top = rect.top - popH - 4;
+    setPos({ top, left });
+  }, [open]);
 
   // Close on outside click
   useEffect(() => {
@@ -60,66 +76,130 @@ export function ColorPicker({ value, onChange, label }: ColorPickerProps) {
     setOpen(false);
   }, [customColor, onChange]);
 
-  return (
-    <div className="relative inline-flex items-center gap-2">
-      <button
-        ref={triggerRef}
-        className="w-7 h-7 border rounded cursor-pointer p-0 shrink-0"
-        style={{ backgroundColor: value || '#fafafa' }}
-        onClick={() => setOpen(!open)}
-        title={value || 'Pick a color'}
-        type="button"
-      />
-      {label && <span className="text-sm text-muted-foreground">{label}</span>}
+  const popover = open ? createPortal(
+    <div
+      ref={popoverRef}
+      className="fixed z-[9999] bg-background border rounded-lg shadow-lg p-3"
+      style={{ top: pos.top, left: pos.left, width: 220 }}
+    >
+      {/* Swatch grid */}
+      <div className="grid grid-cols-6 gap-1.5 mb-3">
+        {SWATCHES.map((c) => (
+          <button
+            key={c}
+            className={`w-6 h-6 rounded cursor-pointer border transition-transform hover:scale-110 ${
+              value === c ? 'ring-2 ring-primary ring-offset-1' : 'border-border'
+            }`}
+            style={{ backgroundColor: c }}
+            onClick={() => handleSwatchClick(c)}
+            title={c}
+            type="button"
+          />
+        ))}
+      </div>
 
-      {open && (
-        <div
-          ref={popoverRef}
-          className="absolute top-full left-0 mt-1 z-50 bg-background border rounded-lg shadow-lg p-3 w-[210px]"
-          style={{ minWidth: 210 }}
+      {/* Custom color row */}
+      <div className="flex items-center gap-2 border-t pt-2">
+        <input
+          type="color"
+          value={customColor}
+          onChange={(e) => setCustomColor(e.target.value)}
+          className="w-7 h-7 border rounded cursor-pointer p-0 shrink-0"
+        />
+        <input
+          type="text"
+          value={customColor}
+          onChange={(e) => setCustomColor(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleApply(); }}
+          className="flex-1 h-7 border rounded px-1.5 text-xs bg-background font-mono"
+          placeholder="#hexcolor"
+        />
+        <button
+          className="h-7 px-2 text-xs border rounded bg-primary text-primary-foreground hover:bg-primary/90"
+          onClick={handleApply}
+          type="button"
         >
-          {/* Swatch grid */}
-          <div className="grid grid-cols-6 gap-1.5 mb-3">
-            {SWATCHES.map((c) => (
-              <button
-                key={c}
-                className={`w-6 h-6 rounded cursor-pointer border transition-transform hover:scale-110 ${
-                  value === c ? 'ring-2 ring-primary ring-offset-1' : 'border-border'
-                }`}
-                style={{ backgroundColor: c }}
-                onClick={() => handleSwatchClick(c)}
-                title={c}
-                type="button"
-              />
-            ))}
-          </div>
+          OK
+        </button>
+      </div>
+    </div>,
+    document.body,
+  ) : null;
 
-          {/* Custom color row */}
-          <div className="flex items-center gap-2 border-t pt-2">
-            <input
-              type="color"
-              value={customColor}
-              onChange={(e) => setCustomColor(e.target.value)}
-              className="w-7 h-7 border rounded cursor-pointer p-0 shrink-0"
-            />
-            <input
-              type="text"
-              value={customColor}
-              onChange={(e) => setCustomColor(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleApply(); }}
-              className="flex-1 h-7 border rounded px-1.5 text-xs bg-background font-mono"
-              placeholder="#hexcolor"
-            />
-            <button
-              className="h-7 px-2 text-xs border rounded bg-primary text-primary-foreground hover:bg-primary/90"
-              onClick={handleApply}
-              type="button"
-            >
-              OK
-            </button>
-          </div>
-        </div>
-      )}
+  return (
+    <>
+      <div className="inline-flex items-center gap-2">
+        <button
+          ref={triggerRef}
+          className="w-7 h-7 border rounded cursor-pointer p-0 shrink-0"
+          style={{ backgroundColor: value || '#fafafa' }}
+          onClick={() => setOpen(!open)}
+          title={value || 'Pick a color'}
+          type="button"
+        />
+        {label && <span className="text-sm text-muted-foreground">{label}</span>}
+      </div>
+      {popover}
+    </>
+  );
+}
+
+/**
+ * Inline color swatch grid — for embedding inside context menus or
+ * panels where a full popover isn't needed. Renders the swatch grid
+ * + custom row directly (no trigger button, no popover).
+ */
+interface InlineColorPickerProps {
+  value?: string;
+  onChange: (color: string) => void;
+}
+
+export function InlineColorPicker({ value, onChange }: InlineColorPickerProps) {
+  const [customColor, setCustomColor] = useState(value || '#000000');
+
+  const handleApply = useCallback(() => {
+    onChange(customColor);
+  }, [customColor, onChange]);
+
+  return (
+    <div className="p-2" style={{ width: 210 }}>
+      <div className="grid grid-cols-6 gap-1.5 mb-2">
+        {SWATCHES.map((c) => (
+          <button
+            key={c}
+            className={`w-6 h-6 rounded cursor-pointer border transition-transform hover:scale-110 ${
+              value === c ? 'ring-2 ring-primary ring-offset-1' : 'border-border'
+            }`}
+            style={{ backgroundColor: c }}
+            onClick={() => onChange(c)}
+            title={c}
+            type="button"
+          />
+        ))}
+      </div>
+      <div className="flex items-center gap-1.5 border-t pt-2">
+        <input
+          type="color"
+          value={customColor}
+          onChange={(e) => setCustomColor(e.target.value)}
+          className="w-6 h-6 border rounded cursor-pointer p-0 shrink-0"
+        />
+        <input
+          type="text"
+          value={customColor}
+          onChange={(e) => setCustomColor(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleApply(); }}
+          className="flex-1 h-6 border rounded px-1 text-[10px] bg-background font-mono"
+          placeholder="#hex"
+        />
+        <button
+          className="h-6 px-1.5 text-[10px] border rounded bg-primary text-primary-foreground hover:bg-primary/90"
+          onClick={handleApply}
+          type="button"
+        >
+          OK
+        </button>
+      </div>
     </div>
   );
 }
