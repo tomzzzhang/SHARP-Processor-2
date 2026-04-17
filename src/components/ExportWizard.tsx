@@ -95,6 +95,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
   const showGrid = useAppState((s) => s.showGrid);
   const gridAlpha = useAppState((s) => s.gridAlpha);
   const plotBgColor = useAppState((s) => s.plotBgColor);
+  const textColor = useAppState((s) => s.textColor);
 
   const analysisResults = useAnalysisResults();
 
@@ -124,8 +125,9 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
     showTitle, showLabels, showTicks,
     showGrid, gridAlpha,
     plotBgColor,
+    textColor,
     isDark,
-  }), [palette, paletteReversed, paletteGroupColors, lineWidth, fontFamily, titleSize, labelSize, tickSize, legendSize, showLegend, legendPosition, legendContent, showTitle, showLabels, showTicks, showGrid, gridAlpha, plotBgColor, isDark]);
+  }), [palette, paletteReversed, paletteGroupColors, lineWidth, fontFamily, titleSize, labelSize, tickSize, legendSize, showLegend, legendPosition, legendContent, showTitle, showLabels, showTicks, showGrid, gridAlpha, plotBgColor, textColor, isDark]);
 
   const visibleWells = useMemo(
     () => (exp ? exp.wellsUsed.filter((w) => !hiddenWells.has(w)) : []),

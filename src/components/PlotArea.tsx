@@ -23,6 +23,7 @@ const Plot = createPlotlyComponent(Plotly);
  *  (light) or dark surface color (dark). */
 function usePlotTheme() {
   const customBg = useAppState((s) => s.plotBgColor);
+  const textColor = useAppState((s) => s.textColor);
   const [isDark, setIsDark] = useState(false);
   useEffect(() => {
     const update = () => setIsDark(document.documentElement.classList.contains('dark'));
@@ -32,7 +33,7 @@ function usePlotTheme() {
     return () => observer.disconnect();
   }, []);
   const plotBg = customBg || (isDark ? '#1e1e1e' : '#fafafa');
-  return { plotBg, isDark };
+  return { plotBg, isDark, textColor };
 }
 
 
@@ -178,24 +179,26 @@ function titleField(text: string, style: ReturnType<typeof usePlotStyle>) {
  *  contribution is excluded. */
 function computeMargins(style: ReturnType<typeof usePlotStyle>) {
   const labelContrib = style.showLabels ? style.labelSize * 1.5 : 0;
-  const tickContrib = style.showTicks ? style.tickSize * 2 : 0;
+  const tickContribL = style.showTicks ? style.tickSize * 2 : 0;
+  const tickContribB = style.showTicks ? style.tickSize * 1.2 : 0;
   return {
-    l: Math.round(40 + labelContrib + tickContrib),
+    l: Math.round(40 + labelContrib + tickContribL),
     r: 20,
     t: Math.round(style.showTitle ? 20 + style.titleSize * 1.5 : 20),
-    b: Math.round(30 + labelContrib + style.tickSize * 1.2),
+    b: Math.round(30 + labelContrib + tickContribB),
   };
 }
 
 /** Compact margins for sub-plots (MeltDerivMini). */
 function computeMiniMargins(style: ReturnType<typeof usePlotStyle>) {
   const labelContrib = style.showLabels ? style.labelSize * 1.2 : 0;
-  const tickContrib = style.showTicks ? style.tickSize * 1.5 : 0;
+  const tickContribL = style.showTicks ? style.tickSize * 1.5 : 0;
+  const tickContribB = style.showTicks ? style.tickSize : 0;
   return {
-    l: Math.round(30 + labelContrib + tickContrib),
+    l: Math.round(30 + labelContrib + tickContribL),
     r: 10,
     t: 10,
-    b: Math.round(20 + labelContrib + style.tickSize),
+    b: Math.round(20 + labelContrib + tickContribB),
   };
 }
 
@@ -242,8 +245,10 @@ function gridStyle(style: ReturnType<typeof usePlotStyle>, isDark = false) {
   return { showgrid: style.showGrid, gridcolor: `rgba(${base},${style.gridAlpha})` };
 }
 
-/** Global Plotly font color for dark/light mode */
-function plotFontColor(isDark: boolean) {
+/** Global Plotly font color — explicit user override wins over theme. */
+function plotFontColor(isDark: boolean, textColor: 'auto' | 'black' | 'white' = 'auto') {
+  if (textColor === 'black') return '#000000';
+  if (textColor === 'white') return '#ffffff';
   return isDark ? 'rgba(255,255,255,0.87)' : '#212224';
 }
 
@@ -542,7 +547,7 @@ const PLOT_CONFIG: Partial<Plotly.Config> = {
 // ── Amplification Plot ───────────────────────────────────────────────
 
 function AmplificationPlot() {
-  const { plotBg, isDark } = usePlotTheme();
+  const { plotBg, isDark, textColor } = usePlotTheme();
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
   const xAxisMode = useAppState((s) => s.xAxisMode);
@@ -723,7 +728,7 @@ function AmplificationPlot() {
       dragmode: false as Layout['dragmode'],
       autosize: true,
       margin: computeMargins(style),
-      plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) },
+      plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) },
       ...legendLayout(style, showLegendAmp, traces, isDark),
       datarevision: Date.now(),
     };
@@ -877,7 +882,7 @@ function AmplificationPlot() {
 // ── Melt Derivative Mini-Plot (shown below amp plot) ─────────────────
 
 function MeltDerivMini() {
-  const { plotBg, isDark } = usePlotTheme();
+  const { plotBg, isDark, textColor } = usePlotTheme();
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
   const selectedWells = useAppState((s) => s.selectedWells);
@@ -994,7 +999,7 @@ function MeltDerivMini() {
       dragmode: false as Layout['dragmode'],
       autosize: true,
       margin: computeMiniMargins(style),
-      plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) },
+      plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) },
       showlegend: false,
       datarevision: Date.now(),
     };
@@ -1095,7 +1100,7 @@ function MeltDerivMini() {
 // ── Melt Plot (stacked subplots — full tab) ──────────────────────────
 
 function MeltPlot() {
-  const { plotBg, isDark } = usePlotTheme();
+  const { plotBg, isDark, textColor } = usePlotTheme();
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
   const selectedWells = useAppState((s) => s.selectedWells);
@@ -1247,7 +1252,7 @@ function MeltPlot() {
         yaxis2: { title: axisLabel('-dF/dT', style), ...tickProps(style), domain: [0, 0.45], anchor: 'x', ...grid },
         shapes: shapes as Layout['shapes'],
         dragmode: false as Layout['dragmode'], autosize: true, margin: computeMargins(style),
-        plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) }, ...legendLayout(style, showLegendMelt, traces, isDark),
+        plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) }, ...legendLayout(style, showLegendMelt, traces, isDark),
         datarevision: Date.now(),
       };
     }
@@ -1256,7 +1261,7 @@ function MeltPlot() {
       xaxis: { title: axisLabel('Temperature (°C)', style), ...tickProps(style), ...grid },
       yaxis: { title: axisLabel('RFU', style), ...tickProps(style), ...grid },
       dragmode: false as Layout['dragmode'], autosize: true, margin: computeMargins(style),
-      plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) }, ...legendLayout(style, showLegendMelt, traces, isDark),
+      plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) }, ...legendLayout(style, showLegendMelt, traces, isDark),
       datarevision: Date.now(),
     };
   }, [exp, style, hasDerivative, traces, showLegendMelt, meltThresholdEnabled, meltThresholdValue]);
@@ -1389,7 +1394,7 @@ function formatConc(value: number): string {
 function DilutionPlot() {
   const dilutionRef = useRef<HTMLDivElement>(null);
   useMiddleMousePan(dilutionRef);
-  const { plotBg, isDark } = usePlotTheme();
+  const { plotBg, isDark, textColor } = usePlotTheme();
   const dilutionConfig = useAppState((s) => s.dilutionConfig);
   const setDilutionStepEnabled = useAppState((s) => s.setDilutionStepEnabled);
   const experiments = useAppState((s) => s.experiments);
@@ -1465,7 +1470,7 @@ function DilutionPlot() {
         ...tickProps(style), ...gridStyle(style, isDark),
       },
       autosize: true, margin: computeMargins(style),
-      plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) },
+      plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) },
       datarevision: Date.now(),
     };
   }, [exp, xAxisMode, xLabel, style, unit]);
@@ -1574,7 +1579,7 @@ function DilutionPlot() {
 function PerWellDoublingPlot() {
   const doublingRef = useRef<HTMLDivElement>(null);
   useMiddleMousePan(doublingRef);
-  const { plotBg, isDark } = usePlotTheme();
+  const { plotBg, isDark, textColor } = usePlotTheme();
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
   const hiddenWells = useAppState((s) => s.hiddenWells);
@@ -1629,7 +1634,7 @@ function PerWellDoublingPlot() {
       xaxis: { title: axisLabel(`${xLabel} (${X_AXIS_LABELS[xAxisMode]})`, style), ...tickProps(style), ...gridStyle(style, isDark) },
       yaxis: { title: axisLabel('Doubling Time', style), ...tickProps(style), ...gridStyle(style, isDark) },
       autosize: true, margin: computeMargins(style),
-      plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark) }, ...legendLayout(style, showLegendDoubling, traces, isDark),
+      plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) }, ...legendLayout(style, showLegendDoubling, traces, isDark),
       datarevision: Date.now(),
     };
   }, [exp, xAxisMode, xLabel, style, traces, showLegendDoubling]);

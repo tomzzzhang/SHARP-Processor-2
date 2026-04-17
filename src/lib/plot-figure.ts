@@ -40,6 +40,7 @@ export interface PlotFigureStyle {
   showGrid: boolean;
   gridAlpha: number;
   plotBgColor: string;   // '' = white
+  textColor: 'auto' | 'black' | 'white';
   isDark: boolean;
 }
 
@@ -100,7 +101,9 @@ function gridStyle(style: PlotFigureStyle) {
   return { showgrid: style.showGrid, gridcolor: `rgba(${base},${style.gridAlpha})` };
 }
 
-function plotFontColor(isDark: boolean) {
+function plotFontColor(isDark: boolean, textColor: 'auto' | 'black' | 'white' = 'auto') {
+  if (textColor === 'black') return '#000000';
+  if (textColor === 'white') return '#ffffff';
   return isDark ? 'rgba(255,255,255,0.87)' : '#212224';
 }
 
@@ -210,12 +213,13 @@ function titleText(base: string, style: PlotFigureStyle): string {
 
 function computeMargins(style: PlotFigureStyle) {
   const labelContrib = style.showLabels ? style.labelSize * 1.5 : 0;
-  const tickContrib = style.showTicks ? style.tickSize * 2 : 0;
+  const tickContribL = style.showTicks ? style.tickSize * 2 : 0;
+  const tickContribB = style.showTicks ? style.tickSize * 1.2 : 0;
   return {
-    l: Math.round(40 + labelContrib + tickContrib),
+    l: Math.round(40 + labelContrib + tickContribL),
     r: 20,
     t: Math.round(style.showTitle ? 20 + style.titleSize * 1.5 : 20),
-    b: Math.round(30 + labelContrib + style.tickSize * 1.2),
+    b: Math.round(30 + labelContrib + tickContribB),
   };
 }
 
@@ -310,7 +314,7 @@ function buildAmp(input: BuildFigureInput): { data: Data[]; layout: Partial<Layo
     },
     margin: computeMargins(style),
     plot_bgcolor: plotBg, paper_bgcolor: plotBg,
-    font: { color: plotFontColor(style.isDark) },
+    font: { color: plotFontColor(style.isDark, style.textColor) },
   };
 
   return { data, layout };
@@ -418,7 +422,7 @@ function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Dat
     },
     margin: computeMargins(style),
     plot_bgcolor: plotBg, paper_bgcolor: plotBg,
-    font: { color: plotFontColor(style.isDark) },
+    font: { color: plotFontColor(style.isDark, style.textColor) },
   };
 
   const xaxis = {
@@ -512,7 +516,7 @@ function buildDoubling(input: BuildFigureInput): { data: Data[]; layout: Partial
     showlegend: false,
     margin: computeMargins(style),
     plot_bgcolor: plotBg, paper_bgcolor: plotBg,
-    font: { color: plotFontColor(style.isDark) },
+    font: { color: plotFontColor(style.isDark, style.textColor) },
   };
 
   return { data, layout };

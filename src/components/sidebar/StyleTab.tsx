@@ -147,6 +147,7 @@ export function StyleTab() {
   const showGrid = useAppState((s) => s.showGrid);
   const gridAlpha = useAppState((s) => s.gridAlpha);
   const plotBgColor = useAppState((s) => s.plotBgColor);
+  const textColor = useAppState((s) => s.textColor);
   const figureDpi = useAppState((s) => s.figureDpi);
 
   const setPalette = useAppState((s) => s.setPalette);
@@ -168,6 +169,7 @@ export function StyleTab() {
   const setShowGrid = useAppState((s) => s.setShowGrid);
   const setGridAlpha = useAppState((s) => s.setGridAlpha);
   const setPlotBgColor = useAppState((s) => s.setPlotBgColor);
+  const setTextColor = useAppState((s) => s.setTextColor);
   const setFigureDpi = useAppState((s) => s.setFigureDpi);
   const resetStyle = useAppState((s) => s.resetStyle);
   const applyStyleSnapshot = useAppState((s) => s.applyStyleSnapshot);
@@ -185,11 +187,26 @@ export function StyleTab() {
     return () => window.removeEventListener('storage', onStorage);
   }, [refreshPresets]);
 
+  // Escape exits arrow-palette mode (otherwise the only exit is clicking
+  // the toggle button again, and zero-intersection arrows leave users stuck).
+  useEffect(() => {
+    if (!paletteArrowMode) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPaletteArrowMode(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [paletteArrowMode, setPaletteArrowMode]);
+
   const handleSavePreset = useCallback(() => {
     const name = prompt('Save current style as preset:\n\nEnter a name:');
     if (!name) return;
     const trimmed = name.trim();
     if (!trimmed) return;
+    if (isBuiltinPreset(trimmed)) {
+      alert(`"${trimmed}" is a built-in preset name and cannot be overwritten. Please choose a different name.`);
+      return;
+    }
     if (presetNames.includes(trimmed)) {
       if (!confirm(`Preset "${trimmed}" already exists. Overwrite?`)) return;
     }
@@ -200,11 +217,11 @@ export function StyleTab() {
       showLegend, showLegendAmp, showLegendMelt, showLegendDoubling,
       legendPosition, legendContent, legendVisibleOnly,
       showTitle, showLabels, showTicks,
-      showGrid, gridAlpha, plotBgColor, figureDpi,
+      showGrid, gridAlpha, plotBgColor, textColor, figureDpi,
     };
     saveStylePreset(trimmed, snapshot);
     refreshPresets();
-  }, [palette, paletteReversed, paletteGroupColors, lineWidth, fontFamily, titleSize, labelSize, tickSize, legendSize, showLegend, showLegendAmp, showLegendMelt, showLegendDoubling, legendPosition, legendContent, legendVisibleOnly, showTitle, showLabels, showTicks, showGrid, gridAlpha, plotBgColor, figureDpi, presetNames, refreshPresets]);
+  }, [palette, paletteReversed, paletteGroupColors, lineWidth, fontFamily, titleSize, labelSize, tickSize, legendSize, showLegend, showLegendAmp, showLegendMelt, showLegendDoubling, legendPosition, legendContent, legendVisibleOnly, showTitle, showLabels, showTicks, showGrid, gridAlpha, plotBgColor, textColor, figureDpi, presetNames, refreshPresets]);
 
   const handleLoadPreset = useCallback((name: string) => {
     if (!name) return;
@@ -344,6 +361,24 @@ export function StyleTab() {
             <input type="number" min={6} max={20} value={legendSize}
               onChange={(e) => setLegendSize(Number(e.target.value))}
               className="w-12 h-7 border rounded px-1 text-center text-sm" />
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 text-sm">
+          <span className="text-muted-foreground w-20">Text color:</span>
+          <div className="inline-flex rounded-md border overflow-hidden">
+            {(['auto', 'black', 'white'] as const).map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setTextColor(c)}
+                className={`px-2 h-7 text-xs capitalize transition-colors ${
+                  textColor === c ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-accent'
+                } ${c !== 'auto' ? 'border-l' : ''}`}
+                title={c === 'auto' ? 'Follow light/dark theme' : `Force ${c}`}
+              >
+                {c}
+              </button>
+            ))}
           </div>
         </div>
       </CollapsibleSection>
