@@ -79,6 +79,7 @@ export function WellList() {
   const wellGroups = useAppState((s) => s.wellGroups);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
   const setWellSampleName = useAppState((s) => s.setWellSampleName);
+  const setWellSampleNameBatch = useAppState((s) => s.setWellSampleNameBatch);
   const setWellContentType = useAppState((s) => s.setWellContentType);
   const hoveredWell = useAppState((s) => s.hoveredWell);
   const setHoveredWell = useAppState((s) => s.setHoveredWell);
@@ -144,14 +145,19 @@ export function WellList() {
             const color = colorMap.get(well) ?? '#999';
             const displayType = CONTENT_DISPLAY[info?.content ?? ''] ?? info?.content ?? '';
 
+            const shadowParts: string[] = [];
+            if (isSelected) shadowParts.push('inset 3px 0 0 var(--brand-red)');
+            if (isHovered) shadowParts.push('inset 0 0 0 9999px color-mix(in srgb, var(--brand-red) 18%, transparent)');
+            const boxShadow = shadowParts.length ? shadowParts.join(', ') : undefined;
+
             return (
               <tr
                 key={well}
-                className={`cursor-pointer hover:bg-accent ${isSelected ? 'bg-accent/50' : ''}`}
+                className={`cursor-pointer ${isSelected ? 'bg-primary/10 font-medium' : 'hover:bg-accent'}`}
                 style={{
                   height: 22,
                   opacity: isHidden ? 0.4 : 1,
-                  boxShadow: isHovered ? 'inset 3px 0 0 var(--brand-red), inset 0 0 0 9999px color-mix(in srgb, var(--brand-red) 18%, transparent)' : undefined,
+                  boxShadow,
                 }}
                 onMouseDown={(e) => onRowMouseDown(e, well)}
                 onMouseEnter={() => { onRowMouseEnter(well); setHoveredWell(well); }}
@@ -176,7 +182,13 @@ export function WellList() {
                     <InlineEdit
                       value={info?.sample ?? ''}
                       onCommit={(v) => {
-                        if (v !== (info?.sample ?? '')) setWellSampleName(well, v);
+                        if (v !== (info?.sample ?? '')) {
+                          if (selectedWells.has(well) && selectedWells.size > 1) {
+                            setWellSampleNameBatch(Array.from(selectedWells), v);
+                          } else {
+                            setWellSampleName(well, v);
+                          }
+                        }
                         setEditingWell(null);
                       }}
                     />

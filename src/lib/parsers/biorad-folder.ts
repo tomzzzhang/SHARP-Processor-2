@@ -189,6 +189,7 @@ function parseWideCsv(text: string, xColName: string): WideTable {
   const wells: Record<string, number[]> = {};
   for (const name of wellColMap.values()) wells[name] = [];
 
+  let nanCount = 0;
   for (let r = 1; r < raw.length; r++) {
     let row = raw[r];
     if (hasLeadingBlank && row.length > 0) row = row.slice(1);
@@ -201,9 +202,18 @@ function parseWideCsv(text: string, xColName: string): WideTable {
     xValues.push(xColName === 'cycle' ? Math.round(x) : x);
 
     for (const [col, wellName] of wellColMap.entries()) {
-      const v = parseFloat((row[col] ?? '').trim());
-      wells[wellName].push(isNaN(v) ? 0 : v);
+      const cell = (row[col] ?? '').trim();
+      const v = parseFloat(cell);
+      if (isNaN(v)) {
+        nanCount++;
+        wells[wellName].push(0);
+      } else {
+        wells[wellName].push(v);
+      }
     }
+  }
+  if (nanCount > 0) {
+    console.warn(`[BioRad] ${nanCount} non-numeric cell(s) in ${xColName} CSV replaced with 0`);
   }
   return { xValues, wells };
 }
@@ -484,6 +494,7 @@ export async function parseBioradFolder(dirPath: string): Promise<ExperimentData
   // --- Build WellInfo records (sample map drives which wells are "populated") ---
   const wells: Record<string, WellInfo> = {};
   const contentMap: Record<string, WellInfo['content']> = {
+    '': '',
     'Unkn': 'Unkn',
     'Neg Ctrl': 'Neg Ctrl',
     'Pos Ctrl': 'Pos Ctrl',
@@ -496,7 +507,7 @@ export async function parseBioradFolder(dirPath: string): Promise<ExperimentData
     wells[r.well] = {
       well: r.well,
       sample: r.sample || r.well,
-      content: contentMap[r.content] ?? 'Unkn',
+      content: contentMap[r.content.trim()] ?? 'Unkn',
       cq: r.cq,
       endRfu: endRfu[r.well] ?? null,
       meltTempC: meltPeaks[r.well]?.tm ?? null,

@@ -32,6 +32,7 @@ export interface StyleSnapshot {
   showGrid: boolean;
   gridAlpha: number;
   plotBgColor: string;
+  textColor: 'auto' | 'black' | 'white';
   figureDpi: number;
 }
 
@@ -49,6 +50,7 @@ const BUILTIN_BASE: Omit<StyleSnapshot, 'palette' | 'paletteReversed' | 'palette
   showTitle: true,
   showLabels: true,
   showTicks: true,
+  textColor: 'auto',
 };
 
 export const BUILTIN_PRESETS: Record<string, StyleSnapshot> = {

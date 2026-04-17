@@ -184,9 +184,7 @@ export function WellGrid() {
 
   return (
     <div
-      ref={gridRef}
-      className="inline-grid gap-[1px] relative select-none"
-      onContextMenu={onContextMenu}
+      className="p-4 -m-4 mb-0"
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
@@ -198,6 +196,11 @@ export function WellGrid() {
           setDragPreviewWells(null);
         }
       }}
+    >
+    <div
+      ref={gridRef}
+      className="inline-grid gap-[1px] relative select-none"
+      onContextMenu={onContextMenu}
       style={{
         gridTemplateColumns: `${HEADER_COL_W}px repeat(${plateColCount}, ${CELL_SIZE}px)`,
       }}
@@ -230,7 +233,12 @@ export function WellGrid() {
               ? 'var(--muted-foreground)'
               : traceColor ?? WELL_EMPTY_COLOR;
 
-          let cellOpacity = isHidden ? 0.5 : isUsed ? 1 : 0.4;
+          // Dim populated, visible, unselected wells when a partial selection
+          // is active — so the selected set "pops" against the rest of the plate.
+          const hasPartialSelection = selectedWells.size > 0 && selectedWells.size < usedWells.length;
+          const isDimmedBySelection = isUsed && !isHidden && !isSelected && hasPartialSelection;
+
+          let cellOpacity = isHidden ? 0.5 : isUsed ? (isDimmedBySelection ? 0.55 : 1) : 0.4;
           if (isDragHighlighted === true) cellOpacity = 1;
           else if (isDragHighlighted === false && isUsed) cellOpacity = 0.25;
 
@@ -284,6 +292,7 @@ export function WellGrid() {
       )}
 
       {menu && <ContextMenu x={menu.x} y={menu.y} onClose={close} />}
+    </div>
     </div>
   );
 }

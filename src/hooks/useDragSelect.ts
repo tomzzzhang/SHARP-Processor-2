@@ -69,7 +69,11 @@ export function useDragSelect(
         // Was a plain click, not a drag
         if (ctrlDrag.current) {
           actions.toggleWellSelection(well);
-        } else {
+        } else if (!actions.selectedWells.has(well)) {
+          // Clicking an unselected well narrows selection to just that one.
+          // Clicking an already-selected well preserves the current multi-selection
+          // so downstream click-handlers (e.g. inline edit in the sample cell) can
+          // act on all selected wells at commit time.
           actions.selectOnly(well);
         }
       }
