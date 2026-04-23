@@ -3,7 +3,7 @@ import Plotly from 'plotly.js-dist-min';
 import _createPlotlyComponent from 'react-plotly.js/factory';
 import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
-import { analyzeDilutionSeries, savitzkyGolaySmooth } from '@/lib/analysis';
+import { analyzeDilutionSeries } from '@/lib/analysis';
 import { THRESHOLD_LINE_COLOR, MOD_KEY, getPaletteColors } from '@/lib/constants';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useBoxSelect, BOX_SELECT_OVERLAY_STYLE } from '@/hooks/useBoxSelect';
@@ -901,9 +901,6 @@ function MeltDerivMini() {
   const analysisResults = useAnalysisResults();
   const dragPreviewWells = useAppState((s) => s.dragPreviewWells);
   const setDragPreviewWells = useAppState((s) => s.setDragPreviewWells);
-  const smoothingEnabled = useAppState((s) => s.smoothingEnabled);
-  const smoothingWindow = useAppState((s) => s.smoothingWindow);
-  const smoothingMeltDerivative = useAppState((s) => s.smoothingMeltDerivative);
   const meltThresholdEnabled = useAppState((s) => s.meltThresholdEnabled);
   const meltThresholdValue = useAppState((s) => s.meltThresholdValue);
   const setMeltThresholdValue = useAppState((s) => s.setMeltThresholdValue);
@@ -924,20 +921,19 @@ function MeltDerivMini() {
 
   const hasDerivative = melt && Object.keys(melt.derivative).length > 0;
 
-  const smoothMeltDeriv = smoothingEnabled && smoothingMeltDerivative;
-
-  // Pre-compute peak -dF/dT per well for threshold dimming
+  // Pre-compute peak -dF/dT per well for threshold dimming. The derivative
+  // coming from the parser is already smooth (BioRad port in parsers/utils.ts),
+  // so we consume it as-is — no further filtering needed.
   const wellPeakDeriv = useMemo(() => {
     if (!melt || !hasDerivative) return new Map<string, number>();
     const peaks = new Map<string, number>();
     for (const well of visibleWells) {
-      let derData = melt.derivative[well];
+      const derData = melt.derivative[well];
       if (!derData) continue;
-      if (smoothMeltDeriv) derData = savitzkyGolaySmooth(derData, smoothingWindow);
       peaks.set(well, Math.max(...derData));
     }
     return peaks;
-  }, [melt, visibleWells, hasDerivative, smoothMeltDeriv, smoothingWindow]);
+  }, [melt, visibleWells, hasDerivative]);
 
   const traces = useMemo((): Data[] => {
     if (!melt || !hasDerivative) return [];
@@ -947,9 +943,8 @@ function MeltDerivMini() {
       const isSelected = selectedWells.size === 0 || selectedWells.has(well);
       const isHovered = hoveredWell === well;
       const isDragHighlighted = dragPreviewWells ? dragPreviewWells.has(well) : null;
-      let derData = melt.derivative[well];
+      const derData = melt.derivative[well];
       if (!derData) continue;
-      if (smoothMeltDeriv) derData = savitzkyGolaySmooth(derData, smoothingWindow);
       let lineWidth = isSelected ? style.lineWidth : style.lineWidth * 0.6;
       let opacity = isSelected ? 1.0 : 0.25;
       if (isDragHighlighted === true) { lineWidth = style.lineWidth * 1.4; opacity = 1.0; }
@@ -969,7 +964,7 @@ function MeltDerivMini() {
       });
     }
     return result;
-  }, [melt, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells, smoothMeltDeriv, smoothingWindow, meltThresholdEnabled, meltThresholdValue, wellPeakDeriv]);
+  }, [melt, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells, meltThresholdEnabled, meltThresholdValue, wellPeakDeriv]);
 
   const layout = useMemo((): Partial<Layout> => {
     const shapes: Partial<Shape>[] = [];
@@ -1123,11 +1118,9 @@ function MeltPlot() {
   const analysisResults = useAnalysisResults();
   const dragPreviewWells = useAppState((s) => s.dragPreviewWells);
   const setDragPreviewWells = useAppState((s) => s.setDragPreviewWells);
-  const smoothingEnabled = useAppState((s) => s.smoothingEnabled);
-  const smoothingWindow = useAppState((s) => s.smoothingWindow);
-  const smoothingMeltDerivative = useAppState((s) => s.smoothingMeltDerivative);
   const meltThresholdEnabled = useAppState((s) => s.meltThresholdEnabled);
   const meltThresholdValue = useAppState((s) => s.meltThresholdValue);
+  const setMeltThresholdValue = useAppState((s) => s.setMeltThresholdValue);
 
   const exp = experiments[idx];
   const melt = exp?.melt;
@@ -1151,20 +1144,19 @@ function MeltPlot() {
   const legendRanks = useMemo(() => buildLegendRanks(legendOrder), [legendOrder]);
 
   const hasDerivative = melt && Object.keys(melt.derivative).length > 0;
-  const smoothMeltDeriv = smoothingEnabled && smoothingMeltDerivative;
 
-  // Pre-compute peak -dF/dT per well for threshold dimming
+  // Pre-compute peak -dF/dT per well for threshold dimming. Derivative from
+  // the parser is already smooth (BioRad port in parsers/utils.ts).
   const wellPeakDeriv = useMemo(() => {
     if (!melt || !hasDerivative) return new Map<string, number>();
     const peaks = new Map<string, number>();
     for (const well of visibleWells) {
-      let derData = melt.derivative[well];
+      const derData = melt.derivative[well];
       if (!derData) continue;
-      if (smoothMeltDeriv) derData = savitzkyGolaySmooth(derData, smoothingWindow);
       peaks.set(well, Math.max(...derData));
     }
     return peaks;
-  }, [melt, visibleWells, hasDerivative, smoothMeltDeriv, smoothingWindow]);
+  }, [melt, visibleWells, hasDerivative]);
 
   const traces = useMemo((): Data[] => {
     if (!melt) return [];
@@ -1205,9 +1197,8 @@ function MeltPlot() {
         const isSelected = selectedWells.size === 0 || selectedWells.has(well);
         const isHovered = hoveredWell === well;
         const isDragHighlighted = dragPreviewWells ? dragPreviewWells.has(well) : null;
-        let derData = melt.derivative[well];
+        const derData = melt.derivative[well];
         if (!derData) continue;
-        if (smoothMeltDeriv) derData = savitzkyGolaySmooth(derData, smoothingWindow);
         let lineWidth = isSelected ? style.lineWidth : style.lineWidth * 0.6;
         let opacity = isSelected ? 1.0 : 0.25;
         if (isDragHighlighted === true) { lineWidth = style.lineWidth * 1.4; opacity = 1.0; }
@@ -1226,12 +1217,12 @@ function MeltPlot() {
           legendrank: legendRanks.get(li.group) ?? 1000,
           line: { color, width: lineWidth },
           opacity,
-          hoverinfo: 'name' as const, yaxis: 'y2', showlegend: false,
+          hoverinfo: 'name' as const, xaxis: 'x2', yaxis: 'y2', showlegend: false,
         });
       }
     }
     return result;
-  }, [melt, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells, smoothMeltDeriv, smoothingWindow, meltThresholdEnabled, meltThresholdValue, wellPeakDeriv, legendInfo, legendRanks]);
+  }, [melt, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells, meltThresholdEnabled, meltThresholdValue, wellPeakDeriv, legendInfo, legendRanks]);
 
   const layout = useMemo((): Partial<Layout> => {
     const title = exp?.experimentId ? `${exp.experimentId} — Melt` : 'Melt Curve';
@@ -1247,9 +1238,14 @@ function MeltPlot() {
     if (hasDerivative) {
       return {
         title: titleField(title, style),
-        xaxis: { title: axisLabel('Temperature (°C)', style), ...tickProps(style), ...grid },
-        yaxis: { title: axisLabel('RFU', style), ...tickProps(style), domain: [0.55, 1], ...grid },
-        yaxis2: { title: axisLabel('-dF/dT', style), ...tickProps(style), domain: [0, 0.45], anchor: 'x', ...grid },
+        // Top subplot x-axis: anchored to yaxis (RFU), tick labels hidden
+        // so they don't appear between the two subplots.
+        xaxis: { ...tickProps(style), showticklabels: false, ...grid, anchor: 'y' },
+        // Bottom subplot x-axis: matches xaxis so zoom/pan stay in sync,
+        // anchored to yaxis2 so the Temperature label + ticks sit at the bottom.
+        xaxis2: { title: axisLabel('Temperature (°C)', style), ...tickProps(style), ...grid, matches: 'x', anchor: 'y2' },
+        yaxis: { title: axisLabel('RFU', style), ...tickProps(style), domain: [0.55, 1], anchor: 'x', ...grid },
+        yaxis2: { title: axisLabel('-dF/dT', style), ...tickProps(style), domain: [0, 0.45], anchor: 'x2', ...grid },
         shapes: shapes as Layout['shapes'],
         dragmode: false as Layout['dragmode'], autosize: true, margin: computeMargins(style),
         plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) }, ...legendLayout(style, showLegendMelt, traces, isDark),
@@ -1272,11 +1268,6 @@ function MeltPlot() {
   const meltRef = useRef(melt);
   meltRef.current = melt;
 
-  const smoothMeltDerivRef = useRef(smoothMeltDeriv);
-  smoothMeltDerivRef.current = smoothMeltDeriv;
-  const smoothingWindowRef = useRef(smoothingWindow);
-  smoothingWindowRef.current = smoothingWindow;
-
   const matchWellsInBox = useCallback((x0: number, x1: number, y0: number, y1: number, y2Bounds?: { y0: number; y1: number }): Set<string> => {
     const m = meltRef.current;
     if (!m) return new Set();
@@ -1294,9 +1285,8 @@ function MeltPlot() {
       }
       // Check derivative traces (yaxis2)
       if (!matched.has(well) && y2Bounds) {
-        let derData = m.derivative[well];
+        const derData = m.derivative[well];
         if (derData) {
-          if (smoothMeltDerivRef.current) derData = savitzkyGolaySmooth(derData, smoothingWindowRef.current);
           for (let i = 0; i < m.temperatureC.length; i++) {
             if (m.temperatureC[i] >= x0 && m.temperatureC[i] <= x1 && derData[i] >= y2Bounds.y0 && derData[i] <= y2Bounds.y1) {
               matched.add(well);
@@ -1325,6 +1315,12 @@ function MeltPlot() {
     onDragMove: handleDragMove,
     onDragEnd: handleDragEnd,
     onEmptyClick: deselectAll,
+    meltThreshold: meltThresholdEnabled && hasDerivative ? {
+      enabled: true,
+      value: meltThresholdValue,
+      setValue: setMeltThresholdValue,
+      axis: 'y2',  // derivative occupies the lower subplot in the melt view
+    } : undefined,
   });
 
   const handleClick = useCallback((event: Readonly<PlotMouseEvent>) => {

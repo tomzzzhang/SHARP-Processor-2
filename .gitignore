@@ -30,3 +30,10 @@ dist-release/
 
 # Local dev config (machine-specific, not for public repo)
 CLAUDE.local.md
+
+# Claude Code local state (session data, worktrees)
+.claude/
+
+# Python bytecode caches
+**/__pycache__/
+*.pyc

@@ -3,7 +3,6 @@ import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { useDragSelect } from '@/hooks/useDragSelect';
 import { useMemo, useState, useCallback, useRef } from 'react';
 import { CONTENT_DISPLAY, getPaletteColors } from '@/lib/constants';
-import { savitzkyGolaySmooth } from '@/lib/analysis';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -113,22 +112,19 @@ export function ResultsTable() {
   const wellGroups = useAppState((s) => s.wellGroups);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
   const xAxisMode = useAppState((s) => s.xAxisMode);
-  const smoothingEnabled = useAppState((s) => s.smoothingEnabled);
-  const smoothingWindow = useAppState((s) => s.smoothingWindow);
-  const smoothingMeltDerivative = useAppState((s) => s.smoothingMeltDerivative);
   const exp = experiments[idx];
   const melt = exp?.melt;
   const analysisResults = useAnalysisResults();
 
-  // Compute Tm (temperature at peak -dF/dT) per well
+  // Compute Tm (temperature at peak -dF/dT) per well. Derivative from the
+  // parser is already smooth (BioRad port in parsers/utils.ts), so we take
+  // its max directly.
   const tmMap = useMemo(() => {
     const map = new Map<string, number>();
     if (!melt || Object.keys(melt.derivative).length === 0) return map;
-    const smoothDeriv = smoothingEnabled && smoothingMeltDerivative;
     for (const well of exp?.wellsUsed ?? []) {
-      let derData = melt.derivative[well];
+      const derData = melt.derivative[well];
       if (!derData || derData.length === 0) continue;
-      if (smoothDeriv) derData = savitzkyGolaySmooth(derData, smoothingWindow);
       let maxIdx = 0;
       let maxVal = -Infinity;
       for (let i = 0; i < derData.length; i++) {
@@ -139,7 +135,7 @@ export function ResultsTable() {
       }
     }
     return map;
-  }, [melt, exp, smoothingEnabled, smoothingWindow, smoothingMeltDerivative]);
+  }, [melt, exp]);
 
   const [sortKey, setSortKey] = useState<SortKey>('well');
   const [sortDir, setSortDir] = useState<SortDir>('asc');

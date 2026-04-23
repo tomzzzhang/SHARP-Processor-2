@@ -144,6 +144,12 @@ export function StyleTab() {
   const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
   const paletteArrowMode = useAppState((s) => s.paletteArrowMode);
   const setPaletteArrowMode = useAppState((s) => s.setPaletteArrowMode);
+  const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
+  const clearAllColorOverrides = useAppState((s) => s.clearAllColorOverrides);
+  const hasCustomColor = useMemo(() => {
+    for (const ov of wellStyleOverrides.values()) if (ov.color) return true;
+    return false;
+  }, [wellStyleOverrides]);
   const showGrid = useAppState((s) => s.showGrid);
   const gridAlpha = useAppState((s) => s.gridAlpha);
   const plotBgColor = useAppState((s) => s.plotBgColor);
@@ -282,6 +288,16 @@ export function StyleTab() {
           onClick={() => setPaletteArrowMode(!paletteArrowMode)}
         >
           {paletteArrowMode ? 'Draw arrow on plot...' : 'Assign palette by arrow'}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full h-7 text-xs"
+          onClick={clearAllColorOverrides}
+          disabled={!hasCustomColor}
+          title="Remove every per-well color override and revert to the palette."
+        >
+          Clear custom colors
         </Button>
 
         <div className="border-t pt-2 mt-1">

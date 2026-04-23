@@ -19,11 +19,15 @@ interface BoxSelectOptions {
     rfu: number;
     setRfu: (v: number) => void;
   };
-  /** Optional: melt derivative threshold drag support */
+  /** Optional: melt derivative threshold drag support.
+   *  `axis` says which Plotly y-axis the threshold sits on — 'y' for a
+   *  single-axis plot (amp-tab mini derivative) or 'y2' for the stacked
+   *  melt plot where the derivative occupies the lower subplot. */
   meltThreshold?: {
     enabled: boolean;
     value: number;
     setValue: (v: number) => void;
+    axis?: 'y' | 'y2';
   };
   /** Optional: palette arrow mode — when active, drag draws an arrow
    *  instead of a box. On mouse-up the callback receives the start and
@@ -115,10 +119,12 @@ export function useBoxSelect(options: BoxSelectOptions) {
     const mt = meltThresholdRef.current;
     if (!mt?.enabled) return false;
     const plotDiv = getPlotDiv();
-    if (!plotDiv?._fullLayout?.yaxis?.d2p) return false;
-    const yaxis = plotDiv._fullLayout.yaxis;
+    if (!plotDiv?._fullLayout) return false;
+    const axisKey = mt.axis === 'y2' ? 'yaxis2' : 'yaxis';
+    const axis = plotDiv._fullLayout[axisKey];
+    if (!axis?.d2p) return false;
     const plotRect = plotDiv.getBoundingClientRect();
-    const thresholdPixelY = yaxis.d2p!(mt.value) + plotRect.top + (yaxis._offset ?? 0);
+    const thresholdPixelY = axis.d2p!(mt.value) + plotRect.top + (axis._offset ?? 0);
     return Math.abs(pixelY - thresholdPixelY) < 8;
   }, [getPlotDiv]);
 
@@ -211,10 +217,11 @@ export function useBoxSelect(options: BoxSelectOptions) {
         if (yVal != null && yVal > 0) thresholdRef.current?.setRfu(Math.round(yVal * 10) / 10);
         return;
       }
-      // Melt threshold drag
+      // Melt threshold drag — read from the correct y-axis (y or y2)
       if (meltThresholdDragging.current) {
         e.preventDefault();
-        const yVal = pixelToYValue(e.clientY);
+        const onY2 = meltThresholdRef.current?.axis === 'y2';
+        const yVal = onY2 ? pixelToY2Value(e.clientY) : pixelToYValue(e.clientY);
         if (yVal != null && yVal > 0) meltThresholdRef.current?.setValue(Math.round(yVal));
         return;
       }

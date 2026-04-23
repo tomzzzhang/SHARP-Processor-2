@@ -16,7 +16,6 @@
 import type { Data, Layout, Shape, PlotData } from 'plotly.js';
 import type { ExperimentData, XAxisMode } from '@/types/experiment';
 import type { WellAnalysisResult } from '@/lib/analysis';
-import { savitzkyGolaySmooth } from '@/lib/analysis';
 import { getPaletteColors } from '@/lib/constants';
 
 export type PlotType = 'amp' | 'melt' | 'melt_deriv' | 'doubling';
@@ -61,7 +60,6 @@ export interface BuildFigureInput {
   meltThresholdValue: number;
   smoothingEnabled: boolean;
   smoothingWindow: number;
-  smoothingMeltDerivative: boolean;
 }
 
 const X_AXIS_LABELS: Record<XAxisMode, string> = {
@@ -323,13 +321,12 @@ function buildAmp(input: BuildFigureInput): { data: Data[]; layout: Partial<Layo
 // ── Melt (RFU + derivative stacked) ────────────────────────────────
 
 function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Data[]; layout: Partial<Layout> } {
-  const { exp, visibleWells, style, smoothingEnabled, smoothingMeltDerivative, smoothingWindow, meltThresholdEnabled, meltThresholdValue } = input;
+  const { exp, visibleWells, style, meltThresholdEnabled, meltThresholdValue } = input;
   const melt = exp.melt;
   const data: Data[] = [];
   if (!melt) return { data, layout: {} };
 
   const hasDerivative = Object.keys(melt.derivative).length > 0;
-  const smoothDeriv = smoothingEnabled && smoothingMeltDerivative;
   const colorMap = computeColorMap(input);
   const legendGroups = computeLegendGroups(input);
   const legendRanks = buildLegendRanks(input.legendOrder);
@@ -360,12 +357,12 @@ function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Dat
     }
   }
 
-  // Derivative traces
+  // Derivative traces — melt.derivative is already smooth from the parser
+  // (BioRad port in parsers/utils.ts), used as-is.
   if (hasDerivative) {
     for (const well of visibleWells) {
-      let der = melt.derivative[well];
+      const der = melt.derivative[well];
       if (!der) continue;
-      if (smoothDeriv) der = savitzkyGolaySmooth(der, smoothingWindow);
       const color = colorMap.get(well) ?? '#999';
       const lsOv = lineStyleFor(well, input);
       const lg = legendGroups.get(well)!;
@@ -384,6 +381,7 @@ function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Dat
         // legend on derivative only when standalone; otherwise the RFU
         // trace above carries the entry for the group.
         showlegend: derivativeOnly && lg.isRep,
+        xaxis: derivativeOnly ? 'x' : 'x2',
         yaxis: derivativeOnly ? 'y' : 'y2',
       });
     }
@@ -446,22 +444,36 @@ function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Dat
     };
   }
 
-  // Full melt: stacked RFU (top) + derivative (bottom)
+  // Full melt: stacked RFU (top) + derivative (bottom).
+  // Split into two x-axes so the Temperature label + ticks sit under the
+  // bottom subplot (derivative), not between the two subplots.
+  const xaxisTop = {
+    ...pfTickProps(style),
+    showticklabels: false,
+    ...gridStyle(style),
+    anchor: 'y',
+  };
+  const xaxisBottom = {
+    ...xaxis,
+    matches: 'x',
+    anchor: 'y2',
+  };
   return {
     data,
     layout: {
       ...baseLayout,
-      xaxis,
+      xaxis: xaxisTop,
+      xaxis2: xaxisBottom,
       yaxis: {
         title: pfAxisLabel('RFU', style),
         ...pfTickProps(style),
-        domain: [0.55, 1],
+        domain: [0.55, 1], anchor: 'x',
         ...gridStyle(style),
       },
       yaxis2: {
         title: pfAxisLabel('-dF/dT', style),
         ...pfTickProps(style),
-        domain: [0, 0.45], anchor: 'x',
+        domain: [0, 0.45], anchor: 'x2',
         ...gridStyle(style),
       },
     },
