@@ -30,9 +30,12 @@
 // peaks around the true melt temperature. BioRad's approach smooths RFU first
 // and differentiates from a polynomial fit, which is inherently smooth.
 // Kept here as a fallback reference or for diagnostic comparison.
+//
+// Exported so `tsc -b` (with noUnusedLocals) doesn't flag it. Nothing in the
+// live app imports this module.
 // ============================================================================
 
-function computeMeltDerivative_CentralDiff(
+export function computeMeltDerivative_CentralDiff(
   temperatureC: number[],
   rfu: Record<string, number[]>,
 ): Record<string, number[]> {
