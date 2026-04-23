@@ -15,7 +15,6 @@ export function AnalysisTab() {
   const thresholdRfu = useAppState((s) => s.thresholdRfu);
   const smoothingEnabled = useAppState((s) => s.smoothingEnabled);
   const smoothingWindow = useAppState((s) => s.smoothingWindow);
-  const smoothingMeltDerivative = useAppState((s) => s.smoothingMeltDerivative);
   const selectedWells = useAppState((s) => s.selectedWells);
   const wellBaselineOverrides = useAppState((s) => s.wellBaselineOverrides);
 
@@ -28,7 +27,6 @@ export function AnalysisTab() {
   const setThresholdRfu = useAppState((s) => s.setThresholdRfu);
   const setSmoothingEnabled = useAppState((s) => s.setSmoothingEnabled);
   const setSmoothingWindow = useAppState((s) => s.setSmoothingWindow);
-  const setSmoothingMeltDerivative = useAppState((s) => s.setSmoothingMeltDerivative);
   const meltThresholdEnabled = useAppState((s) => s.meltThresholdEnabled);
   const meltThresholdValue = useAppState((s) => s.meltThresholdValue);
   const setMeltThresholdEnabled = useAppState((s) => s.setMeltThresholdEnabled);
@@ -295,13 +293,13 @@ export function AnalysisTab() {
         </p>
       </CollapsibleSection>
 
-      <CollapsibleSection title="Smoothing" defaultOpen={false}>
+      <CollapsibleSection title="Amp smoothing" defaultOpen={false}>
         <label className="flex items-center gap-2 text-sm">
           <Checkbox
             checked={smoothingEnabled}
             onCheckedChange={(v) => setSmoothingEnabled(v === true)}
           />
-          Savitzky-Golay smoothing
+          Smooth amplification curves
         </label>
 
         <div className="flex items-center gap-2 text-sm">
@@ -323,17 +321,9 @@ export function AnalysisTab() {
           />
         </div>
 
-        <label className="flex items-center gap-2 text-sm">
-          <Checkbox
-            checked={smoothingMeltDerivative}
-            onCheckedChange={(v) => setSmoothingMeltDerivative(v === true)}
-            disabled={!smoothingEnabled}
-          />
-          Apply to melt derivative
-        </label>
-
         <p className="text-xs text-muted-foreground italic">
-          Smooths amplification curves and optionally melt -dF/dT
+          Savitzky-Golay filter. The melt -dF/dT is already smoothed at the
+          parser (BioRad CFX Maestro algorithm) and needs no extra pass.
         </p>
       </CollapsibleSection>
     </div>

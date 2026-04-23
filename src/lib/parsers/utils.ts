@@ -95,23 +95,127 @@ export function computeTimeStats(cycleTimes: number[]) {
 }
 
 // ---------------------------------------------------------------------------
-// Melt derivative computation
+// Melt derivative computation — BioRad CFX Maestro algorithm
 // ---------------------------------------------------------------------------
+//
+// Reverse-engineered from BioRad.PCR.Analysis.dll (CFX Maestro) v1.x:
+//   BioRad.PCR.Analysis.MeltCurvePeakFluorDataSet.MeltCurvePeakDetection()
+//   BioRad.Mathematics.PeakDetection.InitalizeData()
+//
+// Pipeline:
+//   1. Raw RFU → 5-point centered mean (twice)
+//   2. Linear-extrapolate first 5 points from the line through [5,6]
+//   3. SavGol 1st derivative, polynomial order 4, width 5
+//      (equivalent to 4th-order central difference: [1,-8,0,8,-1] / 12h)
+//   4. Divide by fixed ΔT = (Tmax - Tmin) / (N-1)
+//   5. Linear-extrapolate first 2 points of the derivative
+//   6. Negate so RFU going down = positive peak (-dF/dT convention)
+//
+// Why this beats naive central difference: differentiation amplifies
+// high-frequency noise. BioRad removes noise BEFORE differentiating (two
+// triangular smoothing passes) and then fits a polynomial to compute the
+// derivative analytically, which is implicitly smooth.
 
+/** 5-point centered moving average; window shrinks at the edges so both
+ *  endpoints stay on a finite window (matches BioRad's ArithmeticMeans.Center). */
+function centeredMean5(data: number[]): number[] {
+  const n = data.length;
+  if (n < 3) return [...data];
+  const out = new Array<number>(n);
+  out[0] = data[0];
+  out[n - 1] = data[n - 1];
+  const half = 2; // for width 5
+  for (let i = 1; i < n - 1; i++) {
+    const left = Math.min(half, i);
+    const right = Math.min(half, n - 1 - i);
+    const w = Math.min(left, right);
+    let sum = 0;
+    const count = 2 * w + 1;
+    for (let j = i - w; j <= i + w; j++) sum += data[j];
+    out[i] = sum / count;
+  }
+  return out;
+}
+
+/** Linear extrapolation of the first `count` points using the line through
+ *  points [count, count+1]. Matches BioRad's FixStartingPoints. */
+function linearExtrapStart(data: number[], count: number): void {
+  if (data.length < count + 2) return;
+  const x0 = count, y0 = data[count];
+  const x1 = count + 1, y1 = data[count + 1];
+  const slope = y1 - y0; // Δx = 1 (index units)
+  const intercept = y0 - slope * x0;
+  for (let i = 0; i < count; i++) data[i] = slope * i + intercept;
+}
+
+/** 5-point Savitzky-Golay 1st derivative at index i, polynomial order 4.
+ *  With width 5 and poly 4 the fit is exact, giving the classical 4th-order
+ *  central-difference coefficients [1, -8, 0, 8, -1] / 12. Returns df/di;
+ *  caller divides by ΔT to get df/dT. */
+function savGolDeriv1_w5p4(data: number[], i: number): number {
+  return (data[i - 2] - 8 * data[i - 1] + 8 * data[i + 1] - data[i + 2]) / 12;
+}
+
+/** Compute smooth -dF/dT for every well using the BioRad CFX Maestro algorithm. */
 export function computeMeltDerivative(
   temperatureC: number[],
   rfu: Record<string, number[]>,
 ): Record<string, number[]> {
   const derivative: Record<string, number[]> = {};
-  if (temperatureC.length < 3) return derivative;
-  for (const [well, data] of Object.entries(rfu)) {
-    const d = new Array<number>(data.length);
-    d[0] = -(data[1] - data[0]) / (temperatureC[1] - temperatureC[0]);
-    for (let i = 1; i < data.length - 1; i++) {
-      d[i] = -(data[i + 1] - data[i - 1]) / (temperatureC[i + 1] - temperatureC[i - 1]);
+  const n = temperatureC.length;
+  if (n < 5) {
+    // Not enough points for the 5-point SavGol; fall back to simple diff.
+    for (const [well, data] of Object.entries(rfu)) {
+      const d = new Array<number>(data.length).fill(0);
+      for (let i = 1; i < data.length - 1; i++) {
+        const dt = temperatureC[i + 1] - temperatureC[i - 1];
+        if (dt !== 0) d[i] = -(data[i + 1] - data[i - 1]) / dt;
+      }
+      if (data.length >= 2) {
+        const dt0 = temperatureC[1] - temperatureC[0];
+        d[0] = dt0 ? -(data[1] - data[0]) / dt0 : 0;
+        const last = data.length - 1;
+        const dtL = temperatureC[last] - temperatureC[last - 1];
+        d[last] = dtL ? -(data[last] - data[last - 1]) / dtL : 0;
+      }
+      derivative[well] = d;
     }
-    const n = data.length - 1;
-    d[n] = -(data[n] - data[n - 1]) / (temperatureC[n] - temperatureC[n - 1]);
+    return derivative;
+  }
+
+  // Fixed ΔT matching BioRad's CalculateTemperatureIncrement.
+  const dT = Math.abs((temperatureC[n - 1] - temperatureC[0]) / (n - 1)) || 1;
+
+  for (const [well, raw] of Object.entries(rfu)) {
+    if (raw.length !== n) { derivative[well] = new Array<number>(raw.length).fill(0); continue; }
+
+    // 1. Smooth RFU with two passes of centered 5-point mean.
+    let y = centeredMean5(raw);
+    y = centeredMean5(y);
+
+    // 2. Linear-extrapolate the first 5 points.
+    linearExtrapStart(y, 5);
+
+    // 3. Pad RFU by replicating first/last value (matches BioRad's
+    //    FilterSavitskyGolay.CreatePaddedVector), then run SavGol across
+    //    the full padded signal so edges get real SavGol outputs.
+    const padded = new Array<number>(n + 4);
+    padded[0] = padded[1] = y[0];
+    for (let i = 0; i < n; i++) padded[i + 2] = y[i];
+    padded[n + 2] = padded[n + 3] = y[n - 1];
+
+    const d = new Array<number>(n);
+    for (let i = 0; i < n; i++) {
+      d[i] = savGolDeriv1_w5p4(padded, i + 2) / dT;
+    }
+
+    // 4. Fix the first 2 derivative points via linear extrapolation
+    //    (BioRad's FixStartingPoints(_, 2) after SavGol).
+    linearExtrapStart(d, 2);
+
+    // 5. Negate → -dF/dT (positive peak where RFU drops).
+    for (let i = 0; i < n; i++) d[i] = -d[i];
+
     derivative[well] = d;
   }
   return derivative;

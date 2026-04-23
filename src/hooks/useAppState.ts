@@ -58,10 +58,11 @@ export interface ExperimentViewState {
   meltThresholdEnabled: boolean;
   meltThresholdValue: number;  // -dF/dT threshold
 
-  // Analysis - Smoothing
+  // Analysis - Smoothing (amplification only; melt -dF/dT is pre-smoothed
+  // at the parser via the BioRad CFX Maestro algorithm port in
+  // src/lib/parsers/utils.ts — no post-smoothing needed).
   smoothingEnabled: boolean;
   smoothingWindow: number;  // odd, 5-21
-  smoothingMeltDerivative: boolean;
 
   // Analysis - Fitting
   fittingEnabled: boolean;
@@ -120,11 +121,10 @@ function defaultViewState(wellsUsed: string[] = []): ExperimentViewState {
     showRawOverlay: false,
     thresholdEnabled: false,
     thresholdRfu: DEFAULT_THRESHOLD_RFU,
-    meltThresholdEnabled: true,
+    meltThresholdEnabled: false,
     meltThresholdValue: 400,
     smoothingEnabled: false,
-    smoothingWindow: 7,
-    smoothingMeltDerivative: true,
+    smoothingWindow: 11,
     fittingEnabled: false,
     fitStartFraction: 0.10,
     fitEndFraction: 0.90,
@@ -183,7 +183,6 @@ function snapshotViewState(state: AppState): ExperimentViewState {
     meltThresholdValue: state.meltThresholdValue,
     smoothingEnabled: state.smoothingEnabled,
     smoothingWindow: state.smoothingWindow,
-    smoothingMeltDerivative: state.smoothingMeltDerivative,
     fittingEnabled: state.fittingEnabled,
     fitStartFraction: state.fitStartFraction,
     fitEndFraction: state.fitEndFraction,
@@ -282,6 +281,9 @@ interface AppState extends ExperimentViewState {
   setWellSampleNameBatch: (wells: string[], name: string) => void;
   setWellStyleOverride: (wells: string[], style: WellStyleOverride) => void;
   clearWellStyleOverrides: (wells: string[]) => void;
+  /** Remove only the `color` field from every per-well style override,
+   *  preserving `lineWidth` / `lineStyle`. No selection required. */
+  clearAllColorOverrides: () => void;
   setWellBaselineOverride: (wells: string[], override: WellBaselineOverride) => void;
   clearWellBaselineOverrides: (wells: string[]) => void;
   setWellGroup: (wells: string[], group: string) => void;
@@ -305,7 +307,6 @@ interface AppState extends ExperimentViewState {
   setMeltThresholdValue: (value: number) => void;
   setSmoothingEnabled: (on: boolean) => void;
   setSmoothingWindow: (window: number) => void;
-  setSmoothingMeltDerivative: (on: boolean) => void;
   setFittingEnabled: (on: boolean) => void;
   setFitStartFraction: (fraction: number) => void;
   setFitEndFraction: (fraction: number) => void;
@@ -754,6 +755,23 @@ export const useAppState = create<AppState>((set, get) => ({
       return { wellStyleOverrides: next };
     });
   },
+  clearAllColorOverrides: () => {
+    // No-op if nothing to do (skip the undo entry to avoid clutter).
+    const current = get().wellStyleOverrides;
+    let hasColor = false;
+    for (const ov of current.values()) if (ov.color) { hasColor = true; break; }
+    if (!hasColor) return;
+    get().pushUndo('Clear custom colors');
+    set((state) => {
+      const next = new Map<string, WellStyleOverride>();
+      for (const [w, ov] of state.wellStyleOverrides) {
+        const { color: _drop, ...rest } = ov;
+        void _drop;
+        if (rest.lineWidth != null || rest.lineStyle != null) next.set(w, rest);
+      }
+      return { wellStyleOverrides: next };
+    });
+  },
   setWellBaselineOverride: (wells, override) => {
     get().pushUndo('Set well baseline');
     set((state) => {
@@ -831,7 +849,6 @@ export const useAppState = create<AppState>((set, get) => ({
   setMeltThresholdValue: (value) => set({ meltThresholdValue: value }),
   setSmoothingEnabled: (on) => { get().pushUndo('Toggle smoothing'); set({ smoothingEnabled: on }); },
   setSmoothingWindow: (window) => set({ smoothingWindow: window }),
-  setSmoothingMeltDerivative: (on) => set({ smoothingMeltDerivative: on }),
   setFittingEnabled: (on) => set({ fittingEnabled: on }),
   setFitStartFraction: (fraction) => set({ fitStartFraction: fraction }),
   setFitEndFraction: (fraction) => set({ fitEndFraction: fraction }),
