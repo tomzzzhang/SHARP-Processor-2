@@ -142,7 +142,7 @@ function centeredMean5(data: number[]): number[] {
 function linearExtrapStart(data: number[], count: number): void {
   if (data.length < count + 2) return;
   const x0 = count, y0 = data[count];
-  const x1 = count + 1, y1 = data[count + 1];
+  const y1 = data[count + 1];
   const slope = y1 - y0; // Δx = 1 (index units)
   const intercept = y0 - slope * x0;
   for (let i = 0; i < count; i++) data[i] = slope * i + intercept;

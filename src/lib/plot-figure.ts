@@ -447,13 +447,13 @@ function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Dat
   // Full melt: stacked RFU (top) + derivative (bottom).
   // Split into two x-axes so the Temperature label + ticks sit under the
   // bottom subplot (derivative), not between the two subplots.
-  const xaxisTop = {
+  const xaxisTop: Partial<Layout['xaxis']> = {
     ...pfTickProps(style),
     showticklabels: false,
     ...gridStyle(style),
     anchor: 'y',
   };
-  const xaxisBottom = {
+  const xaxisBottom: Partial<Layout['xaxis']> = {
     ...xaxis,
     matches: 'x',
     anchor: 'y2',
