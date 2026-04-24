@@ -379,16 +379,38 @@ export async function exportMeltCsv(
 
 // ── .sharp Export ────────────────────────────────────────────────────
 
+/** Escape a string for a CSV cell: wraps in double quotes if it contains
+ *  a comma, quote, or newline; doubles internal quotes. Numeric values
+ *  pass through unchanged. */
+function csvCell(value: unknown): string {
+  if (value == null) return '';
+  const s = String(value);
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+/** Compact human format for optional numbers in wells.csv / SUMMARY.txt. */
+function fmtNum(v: number | null | undefined, decimals = 2): string {
+  if (v == null || !isFinite(v)) return '';
+  return (Math.round(v * 10 ** decimals) / 10 ** decimals).toString();
+}
+
 /**
  * Build a .sharp ZIP archive from experiment data.
  * Shared by both saveSession (quick save) and exportAsSharp (save as).
+ *
+ * Format version 1.1 adds `wells.csv` (tabular well manifest) and
+ * `SUMMARY.txt` (human-readable overview) alongside the authoritative
+ * `metadata.json`. Both are written whenever there are wells; readers
+ * that only know 1.0 continue to work because metadata.json still carries
+ * the same well info.
  */
 async function buildSharpZip(exp: ExperimentData): Promise<Uint8Array> {
   const zip = new JSZip();
 
   const metadata: Record<string, unknown> = {
     ...(exp.metadata ?? {}),
-    format_version: exp.formatVersion || '1.0',
+    format_version: '1.1',
     experiment_id: exp.experimentId,
     protocol: { type: exp.protocolType || 'unknown' },
     run_info: {
@@ -419,6 +441,25 @@ async function buildSharpZip(exp: ExperimentData): Promise<Uint8Array> {
   }
   metadata.wells = wellsMeta;
   zip.file('metadata.json', JSON.stringify(metadata, null, 2));
+
+  // wells.csv — flat well manifest, spreadsheet-friendly
+  if (exp.wellsUsed.length > 0) {
+    const headers = ['well', 'sample', 'content', 'cq', 'end_rfu', 'melt_temp_c', 'melt_peak_height'];
+    const rows = exp.wellsUsed.map((w) => {
+      const info = exp.wells[w];
+      if (!info) return [csvCell(w), '', '', '', '', '', ''].join(',');
+      return [
+        csvCell(w),
+        csvCell(info.sample),
+        csvCell(info.content),
+        csvCell(fmtNum(info.cq, 3)),
+        csvCell(fmtNum(info.endRfu, 1)),
+        csvCell(fmtNum(info.meltTempC, 2)),
+        csvCell(fmtNum(info.meltPeakHeight, 1)),
+      ].join(',');
+    });
+    zip.file('wells.csv', [headers.join(','), ...rows].join('\n'));
+  }
 
   if (exp.amplification) {
     const amp = exp.amplification;
@@ -459,7 +500,76 @@ async function buildSharpZip(exp: ExperimentData): Promise<Uint8Array> {
     zip.file('melt_derivative.csv', [derivHeaders.join(','), ...derivRows].join('\n'));
   }
 
+  // SUMMARY.txt — human-readable overview. Not read back by the app;
+  // exists so someone can `cat` the archive and understand it.
+  zip.file('SUMMARY.txt', buildSharpSummary(exp, zip));
+
   return zip.generateAsync({ type: 'uint8array' });
+}
+
+/** Build the human-readable SUMMARY.txt body. Lists only the files
+ *  actually present in the archive. */
+function buildSharpSummary(exp: ExperimentData, zip: JSZip): string {
+  const md = (exp.metadata ?? {}) as Record<string, unknown>;
+  const instrument = (md.instrument ?? {}) as Record<string, string>;
+  const protocol = (md.protocol ?? {}) as Record<string, unknown>;
+  const runInfo = (md.run_info ?? {}) as Record<string, string>;
+
+  const instrumentLine = [
+    instrument.manufacturer,
+    instrument.model,
+  ].filter(Boolean).join(' ') || 'Unknown';
+  const instrumentExtras: string[] = [];
+  if (instrument.serial_number) instrumentExtras.push(`SN ${instrument.serial_number}`);
+  if (instrument.software_version) instrumentExtras.push(`sw ${instrument.software_version}`);
+
+  const protocolBits: string[] = [];
+  if (protocol.type) protocolBits.push(String(protocol.type));
+  if (protocol.amp_cycle_count) protocolBits.push(`${protocol.amp_cycle_count} cycles`);
+  if (protocol.reaction_temp_c != null) protocolBits.push(`${protocol.reaction_temp_c}°C reaction`);
+  if (protocol.has_melt) protocolBits.push('with melt curve');
+
+  const wellCount = exp.wellsUsed.length;
+  const plate = `${exp.plateRows}×${exp.plateCols}`;
+
+  // Only list files that actually ended up in the archive
+  const descriptions: Record<string, string> = {
+    'metadata.json':       'full machine-readable metadata (authoritative)',
+    'amplification.csv':   'per-cycle RFU per well, wide format',
+    'melt_rfu.csv':        'per-temperature RFU per well, wide format',
+    'melt_derivative.csv': 'per-temperature -dF/dT per well, wide format',
+    'wells.csv':           'well → sample / content / Cq / Tm manifest',
+    'SUMMARY.txt':         'this file',
+  };
+  const presentFiles = Object.keys(descriptions).filter((f) => zip.file(f) != null);
+  // SUMMARY.txt is being added right after this call so it won't appear in
+  // zip.file() yet — include it explicitly.
+  if (!presentFiles.includes('SUMMARY.txt')) presentFiles.push('SUMMARY.txt');
+  const fileListing = presentFiles
+    .map((f) => `  ${f.padEnd(22)}— ${descriptions[f]}`)
+    .join('\n');
+
+  const notes = runInfo.notes ? `\nNotes:        ${runInfo.notes}` : '';
+
+  return [
+    'SHARP Processor — Experiment Summary',
+    '====================================',
+    '',
+    `Experiment:   ${exp.experimentId}`,
+    `Operator:     ${exp.operator || '(not recorded)'}`,
+    ...(notes ? [notes.trim()] : []),
+    `Run started:  ${exp.runStarted || '(not recorded)'}`,
+    `Instrument:   ${instrumentLine}${instrumentExtras.length ? ` (${instrumentExtras.join(', ')})` : ''}`,
+    `Protocol:     ${protocolBits.join(', ') || exp.protocolType || 'unknown'}`,
+    `Plate:        ${plate}, ${wellCount} well${wellCount === 1 ? '' : 's'} populated`,
+    '',
+    'Files in this archive:',
+    fileListing,
+    '',
+    'For full per-well details, open wells.csv in Excel or any text editor.',
+    'metadata.json is the authoritative source — edit there, not here.',
+    '',
+  ].join('\n');
 }
 
 /**
