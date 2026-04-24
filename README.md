@@ -162,14 +162,43 @@ SHARP Processor 2 is a complete rewrite with a modern interface. If you used the
 
 ---
 
-## About the .sharp File Format
+## The .sharp File Format
 
-A `.sharp` file is just a ZIP archive containing your experiment data in open formats (CSV + JSON). You can rename it to `.zip` and open it with any ZIP tool to access:
+`.sharp` is SHARP Processor's native file format — a plain ZIP archive of your experiment in open formats (CSV, JSON, and plain text). Every instrument file you open gets converted to `.sharp` on save, and `.sharp` is the recommended way to share or archive a run.
 
-- `amplification.csv` — fluorescence readings per cycle for each well
-- `melt_rfu.csv` — melt curve fluorescence (if available)
-- `melt_derivative.csv` — melt derivative data (if available)
-- `metadata.json` — instrument info, protocol settings, well assignments, and results
+### What's inside
+
+Rename a `.sharp` file to `.zip` and any ZIP tool will open it. You'll see:
+
+| File | What it is |
+|------|-----------|
+| `SUMMARY.txt` | **Start here.** Human-readable overview — experiment ID, operator, instrument, protocol, plate size, and a description of every other file in the archive. |
+| `wells.csv` | **Well manifest** — one row per populated well: `well, sample, content, cq, end_rfu, melt_temp_c, melt_peak_height`. Opens in Excel. |
+| `amplification.csv` | Per-cycle fluorescence per well (wide format: `cycle, time_s, time_min, A1, B1, …`). |
+| `melt_rfu.csv` | Per-temperature fluorescence per well (if the run had a melt step). |
+| `melt_derivative.csv` | Per-temperature `-dF/dT` per well. Pre-smoothed using the BioRad CFX Maestro algorithm. |
+| `metadata.json` | **Authoritative** machine-readable metadata — instrument, protocol, run info, per-well analysis outputs, time reconstruction. |
+
+`wells.csv` and `SUMMARY.txt` were added in format version 1.1 (SHARP Processor 2 v0.1.11). Older `.sharp` files without them still load — the app falls back to `metadata.json`.
+
+### How to create one
+
+- **Open an instrument file** (`.pcrd`, `.tlpd`, `.eds`, `.amxd`, or a BioRad CSV export folder) via **File → Open**, then **Export → Save as .sharp…** to save.
+- Or **File → Save** (Ctrl/⌘+S) if you're working on a file you already opened as `.sharp` — this overwrites in place.
+- Edits you've made in the app — sample names, well types, groups, notes — are baked into the saved `.sharp`.
+
+### How to use one
+
+- **Re-open it in SHARP Processor** to pick up exactly where you left off, with all sample names and analysis settings preserved.
+- **Plot in Excel / R / Python** — just read `amplification.csv` and `melt_rfu.csv` directly; they're standard wide-format CSVs with a header row. Pair rows with wells using `wells.csv`.
+- **Share with a collaborator** — the archive is self-contained. The `SUMMARY.txt` tells them what's inside without needing the app.
+- **Diff / version-control** — all three text files (SUMMARY, CSV, JSON) diff cleanly.
+
+### Editing by hand
+
+If you need to rename a sample or fix a content type without opening the app, edit `wells.csv` in Excel and save it back into the ZIP. The app prefers `wells.csv` over `metadata.json` on reload. `SUMMARY.txt` is regenerated every save, so don't bother editing it.
+
+Full format spec: [`docs/SHARP_FORMAT.md`](docs/SHARP_FORMAT.md).
 
 ---
 
@@ -261,7 +290,8 @@ dist-release/
 ### Documentation
 
 - [`CLAUDE.md`](CLAUDE.md) — Developer guide, architecture, implementation notes
-- [v1 .sharp Format Spec](https://github.com/tomzzzhang/SHARP-data-processor/blob/main/SHARP_FORMAT.md)
+- [`docs/SHARP_FORMAT.md`](docs/SHARP_FORMAT.md) — `.sharp` file format specification (current: v1.1)
+- [`docs/ALGORITHMS.md`](docs/ALGORITHMS.md) — Active vs archived analysis algorithms
 - [v1 .pcrd Reverse Engineering](https://github.com/tomzzzhang/SHARP-data-processor/blob/main/PCRD_FORMAT.md)
 
 ---

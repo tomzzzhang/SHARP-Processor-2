@@ -377,7 +377,61 @@ const sections: Section[] = [
 
         <div>
           <h4 className="font-semibold text-xs mb-1">Save as .sharp</h4>
-          <p>Saves the experiment data as a .sharp archive, preserving any edits to sample names and metadata.</p>
+          <p>Saves the experiment as a <code>.sharp</code> archive, preserving any edits to sample names, well types, groups, and notes. See the next section for what's inside.</p>
+        </div>
+      </div>
+    ),
+  },
+  {
+    id: 'sharp-format',
+    title: '.sharp File Format',
+    content: (
+      <div className="space-y-3">
+        <p>
+          <code>.sharp</code> is SHARP Processor's native file format — a plain ZIP archive bundling one experiment in open, text-based formats. Every instrument file you open (<code>.pcrd</code>, <code>.tlpd</code>, <code>.eds</code>, <code>.amxd</code>, or a BioRad CSV folder) gets converted to <code>.sharp</code> when you save. It's the recommended format for sharing or archiving runs.
+        </p>
+
+        <div>
+          <h4 className="font-semibold text-xs mb-1">What's inside</h4>
+          <p className="mb-2">Rename a <code>.sharp</code> file to <code>.zip</code> to open it with any ZIP tool. The archive contains:</p>
+          <table className="w-full text-xs border border-border rounded">
+            <thead><tr><TH>File</TH><TH>What it is</TH></tr></thead>
+            <tbody>
+              <tr><TD><code>SUMMARY.txt</code></TD><TD><strong>Start here.</strong> Human overview — experiment ID, operator, instrument, protocol, plate size, and a description of every other file.</TD></tr>
+              <tr><TD><code>wells.csv</code></TD><TD><strong>Well manifest.</strong> One row per populated well: <code>well, sample, content, cq, end_rfu, melt_temp_c, melt_peak_height</code>. Opens in Excel.</TD></tr>
+              <tr><TD><code>amplification.csv</code></TD><TD>Per-cycle RFU per well (wide format).</TD></tr>
+              <tr><TD><code>melt_rfu.csv</code></TD><TD>Per-temperature RFU per well, if the run had a melt step.</TD></tr>
+              <tr><TD><code>melt_derivative.csv</code></TD><TD>Per-temperature −dF/dT per well. Pre-smoothed using the BioRad CFX Maestro algorithm.</TD></tr>
+              <tr><TD><code>metadata.json</code></TD><TD><strong>Authoritative machine-readable</strong> — instrument, protocol, run info, per-well analysis outputs, time reconstruction.</TD></tr>
+            </tbody>
+          </table>
+          <p className="mt-1.5 text-muted-foreground italic">
+            <code>wells.csv</code> and <code>SUMMARY.txt</code> were added in format v1.1. Older <code>.sharp</code> files still load — the app falls back to <code>metadata.json</code>.
+          </p>
+        </div>
+
+        <div>
+          <h4 className="font-semibold text-xs mb-1">How to create one</h4>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>Open any instrument file and choose <strong>Export → Save as .sharp…</strong></li>
+            <li>If you already opened a <code>.sharp</code>, press <Kbd>{mod}+S</Kbd> to overwrite in place.</li>
+            <li>Your edits to sample names, well types, groups, and notes are baked in.</li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 className="font-semibold text-xs mb-1">How to use one</h4>
+          <ul className="list-disc pl-5 space-y-1">
+            <li><strong>Re-open in SHARP Processor</strong> to resume exactly where you left off.</li>
+            <li><strong>Plot in Excel / R / Python</strong> — <code>amplification.csv</code> and <code>melt_rfu.csv</code> are standard wide CSVs. Match rows to samples via <code>wells.csv</code>.</li>
+            <li><strong>Share with a collaborator</strong> — the archive is self-contained. <code>SUMMARY.txt</code> tells them what's inside without needing the app.</li>
+            <li><strong>Diff / version-control</strong> — every file is plain text, so diffs are meaningful.</li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 className="font-semibold text-xs mb-1">Editing by hand</h4>
+          <p>Rename samples or fix content types without opening the app: edit <code>wells.csv</code> in Excel and save it back into the ZIP. The app prefers <code>wells.csv</code> over <code>metadata.json</code> on reload, so your edits win. <code>SUMMARY.txt</code> is regenerated on every save — don't bother editing it.</p>
         </div>
       </div>
     ),
