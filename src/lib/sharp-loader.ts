@@ -17,6 +17,69 @@ function parseCSV(text: string): { headers: string[]; rows: number[][] } {
   return { headers, rows };
 }
 
+/** Parse a CSV row respecting double-quoted fields (for string columns
+ *  in wells.csv that may contain commas in sample names). Handles doubled
+ *  quotes inside a quoted field. */
+function parseCsvRow(line: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; }
+        else inQuotes = false;
+      } else cur += c;
+    } else {
+      if (c === ',') { out.push(cur); cur = ''; }
+      else if (c === '"' && cur === '') inQuotes = true;
+      else cur += c;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+/** Parse wells.csv (format 1.1) into a partial WellInfo map. Only the
+ *  fields present in the CSV are populated; missing cells → null/''. */
+function parseWellsCsv(text: string): Record<string, Partial<WellInfo>> {
+  const lines = text.replace(/\r\n/g, '\n').split('\n').filter((l) => l.trim().length > 0);
+  if (lines.length < 2) return {};
+  const headers = parseCsvRow(lines[0]).map((h) => h.trim());
+  const col = (name: string) => headers.indexOf(name);
+  const iWell = col('well');
+  if (iWell < 0) return {};
+  const iSample = col('sample');
+  const iContent = col('content');
+  const iCq = col('cq');
+  const iEndRfu = col('end_rfu');
+  const iTm = col('melt_temp_c');
+  const iPeak = col('melt_peak_height');
+
+  const result: Record<string, Partial<WellInfo>> = {};
+  const num = (s: string | undefined) => {
+    if (s == null || s === '') return null;
+    const n = Number(s);
+    return isFinite(n) ? n : null;
+  };
+  for (let i = 1; i < lines.length; i++) {
+    const cells = parseCsvRow(lines[i]);
+    const well = (cells[iWell] ?? '').trim();
+    if (!well) continue;
+    result[well] = {
+      well,
+      sample: iSample >= 0 ? (cells[iSample] ?? '') : '',
+      content: (iContent >= 0 ? (cells[iContent] ?? '') : '') as ContentType,
+      cq: iCq >= 0 ? num(cells[iCq]) : null,
+      endRfu: iEndRfu >= 0 ? num(cells[iEndRfu]) : null,
+      meltTempC: iTm >= 0 ? num(cells[iTm]) : null,
+      meltPeakHeight: iPeak >= 0 ? num(cells[iPeak]) : null,
+    };
+  }
+  return result;
+}
+
 /** Parse amplification.csv into AmplificationData */
 function parseAmplification(text: string): AmplificationData {
   const { headers, rows } = parseCSV(text);
@@ -140,19 +203,30 @@ export async function loadSharpFile(
   const meltDerivText = meltDerivFile ? await meltDerivFile.async('string') : null;
   const melt = parseMelt(meltRfuText, meltDerivText);
 
-  // Build per-well info
+  // Build per-well info. Format 1.1 adds wells.csv — if present, it's
+  // preferred for the user-editable fields (sample, content). Numeric
+  // analysis outputs (cq, endRfu, meltTempC, meltPeakHeight) prefer the
+  // CSV when non-null but fall back to metadata.json.
   const wells: Record<string, WellInfo> = {};
-  const metaWells = metadata.wells ?? {};
-  for (const [wellName, info] of Object.entries(metaWells)) {
-    const w = info as Record<string, unknown>;
+  const metaWells = (metadata.wells ?? {}) as Record<string, Record<string, unknown>>;
+  const wellsCsvFile = zip.file('wells.csv');
+  const wellsCsv = wellsCsvFile ? parseWellsCsv(await wellsCsvFile.async('string')) : {};
+
+  const allWellNames = new Set<string>([
+    ...Object.keys(metaWells),
+    ...Object.keys(wellsCsv),
+  ]);
+  for (const wellName of allWellNames) {
+    const m = metaWells[wellName] ?? {};
+    const c = wellsCsv[wellName] ?? {};
     wells[wellName] = {
       well: wellName,
-      sample: (w.sample as string) ?? '',
-      content: (w.content as ContentType) ?? '',
-      cq: (w.cq as number) ?? null,
-      endRfu: (w.end_rfu as number) ?? null,
-      meltTempC: (w.melt_temp_c as number) ?? null,
-      meltPeakHeight: (w.melt_peak_height as number) ?? null,
+      sample: c.sample ?? ((m.sample as string) ?? ''),
+      content: (c.content || (m.content as ContentType) || '') as ContentType,
+      cq: c.cq ?? ((m.cq as number) ?? null),
+      endRfu: c.endRfu ?? ((m.end_rfu as number) ?? null),
+      meltTempC: c.meltTempC ?? ((m.melt_temp_c as number) ?? null),
+      meltPeakHeight: c.meltPeakHeight ?? ((m.melt_peak_height as number) ?? null),
       call: 'unset',
     };
   }
