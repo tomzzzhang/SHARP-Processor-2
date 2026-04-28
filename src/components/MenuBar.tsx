@@ -203,22 +203,26 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
 
   const handleSave = useCallback(async () => {
     if (!exp) return;
+    // Bundle the live analysis so saved cq/end_rfu reflect current
+    // threshold/baseline (not the parse-time snapshot in exp.wells).
+    // tt is in xAxis units — only meaningful as cq when in cycle mode.
+    const liveAnalysis = { results: analysisResults, ttIsCycle: xAxisMode === 'cycle' };
     const sourcePath = getActiveSourcePath();
     if (sourcePath?.toLowerCase().endsWith('.sharp')) {
       // Quick save to same path
-      await saveSession(exp, sourcePath);
+      await saveSession(exp, sourcePath, liveAnalysis);
       setSaveStatus('Saved');
       setTimeout(() => setSaveStatus(null), 2000);
     } else {
       // No .sharp source — do Save As
-      const path = await exportAsSharp(exp);
+      const path = await exportAsSharp(exp, liveAnalysis);
       if (path) {
         setActiveSourcePath(path);
         setSaveStatus('Saved');
         setTimeout(() => setSaveStatus(null), 2000);
       }
     }
-  }, [exp, getActiveSourcePath, setActiveSourcePath]);
+  }, [exp, analysisResults, xAxisMode, getActiveSourcePath, setActiveSourcePath]);
 
   /**
    * Export the currently-displayed plot(s) at their on-screen size,
@@ -307,7 +311,7 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
         { label: 'Open BioRad Folder...', action: handleOpenBioradFolder },
         { separator: true },
         { label: 'Save', shortcut: `${MOD_KEY}+S`, action: handleSave, disabled: !hasData },
-        { label: 'Save as .sharp', action: () => exp && exportAsSharp(exp), disabled: !hasData },
+        { label: 'Save as .sharp', action: () => exp && exportAsSharp(exp, { results: analysisResults, ttIsCycle: xAxisMode === 'cycle' }), disabled: !hasData },
         ...(recentFiles.length > 0 ? [
           { separator: true } as MenuItem,
           ...recentFiles.slice(0, 5).map((f) => ({
@@ -377,7 +381,7 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
         { separator: true },
         { label: 'Results Table (CSV)', action: () => exp && exportResultsCsv(exp, analysisResults, visibleWells, xAxisMode), disabled: !hasData },
         { separator: true },
-        { label: 'Save as .sharp', action: () => exp && exportAsSharp(exp), disabled: !hasData },
+        { label: 'Save as .sharp', action: () => exp && exportAsSharp(exp, { results: analysisResults, ttIsCycle: xAxisMode === 'cycle' }), disabled: !hasData },
       ],
     },
     {

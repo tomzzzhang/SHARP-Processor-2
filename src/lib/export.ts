@@ -4,7 +4,19 @@ import Plotly from 'plotly.js-dist-min';
 import JSZip from 'jszip';
 import type { ExperimentData } from '@/types/experiment';
 import type { WellAnalysisResult } from '@/lib/analysis';
+import { computeMeltDerivative } from '@/lib/parsers/utils';
 import { CONTENT_DISPLAY } from '@/lib/constants';
+
+/**
+ * Optional bundle of current analysis output passed into the .sharp save path.
+ * `results` carries the live `useAnalysisResults` map; `ttIsCycle` indicates
+ * whether `tt` values are in cycle units (only then can `tt` be saved as `cq`,
+ * since `cq` is by spec a cycle-quantification value).
+ */
+export interface LiveAnalysisBundle {
+  results: Map<string, WellAnalysisResult>;
+  ttIsCycle: boolean;
+}
 
 // ── Plot Export ──────────────────────────────────────────────────────
 
@@ -424,28 +436,60 @@ function fmtNum(v: number | null | undefined, decimals = 2): string {
  * `metadata.json`. Both are written whenever there are wells; readers
  * that only know 1.0 continue to work because metadata.json still carries
  * the same well info.
+ *
+ * Pass `liveAnalysis` (the live `useAnalysisResults` map plus an
+ * `ttIsCycle` flag) so saved cq/end_rfu reflect the user's current
+ * threshold/baseline settings rather than the parse-time snapshot in
+ * `exp.wells`. Without it, the save uses the snapshot — which is what
+ * we did pre-v0.1.12 and what fixtures may want.
  */
-async function buildSharpZip(exp: ExperimentData): Promise<Uint8Array> {
+async function buildSharpZip(
+  exp: ExperimentData,
+  liveAnalysis?: LiveAnalysisBundle,
+): Promise<Uint8Array> {
   const zip = new JSZip();
+
+  // Spread the parser-supplied sub-objects first so fields like
+  // reaction_temp_c / amp_cycle_count / has_melt / raw_definition (protocol),
+  // file_name / run_ended_utc (run_info), and cycle_count (data_summary)
+  // survive the round trip. User-edited fields (operator/notes/runStarted/
+  // protocolType/wells) are then unconditionally overlaid — empty string
+  // is treated as a deliberate user clear, not a fallback to the parser.
+  const origProtocol = (exp.metadata?.protocol ?? {}) as Record<string, unknown>;
+  const origRunInfo = (exp.metadata?.run_info ?? {}) as Record<string, unknown>;
+  const origDataSummary = (exp.metadata?.data_summary ?? {}) as Record<string, unknown>;
 
   const metadata: Record<string, unknown> = {
     ...(exp.metadata ?? {}),
     format_version: '1.1',
     experiment_id: exp.experimentId,
-    protocol: { type: exp.protocolType || 'unknown' },
+    protocol: {
+      ...origProtocol,
+      type: exp.protocolType || (origProtocol.type as string | undefined) || 'unknown',
+    },
     run_info: {
-      operator: exp.operator || '',
-      notes: exp.notes || '',
-      run_started_utc: exp.runStarted || '',
+      ...origRunInfo,
+      operator: exp.operator,
+      notes: exp.notes,
+      run_started_utc: exp.runStarted,
     },
-    data_summary: {
-      wells_used: exp.wellsUsed,
-    },
-    plate_layout: {
-      rows: exp.plateRows,
-      cols: exp.plateCols,
-    },
+    data_summary: { ...origDataSummary, wells_used: exp.wellsUsed },
+    plate_layout: { rows: exp.plateRows, cols: exp.plateCols },
     wells: {} as Record<string, unknown>,
+  };
+
+  // Pull cq / end_rfu from the live analysis bundle when present, falling
+  // back to the parse-time snapshot in exp.wells. cq is only overlaid when
+  // tt is in cycle units — for time-mode runs (SHARP isothermal etc.) the
+  // live tt is in seconds and would corrupt the cq field's semantics.
+  const liveCq = (well: string, fallback: number | null): number | null => {
+    if (!liveAnalysis?.ttIsCycle) return fallback;
+    const live = liveAnalysis.results.get(well);
+    return live?.tt ?? fallback;
+  };
+  const liveEndRfu = (well: string, fallback: number | null): number | null => {
+    const live = liveAnalysis?.results.get(well);
+    return live?.endRfu ?? fallback;
   };
 
   const wellsMeta: Record<string, unknown> = {};
@@ -453,8 +497,8 @@ async function buildSharpZip(exp: ExperimentData): Promise<Uint8Array> {
     wellsMeta[wellName] = {
       sample: info.sample,
       content: info.content,
-      cq: info.cq,
-      end_rfu: info.endRfu,
+      cq: liveCq(wellName, info.cq),
+      end_rfu: liveEndRfu(wellName, info.endRfu),
       melt_temp_c: info.meltTempC,
       melt_peak_height: info.meltPeakHeight,
     };
@@ -472,8 +516,8 @@ async function buildSharpZip(exp: ExperimentData): Promise<Uint8Array> {
         csvCell(w),
         csvCell(info.sample),
         csvCell(info.content),
-        csvCell(fmtNum(info.cq, 3)),
-        csvCell(fmtNum(info.endRfu, 1)),
+        csvCell(fmtNum(liveCq(w, info.cq), 3)),
+        csvCell(fmtNum(liveEndRfu(w, info.endRfu), 1)),
         csvCell(fmtNum(info.meltTempC, 2)),
         csvCell(fmtNum(info.meltPeakHeight, 1)),
       ].join(',');
@@ -508,16 +552,26 @@ async function buildSharpZip(exp: ExperimentData): Promise<Uint8Array> {
     zip.file('melt_rfu.csv', [rfuHeaders.join(','), ...rfuRows].join('\n'));
   }
 
-  if (exp.melt && Object.keys(exp.melt.derivative).length > 0) {
+  // Always write melt_derivative.csv when melt RFU exists. If the in-memory
+  // derivative map is empty (some parsers don't populate it), compute it
+  // here via the shared BioRad-port algorithm so round-tripped files don't
+  // exercise the loader fallback at all.
+  if (exp.melt && Object.keys(exp.melt.rfu).length > 0) {
     const melt = exp.melt;
-    const meltWells = exp.wellsUsed.filter((w) => w in melt.derivative);
-    const derivHeaders = ['temperature_C', ...meltWells];
-    const derivRows = melt.temperatureC.map((temp, i) => {
-      const values = [String(temp)];
-      for (const w of meltWells) values.push(String(melt.derivative[w]?.[i] ?? ''));
-      return values.join(',');
-    });
-    zip.file('melt_derivative.csv', [derivHeaders.join(','), ...derivRows].join('\n'));
+    const haveDeriv = Object.keys(melt.derivative).length > 0;
+    const derivativeData = haveDeriv
+      ? melt.derivative
+      : computeMeltDerivative(melt.temperatureC, melt.rfu);
+    const meltWells = exp.wellsUsed.filter((w) => w in derivativeData);
+    if (meltWells.length > 0) {
+      const derivHeaders = ['temperature_C', ...meltWells];
+      const derivRows = melt.temperatureC.map((temp, i) => {
+        const values = [String(temp)];
+        for (const w of meltWells) values.push(String(derivativeData[w]?.[i] ?? ''));
+        return values.join(',');
+      });
+      zip.file('melt_derivative.csv', [derivHeaders.join(','), ...derivRows].join('\n'));
+    }
   }
 
   // SUMMARY.txt — human-readable overview. Not read back by the app;
@@ -595,9 +649,16 @@ function buildSharpSummary(exp: ExperimentData, zip: JSZip): string {
 /**
  * Quick save — writes to the given path without a dialog.
  * Used for Ctrl+S when the file was already saved/opened as .sharp.
+ *
+ * `liveAnalysis` is forwarded into the zip builder so saved cq/end_rfu
+ * reflect the user's current threshold/baseline rather than parser values.
  */
-export async function saveSession(exp: ExperimentData, filePath: string): Promise<string> {
-  const zipData = await buildSharpZip(exp);
+export async function saveSession(
+  exp: ExperimentData,
+  filePath: string,
+  liveAnalysis?: LiveAnalysisBundle,
+): Promise<string> {
+  const zipData = await buildSharpZip(exp, liveAnalysis);
   await writeFile(filePath, zipData);
   return filePath;
 }
@@ -605,15 +666,21 @@ export async function saveSession(exp: ExperimentData, filePath: string): Promis
 /**
  * Export the current experiment as a .sharp file (ZIP archive).
  * Preserves user edits to sample names, notes, descriptions, and content types.
+ *
+ * `liveAnalysis` is forwarded into the zip builder so saved cq/end_rfu
+ * reflect the user's current threshold/baseline rather than parser values.
  */
-export async function exportAsSharp(exp: ExperimentData): Promise<string | null> {
+export async function exportAsSharp(
+  exp: ExperimentData,
+  liveAnalysis?: LiveAnalysisBundle,
+): Promise<string | null> {
   const filePath = await save({
     defaultPath: `${exp.experimentId}.sharp`,
     filters: [{ name: 'SHARP File', extensions: ['sharp'] }],
   });
   if (!filePath) return null;
 
-  const zipData = await buildSharpZip(exp);
+  const zipData = await buildSharpZip(exp, liveAnalysis);
   await writeFile(filePath, zipData);
   return filePath;
 }

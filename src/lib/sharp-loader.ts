@@ -3,6 +3,7 @@ import type {
   ExperimentData, AmplificationData, MeltData, WellInfo, ContentType,
 } from '../types/experiment';
 import { inferPlateDimensions, getInstrumentPlateLayout, DEFAULT_PLATE_ROW_COUNT, DEFAULT_PLATE_COL_COUNT } from './constants';
+import { computeMeltDerivative } from './parsers/utils';
 
 /** Parse a wide-format CSV string into { headers, rows } */
 function parseCSV(text: string): { headers: string[]; rows: number[][] } {
@@ -120,7 +121,7 @@ function parseMelt(rfuText: string | null, derivText: string | null): MeltData |
 
   const rfu: Record<string, number[]> = {};
   const derivative: Record<string, number[]> = {};
-  let temperatureC: number[] = [];
+  const temperatureC: number[] = [];
 
   if (rfuText) {
     const { headers, rows } = parseCSV(rfuText);
@@ -154,22 +155,12 @@ function parseMelt(rfuText: string | null, derivText: string | null): MeltData |
     }
   }
 
-  // Compute derivative on-the-fly if melt RFU exists but derivative is missing
-  // Uses numerical gradient: -dF/dT ≈ -(rfu[i+1] - rfu[i-1]) / (temp[i+1] - temp[i-1])
+  // If melt RFU exists but derivative is missing, compute via the BioRad
+  // CFX Maestro algorithm in parsers/utils — same path the live parsers use.
+  // (Earlier versions ran a naive central-difference here; archived in
+  // src/lib/_archive.ts because it produced double-peak artifacts.)
   if (Object.keys(rfu).length > 0 && Object.keys(derivative).length === 0 && temperatureC.length > 2) {
-    for (const [well, rfuData] of Object.entries(rfu)) {
-      const deriv: number[] = new Array(rfuData.length);
-      // Forward difference for first point
-      deriv[0] = -(rfuData[1] - rfuData[0]) / (temperatureC[1] - temperatureC[0]);
-      // Central difference for interior points
-      for (let i = 1; i < rfuData.length - 1; i++) {
-        deriv[i] = -(rfuData[i + 1] - rfuData[i - 1]) / (temperatureC[i + 1] - temperatureC[i - 1]);
-      }
-      // Backward difference for last point
-      const n = rfuData.length - 1;
-      deriv[n] = -(rfuData[n] - rfuData[n - 1]) / (temperatureC[n] - temperatureC[n - 1]);
-      derivative[well] = deriv;
-    }
+    Object.assign(derivative, computeMeltDerivative(temperatureC, rfu));
   }
 
   return { temperatureC, rfu, derivative };
