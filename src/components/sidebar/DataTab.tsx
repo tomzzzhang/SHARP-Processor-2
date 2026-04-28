@@ -13,6 +13,7 @@ export function DataTab() {
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
   const loadExperiment = useAppState((s) => s.loadExperiment);
+  const setActiveSourcePath = useAppState((s) => s.setActiveSourcePath);
   const hiddenWells = useAppState((s) => s.hiddenWells);
   const xAxisMode = useAppState((s) => s.xAxisMode);
   const figureDpi = useAppState((s) => s.figureDpi);
@@ -129,11 +130,17 @@ export function DataTab() {
         results: analysisResults,
         ttIsCycle: xAxisMode === 'cycle',
       });
-      if (path) showStatus('Saved .sharp');
+      if (path) {
+        // Adopt the new .sharp as the active source so the next quick-save
+        // (Ctrl+S) writes to it directly. Without this, repeated saves
+        // from this button would keep opening the file dialog.
+        setActiveSourcePath(path);
+        showStatus('Saved .sharp');
+      }
     } catch (err) {
       showStatus(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-  }, [exp, analysisResults, xAxisMode]);
+  }, [exp, analysisResults, xAxisMode, setActiveSourcePath]);
 
   if (!exp) return null; // SidebarHome handles the empty state
 
