@@ -1,6 +1,6 @@
 # .sharp File Format
 
-**Last Updated:** 2026-04-24 PST
+**Last Updated:** 2026-04-28 PST — Codex
 **Current version:** 1.1
 
 A `.sharp` file is a ZIP archive (rename to `.zip` to open). It bundles one

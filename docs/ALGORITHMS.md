@@ -1,6 +1,6 @@
 # Algorithms — Active vs Archived
 
-**Last Updated:** 2026-04-24 PST
+**Last Updated:** 2026-04-28 PST — Codex
 
 A single source of truth for which algorithm the app is currently using for
 each analysis step, and which earlier implementations have been retired.
