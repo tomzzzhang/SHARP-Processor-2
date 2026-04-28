@@ -319,18 +319,38 @@ export async function exportResultsCsv(
   if (!filePath) return null;
 
   const ttLabel = xAxisMode === 'cycle' ? 'Ct' : 'Tt';
-  const headers = ['Well', 'Sample', 'Content', ttLabel, 'Doubling Time', 'Call', 'End RFU'];
+  const headers = ['Well', 'Sample', 'Content', ttLabel, 'Tm', 'Doubling Time', 'Call', 'End RFU'];
+  const tmByWell = new Map<string, number>();
+  if (exp.melt && Object.keys(exp.melt.derivative).length > 0) {
+    for (const well of visibleWells) {
+      const derData = exp.melt.derivative[well];
+      if (!derData || derData.length === 0) continue;
+      let maxIdx = 0;
+      let maxVal = -Infinity;
+      for (let i = 0; i < derData.length; i++) {
+        if (derData[i] > maxVal) {
+          maxVal = derData[i];
+          maxIdx = i;
+        }
+      }
+      if (maxVal > 0 && maxIdx < exp.melt.temperatureC.length) {
+        tmByWell.set(well, exp.melt.temperatureC[maxIdx]);
+      }
+    }
+  }
 
   const rows = visibleWells.map((well) => {
     const info = exp.wells[well];
     const analysis = analysisResults.get(well);
     const displayType = CONTENT_DISPLAY[info?.content ?? ''] ?? info?.content ?? '';
+    const tm = tmByWell.get(well);
 
     return [
       well,
       escapeCsv(info?.sample ?? ''),
       escapeCsv(displayType),
       analysis?.tt != null ? analysis.tt.toFixed(4) : '',
+      tm != null ? tm.toFixed(1) : '',
       analysis?.dt != null ? analysis.dt.toFixed(4) : '',
       analysis?.call ?? '',
       analysis?.endRfu != null ? Math.round(analysis.endRfu).toString() : '',

@@ -131,6 +131,7 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
   const idx = useAppState((s) => s.activeExperimentIndex);
   const exp = experiments[idx];
   const getActiveSourcePath = useAppState((s) => s.getActiveSourcePath);
+  const setActiveSourcePath = useAppState((s) => s.setActiveSourcePath);
   const selectAll = useAppState((s) => s.selectAll);
   const deselectAll = useAppState((s) => s.deselectAll);
   const xAxisMode = useAppState((s) => s.xAxisMode);
@@ -212,11 +213,12 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
       // No .sharp source — do Save As
       const path = await exportAsSharp(exp);
       if (path) {
+        setActiveSourcePath(path);
         setSaveStatus('Saved');
         setTimeout(() => setSaveStatus(null), 2000);
       }
     }
-  }, [exp, getActiveSourcePath]);
+  }, [exp, getActiveSourcePath, setActiveSourcePath]);
 
   /**
    * Export the currently-displayed plot(s) at their on-screen size,
