@@ -226,7 +226,7 @@ Your `.sharp` files from v1 work in v2 without any changes.
 | Layer | Technology |
 |---|---|
 | Desktop shell | Tauri 2.x (Rust) |
-| Frontend | React 18, TypeScript, Vite 8 |
+| Frontend | React 19, TypeScript, Vite 8 |
 | Styling | Tailwind CSS v4, shadcn/ui |
 | Charts | Plotly.js (react-plotly.js) |
 | State management | Zustand |
