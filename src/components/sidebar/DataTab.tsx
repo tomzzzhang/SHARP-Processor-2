@@ -125,12 +125,15 @@ export function DataTab() {
   const handleSaveSharp = useCallback(async () => {
     if (!exp) return;
     try {
-      const path = await exportAsSharp(exp);
+      const path = await exportAsSharp(exp, {
+        results: analysisResults,
+        ttIsCycle: xAxisMode === 'cycle',
+      });
       if (path) showStatus('Saved .sharp');
     } catch (err) {
       showStatus(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-  }, [exp]);
+  }, [exp, analysisResults, xAxisMode]);
 
   if (!exp) return null; // SidebarHome handles the empty state
 
