@@ -201,6 +201,20 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
     }
   }, [loadExperiment]);
 
+  // Single Save-As path used by all three direct entry points (File menu,
+  // Export menu, handleSave fallback) so the chosen path becomes the next
+  // quick-save target. Without this, only Ctrl+S → Save-As-fallback
+  // adopted the path; direct File/Export menu Save-As clicks left
+  // sourceFilePaths pointing at the original parser file. Returns the
+  // chosen path so callers can flip status messages on success.
+  const handleSaveAsSharp = useCallback(async (): Promise<string | null> => {
+    if (!exp) return null;
+    const liveAnalysis = { results: analysisResults, ttIsCycle: xAxisMode === 'cycle' };
+    const path = await exportAsSharp(exp, liveAnalysis);
+    if (path) setActiveSourcePath(path);
+    return path;
+  }, [exp, analysisResults, xAxisMode, setActiveSourcePath]);
+
   const handleSave = useCallback(async () => {
     if (!exp) return;
     // Bundle the live analysis so saved cq/end_rfu reflect current
@@ -214,15 +228,14 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
       setSaveStatus('Saved');
       setTimeout(() => setSaveStatus(null), 2000);
     } else {
-      // No .sharp source — do Save As
-      const path = await exportAsSharp(exp, liveAnalysis);
+      // No .sharp source — do Save As (helper handles path adoption)
+      const path = await handleSaveAsSharp();
       if (path) {
-        setActiveSourcePath(path);
         setSaveStatus('Saved');
         setTimeout(() => setSaveStatus(null), 2000);
       }
     }
-  }, [exp, analysisResults, xAxisMode, getActiveSourcePath, setActiveSourcePath]);
+  }, [exp, analysisResults, xAxisMode, getActiveSourcePath, handleSaveAsSharp]);
 
   /**
    * Export the currently-displayed plot(s) at their on-screen size,
@@ -311,7 +324,7 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
         { label: 'Open BioRad Folder...', action: handleOpenBioradFolder },
         { separator: true },
         { label: 'Save', shortcut: `${MOD_KEY}+S`, action: handleSave, disabled: !hasData },
-        { label: 'Save as .sharp', action: () => exp && exportAsSharp(exp, { results: analysisResults, ttIsCycle: xAxisMode === 'cycle' }), disabled: !hasData },
+        { label: 'Save as .sharp', action: handleSaveAsSharp, disabled: !hasData },
         ...(recentFiles.length > 0 ? [
           { separator: true } as MenuItem,
           ...recentFiles.slice(0, 5).map((f) => ({
@@ -381,7 +394,7 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
         { separator: true },
         { label: 'Results Table (CSV)', action: () => exp && exportResultsCsv(exp, analysisResults, visibleWells, xAxisMode), disabled: !hasData },
         { separator: true },
-        { label: 'Save as .sharp', action: () => exp && exportAsSharp(exp, { results: analysisResults, ttIsCycle: xAxisMode === 'cycle' }), disabled: !hasData },
+        { label: 'Save as .sharp', action: handleSaveAsSharp, disabled: !hasData },
       ],
     },
     {

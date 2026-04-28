@@ -142,6 +142,45 @@ async function testActiveSourcePathCanBeUpdatedAfterSaveAs() {
   assert.match(menuSource, /setActiveSourcePath\(path\)/);
 }
 
+/**
+ * All three direct Save-As entry points must adopt the chosen path as the
+ * new active source so the next Ctrl+S quick-saves there. Codex caught a
+ * gap on `claude/v0.1.12-findings-1-2-4` at 50cc901 where only the
+ * handleSave fallback was wired; the File menu, Export menu, and DataTab
+ * Save-buttons still discarded the path. Static source check — runtime
+ * assertion would need React mounting infrastructure we don't have.
+ */
+function testAllSaveAsPathsAdoptActiveSource() {
+  const menuSource = fs.readFileSync(path.join(root, 'src/components/MenuBar.tsx'), 'utf8');
+  const dataTabSource = fs.readFileSync(path.join(root, 'src/components/sidebar/DataTab.tsx'), 'utf8');
+
+  // MenuBar must have a single helper rather than scattered inline calls,
+  // and the menu items must reference it (no orphan exportAsSharp calls
+  // that discard the returned path).
+  assert.match(menuSource, /const handleSaveAsSharp = useCallback/, 'MenuBar exports a Save-As helper');
+  assert.match(menuSource, /handleSaveAsSharp\(\)/, 'handleSave fallback delegates to the helper');
+
+  const saveAsActions = menuSource.match(/action: handleSaveAsSharp/g) ?? [];
+  assert.equal(saveAsActions.length, 2, 'both File and Export menu Save-As items use the helper');
+
+  // No remaining inline `exportAsSharp(exp, …)` calls in MenuBar that
+  // would bypass setActiveSourcePath. (The helper itself is fine; that
+  // call lives inside its body, but at the menu-action surface every
+  // Save-As must go through handleSaveAsSharp.)
+  const inlineMenuExports = menuSource.match(/action:\s*\(\s*\)\s*=>\s*exp\s*&&\s*exportAsSharp/g) ?? [];
+  assert.equal(inlineMenuExports.length, 0, 'no menu actions invoke exportAsSharp directly');
+
+  // DataTab Save .sharp button must adopt the path too. setActiveSourcePath
+  // is imported from the store and called inside handleSaveSharp after
+  // exportAsSharp returns.
+  assert.match(dataTabSource, /const setActiveSourcePath = useAppState/, 'DataTab imports setActiveSourcePath');
+  assert.match(
+    dataTabSource,
+    /handleSaveSharp[\s\S]*?setActiveSourcePath\(path\)/,
+    'handleSaveSharp adopts the chosen path on success',
+  );
+}
+
 function testEslintIgnoresClaudeWorktrees() {
   const config = fs.readFileSync(path.join(root, 'eslint.config.js'), 'utf8');
   assert.match(config, /\.claude\/worktrees\/\*\*/);
@@ -413,6 +452,7 @@ async function main() {
     ['wells.csv empty content wins over metadata', testWellsCsvEmptyContentWins],
     ['results CSV includes Tm column', testResultsCsvIncludesTm],
     ['Save As can update active source path', testActiveSourcePathCanBeUpdatedAfterSaveAs],
+    ['all Save-As entry points adopt active source path', testAllSaveAsPathsAdoptActiveSource],
     ['ESLint ignores stale Claude worktrees', testEslintIgnoresClaudeWorktrees],
     ['buildSharpZip preserves parser metadata fields', testBuildSharpZipPreservesParserMetadata],
     ['user-cleared fields stay cleared on save', testUserClearedFieldsStayCleared],
