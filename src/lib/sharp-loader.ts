@@ -222,7 +222,7 @@ export async function loadSharpFile(
     wells[wellName] = {
       well: wellName,
       sample: c.sample ?? ((m.sample as string) ?? ''),
-      content: (c.content || (m.content as ContentType) || '') as ContentType,
+      content: (c.content ?? ((m.content as ContentType) ?? '')) as ContentType,
       cq: c.cq ?? ((m.cq as number) ?? null),
       endRfu: c.endRfu ?? ((m.end_rfu as number) ?? null),
       meltTempC: c.meltTempC ?? ((m.melt_temp_c as number) ?? null),
