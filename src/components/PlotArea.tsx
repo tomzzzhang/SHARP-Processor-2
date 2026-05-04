@@ -1403,7 +1403,7 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
     },
     onZoomReset: () => {
       const div = containerRef.current?.querySelector('.js-plotly-plot') as HTMLElement | null;
-      if (div) Plotly.relayout(div, { 'xaxis.autorange': true, 'yaxis.autorange': true, 'yaxis2.autorange': true });
+      if (div) Plotly.relayout(div, { 'xaxis.autorange': true, 'yaxis.autorange': true, 'yaxis2.autorange': true } as unknown as Partial<Layout>);
     },
     onShowContextMenu: openContextMenu,
   });
