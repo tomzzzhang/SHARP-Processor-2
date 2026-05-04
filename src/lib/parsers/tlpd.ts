@@ -305,16 +305,24 @@ function parseSampleSetup(runMethod: string, plateCols: number): Record<string, 
   return map;
 }
 
-/** Extract null-terminated ASCII name starting at byte 12 of a hex blob. Returns null if empty. */
+/** Extract ASCII name from a SampleSetup hex blob by scanning forward from byte 12.
+ *  Old firmware stores the name at byte 12; newer firmware stores it at byte 108+.
+ */
 function extractNameFromBlob(hexVal?: string): string | null {
   if (!hexVal) return null;
   let raw: Uint8Array;
   try { raw = hexToBytes(hexVal); } catch { return null; }
   if (raw.length <= 12) return null;
-  let nameEnd = 12;
-  while (nameEnd < raw.length && raw[nameEnd] !== 0) nameEnd++;
-  if (nameEnd === 12) return null;
-  return new TextDecoder('ascii').decode(raw.slice(12, nameEnd));
+  let i = 12;
+  while (i < raw.length) {
+    if (raw[i] >= 0x20 && raw[i] < 0x80) {
+      let end = i;
+      while (end < raw.length && raw[end] >= 0x20 && raw[end] < 0x80) end++;
+      return new TextDecoder('ascii').decode(raw.slice(i, end));
+    }
+    i++;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------

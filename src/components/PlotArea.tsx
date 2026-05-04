@@ -6,7 +6,7 @@ import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { analyzeDilutionSeries } from '@/lib/analysis';
 import { THRESHOLD_LINE_COLOR, MOD_KEY, getPaletteColors } from '@/lib/constants';
 import { Checkbox } from '@/components/ui/checkbox';
-import { useBoxSelect, BOX_SELECT_OVERLAY_STYLE } from '@/hooks/useBoxSelect';
+import { useBoxSelect, BOX_SELECT_OVERLAY_STYLE, ZOOM_OVERLAY_STYLE } from '@/hooks/useBoxSelect';
 import { ContextMenu, useContextMenu } from './ContextMenu';
 import type { Data, Layout, PlotMouseEvent, Shape } from 'plotly.js';
 
@@ -544,9 +544,57 @@ const PLOT_CONFIG: Partial<Plotly.Config> = {
   ] as Plotly.ModeBarDefaultButtons[],
 };
 
+// ── Plot hint overlay (subtle bottom-right text with mouse icons) ────
+
+/** Tiny top-down mouse glyph with one button (or wheel) highlighted. */
+function MouseIcon({ side }: { side: 'L' | 'M' | 'R' }) {
+  const HL = 'rgb(170,32,38)';  // brand red
+  return (
+    <svg width="11" height="13" viewBox="0 0 11 13"
+         style={{ display: 'inline-block', verticalAlign: '-2px', marginRight: 2 }}>
+      {/* body */}
+      <rect x="0.6" y="0.6" width="9.8" height="11.8" rx="4.6" ry="4.6"
+            fill="none" stroke="currentColor" strokeWidth="0.7" strokeOpacity="0.55"/>
+      {/* L button */}
+      <rect x="1.5" y="1.4" width="3.0" height="2.8" rx="0.8"
+            fill={side === 'L' ? HL : 'none'}
+            stroke={side === 'L' ? HL : 'currentColor'}
+            strokeOpacity={side === 'L' ? 0.9 : 0.45}
+            strokeWidth="0.6"/>
+      {/* R button */}
+      <rect x="6.5" y="1.4" width="3.0" height="2.8" rx="0.8"
+            fill={side === 'R' ? HL : 'none'}
+            stroke={side === 'R' ? HL : 'currentColor'}
+            strokeOpacity={side === 'R' ? 0.9 : 0.45}
+            strokeWidth="0.6"/>
+      {/* Wheel (middle) */}
+      <rect x="4.7" y="1.6" width="1.6" height="2.4" rx="0.6"
+            fill={side === 'M' ? HL : 'none'}
+            stroke={side === 'M' ? HL : 'currentColor'}
+            strokeOpacity={side === 'M' ? 0.9 : 0.5}
+            strokeWidth="0.5"/>
+    </svg>
+  );
+}
+
+const PLOT_HINT_STYLE: React.CSSProperties = {
+  position: 'absolute', bottom: 6, right: 8,
+  fontSize: 10, color: 'rgba(120,120,120,0.55)',
+  pointerEvents: 'none', userSelect: 'none',
+  zIndex: 5, whiteSpace: 'nowrap', lineHeight: 1,
+};
+
+function PlotHint() {
+  return (
+    <div style={PLOT_HINT_STYLE}>
+      <MouseIcon side="L" />drag: select  ·  <MouseIcon side="M" />drag: pan  ·  <MouseIcon side="R" />drag: zoom  ·  2× <MouseIcon side="R" />click: reset
+    </div>
+  );
+}
+
 // ── Amplification Plot ───────────────────────────────────────────────
 
-function AmplificationPlot() {
+function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y: number) => void }) {
   const { plotBg, isDark, textColor } = usePlotTheme();
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
@@ -731,6 +779,9 @@ function AmplificationPlot() {
       plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) },
       ...legendLayout(style, showLegendAmp, traces, isDark),
       datarevision: Date.now(),
+      // Preserve zoom/pan across hover & selection re-renders. Reset on
+      // experiment / x-axis change because the data domain itself shifts.
+      uirevision: `amp-${exp?.experimentId ?? 'none'}-${xAxisMode}`,
     };
   }, [exp, xAxisMode, logScale, thresholdEnabled, thresholdRfu, style, baselineEnabled, baselineZoneBounds, showLegendAmp, traces]);
   const rawOverlayCount = (baselineEnabled && showRawOverlay) ? visibleWells.length : 0;
@@ -819,13 +870,22 @@ function AmplificationPlot() {
     setPaletteArrowMode(false);
   }, [amp, exp, xAxisMode, visibleWells, baselineEnabled, analysisResults, style.palette, setPaletteArrowMode, setWellStyleOverride]);
 
-  const { containerRef: plotContainerRef, overlayRef: selectionOverlayRef, arrowOverlayRef, traceClickedRef } = useBoxSelect({
+  const { containerRef: plotContainerRef, overlayRef: selectionOverlayRef, zoomOverlayRef: ampZoomOverlayRef, arrowOverlayRef, traceClickedRef } = useBoxSelect({
     onSelect: handleBoxSelect,
     onDragMove: handleDragMove,
     onDragEnd: handleDragEnd,
     onEmptyClick: deselectAll,
     threshold: { enabled: thresholdEnabled, rfu: thresholdRfu, setRfu: setThresholdRfu },
     paletteArrow: { active: paletteArrowMode, onApply: handlePaletteArrow },
+    onZoom: (x0, x1, y0, y1) => {
+      const div = plotContainerRef.current?.querySelector('.js-plotly-plot') as HTMLElement | null;
+      if (div) Plotly.relayout(div, { 'xaxis.range': [x0, x1], 'yaxis.range': [y0, y1] });
+    },
+    onZoomReset: () => {
+      const div = plotContainerRef.current?.querySelector('.js-plotly-plot') as HTMLElement | null;
+      if (div) Plotly.relayout(div, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+    },
+    onShowContextMenu: openContextMenu,
   });
 
   const handleClick = useCallback((event: Readonly<PlotMouseEvent>) => {
@@ -874,14 +934,16 @@ function AmplificationPlot() {
         onLegendDoubleClick={() => false}
       />
       <div ref={selectionOverlayRef} style={BOX_SELECT_OVERLAY_STYLE} />
+      <div ref={ampZoomOverlayRef} style={ZOOM_OVERLAY_STYLE} />
       <svg ref={arrowOverlayRef} style={{ position: 'absolute', top: 0, left: 0, display: 'none', pointerEvents: 'none', zIndex: 11 }} />
+      <PlotHint />
     </div>
   );
 }
 
 // ── Melt Derivative Mini-Plot (shown below amp plot) ─────────────────
 
-function MeltDerivMini() {
+function MeltDerivMini({ openContextMenu }: { openContextMenu: (x: number, y: number) => void }) {
   const { plotBg, isDark, textColor } = usePlotTheme();
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
@@ -997,8 +1059,9 @@ function MeltDerivMini() {
       plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) },
       showlegend: false,
       datarevision: Date.now(),
+      uirevision: `deriv-${experiments[idx]?.experimentId ?? 'none'}`,
     };
-  }, [style, traces, meltThresholdEnabled, meltThresholdValue]);
+  }, [style, traces, meltThresholdEnabled, meltThresholdValue, experiments, idx]);
 
   // Box select on melt derivative
   const visibleWellsRef = useRef(visibleWells);
@@ -1034,7 +1097,7 @@ function MeltDerivMini() {
 
   const handleDragEnd = useCallback(() => setDragPreviewWells(null), []);
 
-  const { containerRef, overlayRef } = useBoxSelect({
+  const { containerRef, overlayRef, zoomOverlayRef: derivZoomOverlayRef } = useBoxSelect({
     onSelect: handleBoxSelect,
     onDragMove: handleDragMove,
     onDragEnd: handleDragEnd,
@@ -1044,6 +1107,15 @@ function MeltDerivMini() {
       value: meltThresholdValue,
       setValue: setMeltThresholdValue,
     } : undefined,
+    onZoom: (x0, x1, y0, y1) => {
+      const div = containerRef.current?.querySelector('.js-plotly-plot') as HTMLElement | null;
+      if (div) Plotly.relayout(div, { 'xaxis.range': [x0, x1], 'yaxis.range': [y0, y1] });
+    },
+    onZoomReset: () => {
+      const div = containerRef.current?.querySelector('.js-plotly-plot') as HTMLElement | null;
+      if (div) Plotly.relayout(div, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+    },
+    onShowContextMenu: openContextMenu,
   });
 
   const handleClick = useCallback((event: Readonly<PlotMouseEvent>) => {
@@ -1088,13 +1160,14 @@ function MeltDerivMini() {
         onUnhover={handleUnhover}
       />
       <div ref={overlayRef} style={BOX_SELECT_OVERLAY_STYLE} />
+      <div ref={derivZoomOverlayRef} style={ZOOM_OVERLAY_STYLE} />
     </div>
   );
 }
 
 // ── Melt Plot (stacked subplots — full tab) ──────────────────────────
 
-function MeltPlot() {
+function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number) => void }) {
   const { plotBg, isDark, textColor } = usePlotTheme();
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
@@ -1250,6 +1323,7 @@ function MeltPlot() {
         dragmode: false as Layout['dragmode'], autosize: true, margin: computeMargins(style),
         plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) }, ...legendLayout(style, showLegendMelt, traces, isDark),
         datarevision: Date.now(),
+        uirevision: `melt-${exp?.experimentId ?? 'none'}`,
       };
     }
     return {
@@ -1259,6 +1333,7 @@ function MeltPlot() {
       dragmode: false as Layout['dragmode'], autosize: true, margin: computeMargins(style),
       plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) }, ...legendLayout(style, showLegendMelt, traces, isDark),
       datarevision: Date.now(),
+      uirevision: `melt-${exp?.experimentId ?? 'none'}`,
     };
   }, [exp, style, hasDerivative, traces, showLegendMelt, meltThresholdEnabled, meltThresholdValue]);
 
@@ -1310,7 +1385,7 @@ function MeltPlot() {
 
   const handleDragEnd = useCallback(() => setDragPreviewWells(null), []);
 
-  const { containerRef, overlayRef, traceClickedRef } = useBoxSelect({
+  const { containerRef, overlayRef, zoomOverlayRef: meltZoomOverlayRef, traceClickedRef } = useBoxSelect({
     onSelect: handleBoxSelect,
     onDragMove: handleDragMove,
     onDragEnd: handleDragEnd,
@@ -1321,6 +1396,16 @@ function MeltPlot() {
       setValue: setMeltThresholdValue,
       axis: 'y2',  // derivative occupies the lower subplot in the melt view
     } : undefined,
+    onZoom: (x0, x1) => {
+      // For the stacked melt plot, zoom x-axis (temperature) only
+      const div = containerRef.current?.querySelector('.js-plotly-plot') as HTMLElement | null;
+      if (div) Plotly.relayout(div, { 'xaxis.range': [x0, x1] });
+    },
+    onZoomReset: () => {
+      const div = containerRef.current?.querySelector('.js-plotly-plot') as HTMLElement | null;
+      if (div) Plotly.relayout(div, { 'xaxis.autorange': true, 'yaxis.autorange': true, 'yaxis2.autorange': true });
+    },
+    onShowContextMenu: openContextMenu,
   });
 
   const handleClick = useCallback((event: Readonly<PlotMouseEvent>) => {
@@ -1373,6 +1458,8 @@ function MeltPlot() {
         onLegendDoubleClick={() => false}
       />
       <div ref={overlayRef} style={BOX_SELECT_OVERLAY_STYLE} />
+      <div ref={meltZoomOverlayRef} style={ZOOM_OVERLAY_STYLE} />
+      <PlotHint />
     </div>
   );
 }
@@ -1770,7 +1857,7 @@ function WelcomeScreen() {
 
 export function PlotArea() {
   const plotTab = useAppState((s) => s.plotTab);
-  const { menu, onContextMenu, close } = useContextMenu();
+  const { menu, onContextMenu, openAt, close } = useContextMenu();
   const containerRef = useRef<HTMLDivElement>(null);
   // Store the mini-plot height as a fraction (0-1). Default 25%.
   const [miniRatio, setMiniRatio] = useState(0.25);
@@ -1804,13 +1891,13 @@ export function PlotArea() {
         {plotTab === 'amplification' && (
           <>
             <div className="min-h-0" style={{ flex: hasMeltDerivative ? `${1 - miniRatio}` : '1' }}>
-              <AmplificationPlot />
+              <AmplificationPlot openContextMenu={openAt} />
             </div>
             {hasMeltDerivative && (
               <>
                 <DragDivider onDrag={handleDividerDrag} />
                 <div className="min-h-0" style={{ flex: `${miniRatio}`, minHeight: 100 }}>
-                  <MeltDerivMini />
+                  <MeltDerivMini openContextMenu={openAt} />
                 </div>
               </>
             )}
@@ -1818,7 +1905,7 @@ export function PlotArea() {
         )}
         {plotTab === 'melt' && (
           <div className="flex-1 min-h-0">
-            <MeltPlot />
+            <MeltPlot openContextMenu={openAt} />
           </div>
         )}
         {plotTab === 'doubling' && (

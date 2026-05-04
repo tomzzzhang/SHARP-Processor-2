@@ -274,13 +274,17 @@ const sections: Section[] = [
         <div>
           <h4 className="font-semibold text-xs mb-1">Amplification Plot</h4>
           <ul className="list-disc pl-5 space-y-0.5">
-            <li><strong>Box select</strong> — click and drag to select wells whose curves pass through the box</li>
+            <li><strong>LMB drag</strong> — box-select wells whose curves pass through the box</li>
+            <li><strong>MMB drag</strong> — pan the view</li>
+            <li><strong>RMB drag</strong> — zoom into the dragged rectangle (blue dashed overlay)</li>
+            <li><strong>Double right-click</strong> — reset zoom to auto-range</li>
+            <li><strong>Right-click (single, stationary)</strong> — context menu appears on release (see below)</li>
             <li><strong>Threshold drag</strong> — grab the red dashed line and drag up/down</li>
-            <li><strong>Log Scale</strong> — checkbox at bottom-right for logarithmic Y-axis</li>
+            <li><strong>Auto Baseline / Log Scale</strong> — checkboxes in the plot tabs bar above the chart</li>
             <li><strong>Click a trace</strong> — selects that well across grid, list, and table</li>
             <li><strong>Hover</strong> — highlights the corresponding well on the grid and in the sample list</li>
-            <li><strong>Right-click</strong> — context menu (see below)</li>
           </ul>
+          <p className="text-xs text-muted-foreground mt-1">Hint: a small mouse-icon legend in the bottom-right corner of each plot summarizes the LMB/MMB/RMB gestures.</p>
         </div>
 
         <div>
