@@ -388,7 +388,11 @@ export function useContextMenu() {
     setMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
+  const openAt = useCallback((x: number, y: number) => {
+    setMenu({ x, y });
+  }, []);
+
   const close = useCallback(() => setMenu(null), []);
 
-  return { menu, onContextMenu, close };
+  return { menu, onContextMenu, openAt, close };
 }
