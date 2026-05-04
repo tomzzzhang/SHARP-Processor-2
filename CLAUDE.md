@@ -8,7 +8,7 @@ SHARP Processor 2 — a modern desktop app for qPCR/isothermal amplification dat
 
 ## Tech Stack
 
-- **Frontend:** React 18+, TypeScript, Vite 8, Tailwind CSS v4, shadcn/ui, Plotly.js (via react-plotly.js + plotly.js-dist-min)
+- **Frontend:** React 19, TypeScript, Vite 8, Tailwind CSS v4, shadcn/ui, Plotly.js (via react-plotly.js + plotly.js-dist-min)
 - **State:** Zustand
 - **Backend:** Tauri 2.x (Rust)
 - **Python sidecar:** For instrument file parsing (.pcrd, .tlpd, .eds, .amxd) via scoped shell command

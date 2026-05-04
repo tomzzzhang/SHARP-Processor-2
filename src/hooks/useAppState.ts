@@ -253,6 +253,7 @@ interface AppState extends ExperimentViewState {
   addEmptyTab: () => void;
   loadExperiment: (data: ExperimentData, sourcePath?: string) => void;
   getActiveSourcePath: () => string | undefined;
+  setActiveSourcePath: (path: string) => void;
   pushUndo: (description: string) => void;
   undo: () => void;
   redo: () => void;
@@ -429,6 +430,13 @@ export const useAppState = create<AppState>((set, get) => ({
     const state = get();
     return state.sourceFilePaths.get(state.activeExperimentIndex);
   },
+
+  setActiveSourcePath: (path) =>
+    set((state) => {
+      const paths = new Map(state.sourceFilePaths);
+      paths.set(state.activeExperimentIndex, path);
+      return { sourceFilePaths: paths };
+    }),
 
   pushUndo: (description) => {
     const state = get();
