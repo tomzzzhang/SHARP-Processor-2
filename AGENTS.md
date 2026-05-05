@@ -1,6 +1,6 @@
 # AGENTS.md — SHARP Processor 2
 
-**Last Updated:** 2026-05-04 PST — Claude
+**Last Updated:** 2026-05-05 PST — Claude
 
 The shared project instructions live in [`CLAUDE.md`](CLAUDE.md).
 
