@@ -276,8 +276,9 @@ const sections: Section[] = [
           <ul className="list-disc pl-5 space-y-0.5">
             <li><strong>LMB drag</strong> — box-select wells whose curves pass through the box</li>
             <li><strong>MMB drag</strong> — pan the view</li>
-            <li><strong>RMB drag</strong> — zoom into the dragged rectangle (blue dashed overlay)</li>
-            <li><strong>Double right-click</strong> — reset zoom to auto-range</li>
+            <li><strong>MMB scroll</strong> — zoom in/out (centered on the cursor)</li>
+            <li><strong>RMB drag</strong> — resize the view to the dragged rectangle (blue dashed overlay)</li>
+            <li><strong>Double right-click</strong> — reset the view to auto-range</li>
             <li><strong>Right-click (single, stationary)</strong> — context menu appears on release (see below)</li>
             <li><strong>Threshold drag</strong> — grab the red dashed line and drag up/down</li>
             <li><strong>Auto Baseline / Log Scale</strong> — checkboxes in the plot tabs bar above the chart</li>

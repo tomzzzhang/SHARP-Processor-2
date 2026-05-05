@@ -36,13 +36,14 @@ interface BoxSelectOptions {
     active: boolean;
     onApply: (x0: number, y0: number, x1: number, y1: number) => void;
   };
-  /** Optional: RMB drag zoom callbacks. If provided, right-click drag zooms
-   *  the plot and double right-click resets to auto range. */
-  onZoom?: (x0: number, x1: number, y0: number, y1: number) => void;
-  onZoomReset?: () => void;
+  /** Optional: RMB drag resize callbacks. If provided, right-click drag
+   *  resizes the view to the rectangle and double right-click resets to
+   *  auto range. (Plotly's wheel-zoom is separate, on MMB scroll.) */
+  onResize?: (x0: number, x1: number, y0: number, y1: number) => void;
+  onResizeReset?: () => void;
   /** Optional: called on RMB *release* (stationary single click) to show the
    *  context menu. Fired with a 350 ms delay so a 2nd RMB click can suppress
-   *  it (double-click → zoom reset instead). */
+   *  it (double-click → reset view instead). */
   onShowContextMenu?: (clientX: number, clientY: number) => void;
 }
 
@@ -54,10 +55,10 @@ interface BoxSelectOptions {
  * so we implement selection via raw mouse events + Plotly's internal p2d axis conversion.
  */
 export function useBoxSelect(options: BoxSelectOptions) {
-  const { onSelect, onDragMove, onDragEnd, onEmptyClick, threshold, meltThreshold, paletteArrow, onZoom, onZoomReset, onShowContextMenu } = options;
+  const { onSelect, onDragMove, onDragEnd, onEmptyClick, threshold, meltThreshold, paletteArrow, onResize, onResizeReset, onShowContextMenu } = options;
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
-  const zoomOverlayRef = useRef<HTMLDivElement>(null);
+  const resizeOverlayRef = useRef<HTMLDivElement>(null);
   const arrowOverlayRef = useRef<SVGSVGElement>(null);
   const boxSelecting = useRef(false);
   const arrowDragging = useRef(false);
@@ -68,7 +69,7 @@ export function useBoxSelect(options: BoxSelectOptions) {
   /** Set by external code (Plotly onClick) to suppress the empty-click handler */
   const traceClickedRef = useRef(false);
 
-  // RMB zoom state
+  // RMB resize state
   const rmbDragging = useRef(false);
   const rmbStartX = useRef(0);
   const rmbStartY = useRef(0);
@@ -90,10 +91,10 @@ export function useBoxSelect(options: BoxSelectOptions) {
   meltThresholdRef.current = meltThreshold;
   const paletteArrowRef = useRef(paletteArrow);
   paletteArrowRef.current = paletteArrow;
-  const onZoomRef = useRef(onZoom);
-  onZoomRef.current = onZoom;
-  const onZoomResetRef = useRef(onZoomReset);
-  onZoomResetRef.current = onZoomReset;
+  const onResizeRef = useRef(onResize);
+  onResizeRef.current = onResize;
+  const onResizeResetRef = useRef(onResizeReset);
+  onResizeResetRef.current = onResizeReset;
   const onShowContextMenuRef = useRef(onShowContextMenu);
   onShowContextMenuRef.current = onShowContextMenu;
 
@@ -175,9 +176,9 @@ export function useBoxSelect(options: BoxSelectOptions) {
     if (!container) return;
 
     const onMouseDown = (e: MouseEvent) => {
-      // RMB — handle independently of LMB. We take over RMB whenever zoom OR
+      // RMB — handle independently of LMB. We take over RMB whenever resize OR
       // a custom context-menu callback is wired so we control menu timing.
-      if (e.button === 2 && (onZoomRef.current || onShowContextMenuRef.current) && isInPlotArea(e.clientX, e.clientY)) {
+      if (e.button === 2 && (onResizeRef.current || onShowContextMenuRef.current) && isInPlotArea(e.clientX, e.clientY)) {
         e.preventDefault();
         rmbDragging.current = true;
         rmbDragOccurred.current = false;
@@ -274,8 +275,8 @@ export function useBoxSelect(options: BoxSelectOptions) {
         svg.innerHTML = `<defs><marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="rgba(170,32,38,0.9)" /></marker></defs><line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="rgba(170,32,38,0.8)" stroke-width="2" marker-end="url(#arrowhead)" />`;
         return;
       }
-      // RMB zoom overlay
-      if (rmbDragging.current && zoomOverlayRef.current) {
+      // RMB resize overlay
+      if (rmbDragging.current && resizeOverlayRef.current) {
         const dx = Math.abs(e.clientX - rmbStartX.current);
         const dy = Math.abs(e.clientY - rmbStartY.current);
         if (dx > 5 || dy > 5) {
@@ -287,7 +288,7 @@ export function useBoxSelect(options: BoxSelectOptions) {
           const y1 = rmbStartY.current - containerRect.top;
           const x2 = e.clientX - containerRect.left;
           const y2 = e.clientY - containerRect.top;
-          const ov = zoomOverlayRef.current;
+          const ov = resizeOverlayRef.current;
           ov.style.display = 'block';
           ov.style.left = `${Math.min(x1, x2)}px`;
           ov.style.top = `${Math.min(y1, y2)}px`;
@@ -336,12 +337,12 @@ export function useBoxSelect(options: BoxSelectOptions) {
         rmbDragging.current = false;
         document.body.style.userSelect = '';
         container.style.cursor = '';
-        if (zoomOverlayRef.current) zoomOverlayRef.current.style.display = 'none';
+        if (resizeOverlayRef.current) resizeOverlayRef.current.style.display = 'none';
 
         const dx = Math.abs(e.clientX - rmbStartX.current);
         const dy = Math.abs(e.clientY - rmbStartY.current);
         if (dx > 5 || dy > 5) {
-          // Drag = zoom. Suppress any pending menu from a previous click.
+          // Drag = resize. Suppress any pending menu from a previous click.
           if (lastRmbUp.current) {
             window.clearTimeout(lastRmbUp.current.menuTimerId);
             lastRmbUp.current = null;
@@ -351,19 +352,19 @@ export function useBoxSelect(options: BoxSelectOptions) {
           const y0 = pixelToYValue(Math.max(rmbStartY.current, e.clientY)); // Y inverted
           const y1 = pixelToYValue(Math.min(rmbStartY.current, e.clientY));
           if (x0 != null && x1 != null && y0 != null && y1 != null) {
-            onZoomRef.current?.(x0, x1, y0, y1);
+            onResizeRef.current?.(x0, x1, y0, y1);
           }
         } else {
           // Stationary RMB release. Either fire menu (after a delay so a 2nd
-          // click can cancel it) or, if this *is* the 2nd click, reset zoom.
+          // click can cancel it) or, if this *is* the 2nd click, reset view.
           const now = Date.now();
           const last = lastRmbUp.current;
           if (last && now - last.time < 350
               && Math.abs(e.clientX - last.x) < 8
               && Math.abs(e.clientY - last.y) < 8) {
-            // Double-click → cancel pending menu, reset zoom
+            // Double-click → cancel pending menu, reset view
             window.clearTimeout(last.menuTimerId);
-            onZoomResetRef.current?.();
+            onResizeResetRef.current?.();
             lastRmbUp.current = null;
           } else {
             // 1st click → schedule menu in 350ms
@@ -444,7 +445,7 @@ export function useBoxSelect(options: BoxSelectOptions) {
       // We control menu timing ourselves (fired on mouseup, after a delay).
       // Always suppress the native (and React) contextmenu event when we've
       // taken over RMB handling.
-      if (onZoomRef.current || onShowContextMenuRef.current) {
+      if (onResizeRef.current || onShowContextMenuRef.current) {
         e.preventDefault();
         e.stopPropagation();
       }
@@ -463,7 +464,7 @@ export function useBoxSelect(options: BoxSelectOptions) {
     };
   }, [isNearThreshold, isNearMeltThreshold, isInPlotArea, pixelToYValue, pixelToY2Value, pixelToXValue]);
 
-  return { containerRef, overlayRef, zoomOverlayRef, arrowOverlayRef, traceClickedRef };
+  return { containerRef, overlayRef, resizeOverlayRef, arrowOverlayRef, traceClickedRef };
 }
 
 /** JSX for the selection overlay div — place inside the container with position:relative */
@@ -473,8 +474,8 @@ export const BOX_SELECT_OVERLAY_STYLE: React.CSSProperties = {
   backgroundColor: 'rgba(170, 32, 38, 0.1)',
 };
 
-/** JSX for the RMB zoom overlay div */
-export const ZOOM_OVERLAY_STYLE: React.CSSProperties = {
+/** JSX for the RMB resize overlay div */
+export const RESIZE_OVERLAY_STYLE: React.CSSProperties = {
   position: 'absolute', display: 'none', pointerEvents: 'none', zIndex: 10,
   border: '1px dashed rgba(50, 130, 220, 0.8)',
   backgroundColor: 'rgba(50, 130, 220, 0.08)',

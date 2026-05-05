@@ -6,7 +6,7 @@ import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { analyzeDilutionSeries } from '@/lib/analysis';
 import { THRESHOLD_LINE_COLOR, MOD_KEY, getPaletteColors } from '@/lib/constants';
 import { Checkbox } from '@/components/ui/checkbox';
-import { useBoxSelect, BOX_SELECT_OVERLAY_STYLE, ZOOM_OVERLAY_STYLE } from '@/hooks/useBoxSelect';
+import { useBoxSelect, BOX_SELECT_OVERLAY_STYLE, RESIZE_OVERLAY_STYLE } from '@/hooks/useBoxSelect';
 import { ContextMenu, useContextMenu } from './ContextMenu';
 import type { Data, Layout, PlotMouseEvent, Shape } from 'plotly.js';
 
@@ -587,7 +587,7 @@ const PLOT_HINT_STYLE: React.CSSProperties = {
 function PlotHint() {
   return (
     <div style={PLOT_HINT_STYLE}>
-      <MouseIcon side="L" />drag: select  ·  <MouseIcon side="M" />drag: pan  ·  <MouseIcon side="R" />drag: zoom  ·  2× <MouseIcon side="R" />click: reset
+      <MouseIcon side="L" />drag: select  ·  <MouseIcon side="M" />drag: pan  ·  <MouseIcon side="M" />scroll: zoom  ·  <MouseIcon side="R" />drag: resize  ·  2× <MouseIcon side="R" />click: reset
     </div>
   );
 }
@@ -870,18 +870,18 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
     setPaletteArrowMode(false);
   }, [amp, exp, xAxisMode, visibleWells, baselineEnabled, analysisResults, style.palette, setPaletteArrowMode, setWellStyleOverride]);
 
-  const { containerRef: plotContainerRef, overlayRef: selectionOverlayRef, zoomOverlayRef: ampZoomOverlayRef, arrowOverlayRef, traceClickedRef } = useBoxSelect({
+  const { containerRef: plotContainerRef, overlayRef: selectionOverlayRef, resizeOverlayRef: ampResizeOverlayRef, arrowOverlayRef, traceClickedRef } = useBoxSelect({
     onSelect: handleBoxSelect,
     onDragMove: handleDragMove,
     onDragEnd: handleDragEnd,
     onEmptyClick: deselectAll,
     threshold: { enabled: thresholdEnabled, rfu: thresholdRfu, setRfu: setThresholdRfu },
     paletteArrow: { active: paletteArrowMode, onApply: handlePaletteArrow },
-    onZoom: (x0, x1, y0, y1) => {
+    onResize: (x0, x1, y0, y1) => {
       const div = plotContainerRef.current?.querySelector('.js-plotly-plot') as HTMLElement | null;
       if (div) Plotly.relayout(div, { 'xaxis.range': [x0, x1], 'yaxis.range': [y0, y1] });
     },
-    onZoomReset: () => {
+    onResizeReset: () => {
       const div = plotContainerRef.current?.querySelector('.js-plotly-plot') as HTMLElement | null;
       if (div) Plotly.relayout(div, { 'xaxis.autorange': true, 'yaxis.autorange': true });
     },
@@ -934,7 +934,7 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
         onLegendDoubleClick={() => false}
       />
       <div ref={selectionOverlayRef} style={BOX_SELECT_OVERLAY_STYLE} />
-      <div ref={ampZoomOverlayRef} style={ZOOM_OVERLAY_STYLE} />
+      <div ref={ampResizeOverlayRef} style={RESIZE_OVERLAY_STYLE} />
       <svg ref={arrowOverlayRef} style={{ position: 'absolute', top: 0, left: 0, display: 'none', pointerEvents: 'none', zIndex: 11 }} />
       <PlotHint />
     </div>
@@ -1097,7 +1097,7 @@ function MeltDerivMini({ openContextMenu }: { openContextMenu: (x: number, y: nu
 
   const handleDragEnd = useCallback(() => setDragPreviewWells(null), []);
 
-  const { containerRef, overlayRef, zoomOverlayRef: derivZoomOverlayRef } = useBoxSelect({
+  const { containerRef, overlayRef, resizeOverlayRef: derivResizeOverlayRef } = useBoxSelect({
     onSelect: handleBoxSelect,
     onDragMove: handleDragMove,
     onDragEnd: handleDragEnd,
@@ -1107,11 +1107,11 @@ function MeltDerivMini({ openContextMenu }: { openContextMenu: (x: number, y: nu
       value: meltThresholdValue,
       setValue: setMeltThresholdValue,
     } : undefined,
-    onZoom: (x0, x1, y0, y1) => {
+    onResize: (x0, x1, y0, y1) => {
       const div = containerRef.current?.querySelector('.js-plotly-plot') as HTMLElement | null;
       if (div) Plotly.relayout(div, { 'xaxis.range': [x0, x1], 'yaxis.range': [y0, y1] });
     },
-    onZoomReset: () => {
+    onResizeReset: () => {
       const div = containerRef.current?.querySelector('.js-plotly-plot') as HTMLElement | null;
       if (div) Plotly.relayout(div, { 'xaxis.autorange': true, 'yaxis.autorange': true });
     },
@@ -1160,7 +1160,7 @@ function MeltDerivMini({ openContextMenu }: { openContextMenu: (x: number, y: nu
         onUnhover={handleUnhover}
       />
       <div ref={overlayRef} style={BOX_SELECT_OVERLAY_STYLE} />
-      <div ref={derivZoomOverlayRef} style={ZOOM_OVERLAY_STYLE} />
+      <div ref={derivResizeOverlayRef} style={RESIZE_OVERLAY_STYLE} />
     </div>
   );
 }
@@ -1385,7 +1385,7 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
 
   const handleDragEnd = useCallback(() => setDragPreviewWells(null), []);
 
-  const { containerRef, overlayRef, zoomOverlayRef: meltZoomOverlayRef, traceClickedRef } = useBoxSelect({
+  const { containerRef, overlayRef, resizeOverlayRef: meltResizeOverlayRef, traceClickedRef } = useBoxSelect({
     onSelect: handleBoxSelect,
     onDragMove: handleDragMove,
     onDragEnd: handleDragEnd,
@@ -1396,12 +1396,12 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
       setValue: setMeltThresholdValue,
       axis: 'y2',  // derivative occupies the lower subplot in the melt view
     } : undefined,
-    onZoom: (x0, x1) => {
-      // For the stacked melt plot, zoom x-axis (temperature) only
+    onResize: (x0, x1) => {
+      // For the stacked melt plot, resize x-axis (temperature) only
       const div = containerRef.current?.querySelector('.js-plotly-plot') as HTMLElement | null;
       if (div) Plotly.relayout(div, { 'xaxis.range': [x0, x1] });
     },
-    onZoomReset: () => {
+    onResizeReset: () => {
       const div = containerRef.current?.querySelector('.js-plotly-plot') as HTMLElement | null;
       if (div) Plotly.relayout(div, { 'xaxis.autorange': true, 'yaxis.autorange': true, 'yaxis2.autorange': true } as unknown as Partial<Layout>);
     },
@@ -1458,7 +1458,7 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
         onLegendDoubleClick={() => false}
       />
       <div ref={overlayRef} style={BOX_SELECT_OVERLAY_STYLE} />
-      <div ref={meltZoomOverlayRef} style={ZOOM_OVERLAY_STYLE} />
+      <div ref={meltResizeOverlayRef} style={RESIZE_OVERLAY_STYLE} />
       <PlotHint />
     </div>
   );
