@@ -7,6 +7,13 @@ A `.sharp` file is a ZIP archive (rename to `.zip` to open). It bundles one
 experiment: raw data, reconstructed timestamps, plate setup, sample
 annotations, and per-well analysis outputs.
 
+`.sharp` and `.sharpx` use the **identical ZIP layout**. A `.sharpx`
+additionally carries a `session.json` entry that captures the working
+view-state (selections, hidden wells, analysis settings, style, etc.).
+Plain `.sharp` is meant for data sharing — clean, no workspace state.
+`.sharpx` is meant for resuming work — same data plus the session you
+were in. Either extension opens through the same loader.
+
 ## Contents
 
 | File | Required | Description |
@@ -17,6 +24,7 @@ annotations, and per-well analysis outputs.
 | `melt_derivative.csv` | No | Wide format: `temperature_C, A1, B1, …` (`-dF/dT`). |
 | `wells.csv` | 1.1+ | Flat well manifest — one row per populated well. Spreadsheet-friendly view of the per-well info that otherwise lives nested inside `metadata.json`. Columns: `well, sample, content, cq, end_rfu, melt_temp_c, melt_peak_height`. String cells (sample, content) follow standard CSV quoting — commas and embedded quotes are escaped with double-quoted fields. Empty numeric cells mean "not measured / not applicable". |
 | `SUMMARY.txt` | 1.1+ | Plain-text human overview of the experiment. Lists which files are in the archive and their purpose. Not read back by the app — purely for someone browsing the ZIP by hand. Re-generated on every write from `metadata.json`. |
+| `session.json` | `.sharpx` only | Working-session state — selections, hidden / deactivated wells, baseline / normalization / drift settings, threshold, style, x-axis mode, active plot tab, groups, per-well style / baseline / normalize overrides, dilution wizard config. Sets serialised as arrays, Maps as `[key, value]` arrays. Written **only** by Save Session; never by plain Save as .sharp. Restored by the loader on open. |
 | `parsing_log.json` | No | Append-only parse history. |
 
 ## `metadata.json` shape
@@ -74,3 +82,7 @@ so nothing is lost if the CSV is deleted manually.
   the user-editable fields. Prefer the CSV for text edits; use the JSON
   for structural changes.
 - `SUMMARY.txt` is regenerated on every save — hand edits are lost.
+- `session.json` (in `.sharpx`) is overwritten on every Save Session —
+  hand edits are lost. It also tolerates missing fields, so older / newer
+  app versions can still open the file; they just ignore keys they don't
+  recognise and fall back to defaults for the rest.

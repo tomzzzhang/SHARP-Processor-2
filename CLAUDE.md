@@ -1,6 +1,6 @@
 # CLAUDE.md — SHARP Processor 2
 
-**Last Updated:** 2026-05-25 PST — Claude
+**Last Updated:** 2026-05-25 PST — Claude (doc sweep for v0.1.13: README, User Manual, .sharpx in SHARP_FORMAT)
 
 ## Project Overview
 

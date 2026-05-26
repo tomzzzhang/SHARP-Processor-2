@@ -46,7 +46,8 @@ const sections: Section[] = [
             <tr><TH>Format</TH><TH>Source</TH><TH>Extension</TH></tr>
           </thead>
           <tbody>
-            <tr><TD>SHARP archive</TD><TD>Native format</TD><TD>.sharp</TD></tr>
+            <tr><TD>SHARP archive</TD><TD>Native format (data only)</TD><TD>.sharp</TD></tr>
+            <tr><TD>SHARP session</TD><TD>Native format (data + workspace)</TD><TD>.sharpx</TD></tr>
             <tr><TD>BioRad CFX96</TD><TD>Instrument file</TD><TD>.pcrd</TD></tr>
             <tr><TD>TianLong Gentier</TD><TD>Instrument file</TD><TD>.tlpd</TD></tr>
             <tr><TD>ThermoFisher QuantStudio</TD><TD>Instrument file</TD><TD>.eds</TD></tr>
@@ -227,10 +228,26 @@ const sections: Section[] = [
           <p className="text-xs font-medium mb-1">Baseline Correction</p>
           <ul className="list-disc pl-5 space-y-0.5 mb-2">
             <li>Enable/disable globally with the checkbox</li>
-            <li><strong>Auto baseline</strong> (on by default): finds the longest flat region per well and uses it as a horizontal baseline. Handles early signal dips (helicase warm-up) and different amplification timings automatically.</li>
-            <li>Method &amp; Zone (Horizontal/Linear + Start/End cycles): used only when Auto baseline is off globally, or for individual wells opted out of auto.</li>
+            <li><strong>Auto baseline</strong> (on by default): finds the first flat region of each well (before amplification starts) and uses it as a horizontal baseline. Handles early signal dips (helicase warm-up) and different amplification timings automatically.</li>
+            <li>Method &amp; Zone (Horizontal/Linear + Start/End): used only when Auto baseline is off globally, or for individual wells opted out of auto. Start/End values are entered in whatever x-axis unit you're viewing (cycle / sec / min) and snap to the nearest cycle on commit.</li>
             <li>Per-well opt-out: select wells, right-click → <em>Baseline → Manual</em> (or use the Analysis panel's per-well override section). Opted-out wells fall back to the global manual Method/Zone settings.</li>
             <li>Show raw overlay: draws faint dotted raw curves behind corrected curves</li>
+          </ul>
+
+          <p className="text-xs font-medium mb-1">Drift Correction</p>
+          <ul className="list-disc pl-5 space-y-0.5 mb-2">
+            <li>Toggle <strong>Drift Correction</strong> for runs where the baseline visibly slopes across the plate.</li>
+            <li>The app fits a single run-level drift slope by pooling the pre-amplification baseline regions of every well — within-well centering keeps genuine per-well offsets from biasing the result — and subtracts it before per-well baseline correction.</li>
+            <li>Fitted slope is shown next to the toggle (e.g. <em>Fitted drift: +0.04 RFU/min · 84 wells</em>) so you can report it in a methods section.</li>
+          </ul>
+
+          <p className="text-xs font-medium mb-1">Normalization</p>
+          <ul className="list-disc pl-5 space-y-0.5 mb-2">
+            <li><strong>Normalize selected</strong>: each amp curve rescales 0 → 1 between its baseline and its plateau.</li>
+            <li>Non-amplifying wells (NTCs, failures) are detected by SNR and divided by the median amplifying-well plateau — they stay small and flat instead of blowing up the shared y-axis with divide-by-near-zero noise.</li>
+            <li>Per-well overrides: opt a well out of normalization, or set custom plateau Start/End in the Analysis panel's per-well table.</li>
+            <li>Baseline-zone shading, threshold line, and raw overlay are hidden when normalization is on (they're in raw-RFU units).</li>
+            <li>Melt tab has its own <strong>Normalize</strong> checkbox doing the analogous HRM-style 1 → 0 rescale on melt RFU. The −dF/dT derivative is always computed from raw signal, so peak heights stay physical.</li>
           </ul>
 
           <p className="text-xs font-medium mb-1">Threshold &amp; Detection</p>
@@ -337,7 +354,7 @@ const sections: Section[] = [
         <thead><tr><TH>Shortcut</TH><TH>Action</TH></tr></thead>
         <tbody>
           <tr><TD><Kbd>{mod}+O</Kbd></TD><TD>Open experiment file</TD></tr>
-          <tr><TD><Kbd>{mod}+S</Kbd></TD><TD>Save as .sharp</TD></tr>
+          <tr><TD><Kbd>{mod}+S</Kbd></TD><TD>Save (re-saves in opened format — .sharp or .sharpx)</TD></tr>
           <tr><TD><Kbd>{mod}+Z</Kbd></TD><TD>Undo</TD></tr>
           <tr><TD><Kbd>{mod}+Shift+Z</Kbd></TD><TD>Redo</TD></tr>
           <tr><TD><Kbd>{mod}+A</Kbd></TD><TD>Select all wells</TD></tr>
@@ -382,18 +399,31 @@ const sections: Section[] = [
 
         <div>
           <h4 className="font-semibold text-xs mb-1">Save as .sharp</h4>
-          <p>Saves the experiment as a <code>.sharp</code> archive, preserving any edits to sample names, well types, groups, and notes. See the next section for what's inside.</p>
+          <p>Saves the experiment as a <code>.sharp</code> archive, preserving any edits to sample names, well types, groups, and notes. Clean, data-only — intended for sharing with collaborators. See the next section for what's inside.</p>
+        </div>
+
+        <div>
+          <h4 className="font-semibold text-xs mb-1">Save Session (.sharpx)</h4>
+          <p className="mb-1">Writes a <code>.sharpx</code> file — the same archive as <code>.sharp</code> plus your current workspace: selections, hidden / deactivated wells, baseline / normalization / drift settings, threshold, style, x-axis, active plot tab, groups, per-well overrides, and dilution wizard config. Re-open the <code>.sharpx</code> later to pick up exactly where you left off.</p>
+          <ul className="list-disc pl-5 space-y-0.5">
+            <li><strong>File &gt; Save Session</strong> — saves straight back to the source <code>.sharpx</code> with no dialog; falls through to Save As for a first-time session.</li>
+            <li><strong>File &gt; Save Session As…</strong> — always prompts, then adopts the chosen path as the active source.</li>
+            <li><Kbd>{mod}+S</Kbd> re-saves in whichever format the file was opened as (<code>.sharp</code> → data only, <code>.sharpx</code> → with refreshed session).</li>
+          </ul>
         </div>
       </div>
     ),
   },
   {
     id: 'sharp-format',
-    title: '.sharp File Format',
+    title: '.sharp / .sharpx Format',
     content: (
       <div className="space-y-3">
         <p>
           <code>.sharp</code> is SHARP Processor's native file format — a plain ZIP archive bundling one experiment in open, text-based formats. Every instrument file you open (<code>.pcrd</code>, <code>.tlpd</code>, <code>.eds</code>, <code>.amxd</code>, or a BioRad CSV folder) gets converted to <code>.sharp</code> when you save. It's the recommended format for sharing or archiving runs.
+        </p>
+        <p>
+          <code>.sharpx</code> is the same ZIP layout plus one extra entry, <code>session.json</code>, carrying your working view-state. Use <code>.sharp</code> when sharing data with collaborators; use <code>.sharpx</code> when saving your own work in progress.
         </p>
 
         <div>
@@ -408,6 +438,7 @@ const sections: Section[] = [
               <tr><TD><code>melt_rfu.csv</code></TD><TD>Per-temperature RFU per well, if the run had a melt step.</TD></tr>
               <tr><TD><code>melt_derivative.csv</code></TD><TD>Per-temperature −dF/dT per well. Pre-smoothed using the BioRad CFX Maestro algorithm.</TD></tr>
               <tr><TD><code>metadata.json</code></TD><TD><strong>Authoritative machine-readable</strong> — instrument, protocol, run info, per-well analysis outputs, time reconstruction.</TD></tr>
+              <tr><TD><code>session.json</code></TD><TD><em>(<code>.sharpx</code> only)</em> Working-session state — selections, hidden wells, baseline / normalization / drift settings, threshold, style, plot tab, groups, per-well overrides, dilution config.</TD></tr>
             </tbody>
           </table>
           <p className="mt-1.5 text-muted-foreground italic">
