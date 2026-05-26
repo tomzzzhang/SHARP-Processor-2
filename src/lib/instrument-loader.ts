@@ -8,7 +8,7 @@ import { parseBioradFolder } from './parsers/biorad-folder';
 
 // Supported instrument file extensions
 export const INSTRUMENT_EXTENSIONS = ['pcrd', 'tlpd', 'eds', 'amxd', 'adxd'];
-export const ALL_EXTENSIONS = ['sharp', ...INSTRUMENT_EXTENSIONS];
+export const ALL_EXTENSIONS = ['sharp', 'sharpx', ...INSTRUMENT_EXTENSIONS];
 
 /**
  * Load a BioRad CFX96 export folder (directory containing CSV exports from

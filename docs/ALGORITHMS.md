@@ -1,6 +1,6 @@
 # Algorithms — Active vs Archived
 
-**Last Updated:** 2026-05-05 PST — Claude
+**Last Updated:** 2026-05-25 PST — Claude (doc sweep for v0.1.13: README, User Manual, .sharpx in SHARP_FORMAT)
 
 A single source of truth for which algorithm the app is currently using for
 each analysis step, and which earlier implementations have been retired.

@@ -70,8 +70,10 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
   const thresholdRfu = useAppState((s) => s.thresholdRfu);
   const meltThresholdEnabled = useAppState((s) => s.meltThresholdEnabled);
   const meltThresholdValue = useAppState((s) => s.meltThresholdValue);
+  const meltNormalizeEnabled = useAppState((s) => s.meltNormalizeEnabled);
   const smoothingEnabled = useAppState((s) => s.smoothingEnabled);
   const smoothingWindow = useAppState((s) => s.smoothingWindow);
+  const normalizeEnabled = useAppState((s) => s.normalizeEnabled);
   const plotTab = useAppState((s) => s.plotTab);
   const figureDpi = useAppState((s) => s.figureDpi);
 
@@ -151,12 +153,12 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
       exp, visibleWells, wellGroups, wellStyleOverrides, analysisResults,
       legendOrder,
       style, xAxisMode, logScale,
-      baselineEnabled, thresholdEnabled, thresholdRfu,
-      meltThresholdEnabled, meltThresholdValue,
+      baselineEnabled, normalizeEnabled, thresholdEnabled, thresholdRfu,
+      meltThresholdEnabled, meltThresholdValue, meltNormalizeEnabled,
       smoothingEnabled, smoothingWindow,
     };
     return buildFigure(plotType, input);
-  }, [exp, visibleWells, wellGroups, wellStyleOverrides, analysisResults, legendOrder, style, xAxisMode, logScale, baselineEnabled, thresholdEnabled, thresholdRfu, meltThresholdEnabled, meltThresholdValue, smoothingEnabled, smoothingWindow, plotType]);
+  }, [exp, visibleWells, wellGroups, wellStyleOverrides, analysisResults, legendOrder, style, xAxisMode, logScale, baselineEnabled, normalizeEnabled, thresholdEnabled, thresholdRfu, meltThresholdEnabled, meltThresholdValue, meltNormalizeEnabled, smoothingEnabled, smoothingWindow, plotType]);
 
   // Preset switching
   const applyPreset = useCallback((label: string) => {

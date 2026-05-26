@@ -57,7 +57,7 @@
 | TianLong Gentier (Mini / 48 / 96) | `.tlpd` |
 | ThermoFisher QuantStudio | `.eds` |
 | Agilent AriaMx | `.amxd` or `.adxd` |
-| Previously saved SHARP files | `.sharp` |
+| Previously saved SHARP files | `.sharp` (data only) or `.sharpx` (data + your session) |
 
 You don't need to export from your instrument software first — SHARP Processor reads the raw instrument files directly. For BioRad, you can also open the CSV export folder from CFX Manager via **File → Open BioRad Folder**.
 
@@ -86,9 +86,15 @@ Selecting a well highlights it everywhere — on the grid, in the well list, on 
 **Hover to preview.** Moving the mouse over any curve, grid cell, legend entry, or sample list row highlights the same well across all of them. The legend defaults to showing sample names; switch to well names via **Style > Legend > Content**.
 
 ### Correct baselines
-Turn on **Baseline Correction** in the Analysis panel. **Auto baseline** is on by default — the app finds the longest flat region of each well automatically and uses it as a horizontal baseline. This handles early signal dips (helicase warm-up on SHARP curves) and wells that amplify at different times without any manual tuning.
+Turn on **Baseline Correction** in the Analysis panel. **Auto baseline** is on by default — the app finds the first flat region of each well (before amplification starts) and uses it as a horizontal baseline. This handles early signal dips (helicase warm-up on SHARP curves) and wells that amplify at different times without any manual tuning.
 
-Need to override? Turn **Auto baseline** off for a global manual range (Horizontal or Linear fit over a cycle window you choose), or right-click specific wells → **Baseline → Manual** to opt just those wells out of auto while everyone else stays auto.
+Need to override? Turn **Auto baseline** off for a global manual range (Horizontal or Linear fit over a cycle window you choose), or right-click specific wells → **Baseline → Manual** to opt just those wells out of auto while everyone else stays auto. Baseline Start/End inputs are entered in whatever x-axis unit you're viewing (cycle / seconds / minutes); they snap to the nearest cycle on commit.
+
+### Correct instrument drift
+Enable **Drift Correction** in the Analysis panel for runs where the baseline visibly slopes across the plate. The app estimates a single run-level drift slope by pooling the pre-amplification baseline regions of every well (using a within-well fit so genuine per-well baseline offsets don't bias the result) and subtracts it before per-well baseline correction. The detected slope appears as a small readout (e.g. *Fitted drift: +0.04 RFU/min, 84 wells*) so you can report it in a methods section.
+
+### Normalize curves
+Turn on **Normalize selected** in the Analysis panel to rescale every visible amp curve from 0 → 1 between its baseline and its plateau — a common preparation for visual comparison across plates. Non-amplifying wells (NTCs, failed reactions) are detected by SNR and divided by the median amplifying-well plateau, so they render as a small flat curve near 0 instead of blowing up the shared y-axis. The Melt tab has its own **Normalize** checkbox that does the analogous HRM-style 1 → 0 rescale on melt curves; the −dF/dT derivative is always computed from the raw signal, so peak heights stay physically meaningful.
 
 ### Set a detection threshold
 Enable **Threshold Detection** to see a red dashed line on your amplification plot. Drag it up or down to set your threshold level. The app calculates **Tt** (time-to-threshold), **Tm** (melt temperature), **doubling time**, and a **positive/negative call** for each well.
@@ -117,7 +123,8 @@ Data exports:
 - **Amplification CSV** — raw or baseline-corrected fluorescence data
 - **Melt CSV** — melt curve data
 - **Results CSV** — detection results table (Tt, Tm, doubling time, call, end RFU)
-- **Save as .sharp** — save the experiment with your edits (sample names, well types, etc.)
+- **Save as .sharp** — save the experiment with your edits (sample names, well types, etc.). Clean, data-only, intended for sharing.
+- **Save Session** — write a `.sharpx` file: the same data plus your current workspace (selections, hidden wells, baseline / normalization / drift settings, threshold, style, plot tab, groups, per-well overrides, dilution wizard config). Re-open the `.sharpx` to pick up exactly where you left off. `Ctrl/⌘+S` re-saves in whichever format the file was opened as.
 
 ---
 
@@ -152,7 +159,7 @@ Data exports:
 
 ## Upgrading from SHARP Processor v1
 
-SHARP Processor 2 is a complete rewrite with a modern interface. If you used the original [SHARP Processor](https://github.com/tomzzzhang/SHARP-data-processor), here's what's new:
+SHARP Processor 2 is a complete rewrite with a modern interface. If you used the original [SHARP Processor](https://github.com/tomzzzhang/SHARP-processor), here's what's new:
 
 - **Faster** — native desktop app (no Python startup delay)
 - **Interactive plots** — click and drag directly on curves (powered by Plotly.js)
@@ -162,9 +169,11 @@ SHARP Processor 2 is a complete rewrite with a modern interface. If you used the
 
 ---
 
-## The .sharp File Format
+## The .sharp / .sharpx File Format
 
 `.sharp` is SHARP Processor's native file format — a plain ZIP archive of your experiment in open formats (CSV, JSON, and plain text). Every instrument file you open gets converted to `.sharp` on save, and `.sharp` is the recommended way to share or archive a run.
+
+`.sharpx` is a session variant — the **same ZIP layout** as `.sharp` with one extra entry, `session.json`, carrying your working view-state (selections, hidden wells, baseline / normalization / drift settings, threshold, style, plot tab, groups, per-well overrides, dilution wizard config). Use `.sharp` for sharing data; use `.sharpx` to resume your own work later.
 
 ### What's inside
 
@@ -212,7 +221,7 @@ Full format spec: [`docs/SHARP_FORMAT.md`](docs/SHARP_FORMAT.md).
 
 ## Architecture
 
-SHARP Processor 2 is a ground-up rewrite of the [original SHARP Processor](https://github.com/tomzzzhang/SHARP-data-processor) (Python + PyQt6 + matplotlib). Key improvements:
+SHARP Processor 2 is a ground-up rewrite of the [original SHARP Processor](https://github.com/tomzzzhang/SHARP-processor) (Python + PyQt6 + matplotlib). Key improvements:
 
 - **Native desktop performance** — Tauri 2 (Rust) shell with a React frontend, no Python startup delay
 - **Interactive charts** — Plotly.js replaces matplotlib for click-to-select, box-select, and drag-to-adjust
@@ -251,7 +260,7 @@ Most formats are parsed in pure TypeScript; the Python sidecar is used as a fall
 - Rust 1.94+
 - **Windows:** VS 2022 Build Tools (C++ desktop workload)
 - **macOS:** Xcode Command Line Tools (`xcode-select --install`)
-- Python 3.13 in the `sharp` conda environment (for instrument file parsing sidecar)
+- Python 3.12+ in the `sharp` conda environment (optional — only needed if the pure-TS instrument parsers fall back to the v1 Python sidecar)
 
 ### Setup & Run
 
@@ -292,7 +301,7 @@ dist-release/
 - [`CLAUDE.md`](CLAUDE.md) — Developer guide, architecture, implementation notes
 - [`docs/SHARP_FORMAT.md`](docs/SHARP_FORMAT.md) — `.sharp` file format specification (current: v1.1)
 - [`docs/ALGORITHMS.md`](docs/ALGORITHMS.md) — Active vs archived analysis algorithms
-- [v1 .pcrd Reverse Engineering](https://github.com/tomzzzhang/SHARP-data-processor/blob/main/PCRD_FORMAT.md)
+- [v1 .pcrd Reverse Engineering](https://github.com/tomzzzhang/SHARP-processor/blob/main/PCRD_FORMAT.md)
 
 ---
 

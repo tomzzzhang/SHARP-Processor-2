@@ -41,6 +41,10 @@ export interface ExperimentData {
   operator: string;
   notes: string;
   runStarted: string;
+  /** Transient working-session state (selections, analysis/style settings),
+   *  populated by the `.sharpx` loader and consumed by `loadExperiment`.
+   *  NOT part of the saved data model — plain `.sharp` files never carry it. */
+  session?: Record<string, unknown> | null;
 }
 
 export interface WellDisplaySettings {

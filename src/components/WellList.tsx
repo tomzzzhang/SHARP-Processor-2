@@ -2,6 +2,7 @@ import { useAppState } from '@/hooks/useAppState';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useDragSelect } from '@/hooks/useDragSelect';
 import { useMemo, useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { CONTENT_DISPLAY, getPaletteColors } from '@/lib/constants';
 import type { ContentType } from '@/types/experiment';
 
@@ -35,34 +36,62 @@ function InlineEdit({ value, onCommit }: { value: string; onCommit: (v: string) 
   );
 }
 
-function ContentTypeSelect({
+/**
+ * Content-type picker — a custom dropdown menu rather than a native
+ * `<select>`. The native select's popup is unreliable in the desktop
+ * WebView (it often won't open from a freshly-mounted element), so we
+ * render our own floating list, portalled to <body> and fixed-positioned
+ * at the clicked cell. Dismisses on outside pointer-down or Escape.
+ */
+function ContentTypeMenu({
+  anchor,
   value,
-  onChange,
+  onPick,
   onClose,
 }: {
+  anchor: DOMRect;
   value: ContentType;
-  onChange: (t: ContentType) => void;
+  onPick: (t: ContentType) => void;
   onClose: () => void;
 }) {
-  const selectRef = useRef<HTMLSelectElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { selectRef.current?.focus(); }, []);
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [onClose]);
 
-  return (
-    <select
-      ref={selectRef}
-      value={value}
-      onChange={(e) => { onChange(e.target.value as ContentType); onClose(); }}
-      onBlur={onClose}
-      className="h-5 text-xs border border-primary rounded-sm bg-background outline-none cursor-pointer"
-      onClick={(e) => e.stopPropagation()}
+  const menuH = CONTENT_TYPES.length * 26 + 8;
+  const top = anchor.bottom + 2 + menuH > window.innerHeight
+    ? Math.max(4, anchor.top - menuH - 2)
+    : anchor.bottom + 2;
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      className="fixed z-[1000] min-w-[100px] rounded-md border bg-popover shadow-md py-1 text-xs"
+      style={{ top, left: anchor.left }}
     >
       {CONTENT_TYPES.map((ct) => (
-        <option key={ct} value={ct}>
+        <button
+          key={ct}
+          type="button"
+          className={`block w-full text-left px-2 py-1 hover:bg-accent ${ct === value ? 'font-medium text-primary' : ''}`}
+          onClick={() => { onPick(ct); onClose(); }}
+        >
           {CONTENT_DISPLAY[ct] || ct || '(none)'}
-        </option>
+        </button>
       ))}
-    </select>
+    </div>,
+    document.body,
   );
 }
 
@@ -87,6 +116,7 @@ export function WellList() {
 
   const [editingWell, setEditingWell] = useState<string | null>(null);
   const [typeEditWell, setTypeEditWell] = useState<string | null>(null);
+  const [typeAnchor, setTypeAnchor] = useState<DOMRect | null>(null);
 
   // Build color map respecting groups (same logic as plots)
   const colorMap = useMemo(() => {
@@ -197,24 +227,24 @@ export function WellList() {
                   )}
                 </td>
                 <td
-                  className="px-1 py-0 cursor-pointer hover:bg-accent/60 rounded-sm group/type"
-                  onClick={(e) => { e.stopPropagation(); setTypeEditWell(typeEditWell === well ? null : well); }}
+                  className={`px-1 py-0 cursor-pointer hover:bg-accent/60 rounded-sm group/type ${typeEditWell === well ? 'bg-accent' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (typeEditWell === well) {
+                      setTypeEditWell(null);
+                    } else {
+                      setTypeAnchor(e.currentTarget.getBoundingClientRect());
+                      setTypeEditWell(well);
+                    }
+                  }}
                   title="Click to change type"
                 >
-                  {typeEditWell === well ? (
-                    <ContentTypeSelect
-                      value={info?.content ?? ''}
-                      onChange={(t) => setWellContentType([well], t)}
-                      onClose={() => setTypeEditWell(null)}
-                    />
-                  ) : (
-                    <span className="flex items-center gap-0.5">
-                      {displayType}
-                      <svg className="w-2.5 h-2.5 opacity-0 group-hover/type:opacity-40 shrink-0" viewBox="0 0 10 6" fill="currentColor">
-                        <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    </span>
-                  )}
+                  <span className="flex items-center gap-0.5">
+                    {displayType}
+                    <svg className="w-2.5 h-2.5 opacity-0 group-hover/type:opacity-40 shrink-0" viewBox="0 0 10 6" fill="currentColor">
+                      <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </span>
                 </td>
                 <td className="px-1 py-0 truncate max-w-[80px] text-muted-foreground">
                   {wellGroups.get(well) ?? ''}
@@ -224,6 +254,19 @@ export function WellList() {
           })}
         </tbody>
       </table>
+      {typeEditWell && typeAnchor && exp.wells[typeEditWell] && (
+        <ContentTypeMenu
+          anchor={typeAnchor}
+          value={exp.wells[typeEditWell]?.content ?? ''}
+          onPick={(t) => setWellContentType(
+            selectedWells.has(typeEditWell) && selectedWells.size > 1
+              ? Array.from(selectedWells)
+              : [typeEditWell],
+            t,
+          )}
+          onClose={() => setTypeEditWell(null)}
+        />
+      )}
     </div>
   );
 }

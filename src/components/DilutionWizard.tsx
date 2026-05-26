@@ -6,7 +6,12 @@ import { getPlateRowLetters, getPlateColNumbers, WELL_EMPTY_COLOR, WELL_SELECTED
 
 // ── Constants ─────────────────────────────────────────────────────────
 
-const CONCENTRATION_UNITS = ['fM', 'pM', 'nM', 'µM', 'mM', 'copies/µL'] as const;
+const CONCENTRATION_UNITS = ['fM', 'pM', 'nM', 'µM', 'mM', 'copies/µL', 'copies'] as const;
+
+/** Units that carry an ×10ⁿ exponent (entered via `copiesExponent`). */
+function isCopiesUnit(unit: string): boolean {
+  return unit === 'copies/µL' || unit === 'copies';
+}
 
 // ── Page 1: Concentration Setup ────────────────────────────────────────
 
@@ -33,14 +38,14 @@ function formatConcentration(value: number): string {
 function formatConcentrationWithUnit(value: number, unit: string, copiesExponent: number): string {
   const formatted = formatConcentration(value);
   if (!unit) return formatted;
-  if (unit === 'copies/µL') {
-    return `${formatted} ×10^${copiesExponent} copies/µL`;
+  if (isCopiesUnit(unit)) {
+    return `${formatted} ×10^${copiesExponent} ${unit}`;
   }
   return `${formatted} ${unit}`;
 }
 
 function Page1({ config, setConfig, onNext, onCancel }: Page1Props) {
-  const isCopies = config.unit === 'copies/µL';
+  const isCopies = isCopiesUnit(config.unit);
 
   const concentrations = useMemo(() => {
     const out: number[] = [];

@@ -37,6 +37,18 @@ function resolvePlotlyDiv(el: HTMLElement): HTMLElement {
 }
 
 /**
+ * Decode a data URL's payload to text. Plotly returns PNG/JPEG as
+ * base64 data URLs but SVG as a URL-encoded one (`data:image/svg+xml,…`),
+ * so a blanket `atob` throws "string not correctly encoded" on SVG.
+ */
+function decodeDataUrlText(dataUrl: string): string {
+  const comma = dataUrl.indexOf(',');
+  const meta = dataUrl.slice(0, comma);
+  const payload = dataUrl.slice(comma + 1);
+  return meta.includes(';base64') ? atob(payload) : decodeURIComponent(payload);
+}
+
+/**
  * Export the current plot as an image file.
  * Uses Plotly's toImage to render, then Tauri's save dialog + writeFile.
  */
@@ -78,8 +90,8 @@ export async function exportPlotImage(
   });
 
   if (format === 'svg') {
-    // SVG is returned as a data URL
-    const svgContent = atob(result.split(',')[1]);
+    // SVG is returned as a URL-encoded data URL (not base64).
+    const svgContent = decodeDataUrlText(result);
     await writeTextFile(filePath, svgContent);
   } else {
     // PNG/JPEG are returned as base64 data URLs
@@ -251,7 +263,8 @@ export async function exportWizardFigure(
     });
 
     if (format === 'svg') {
-      const svgContent = atob(result.split(',')[1]);
+      // SVG is returned as a URL-encoded data URL (not base64).
+      const svgContent = decodeDataUrlText(result);
       await writeTextFile(filePath, svgContent);
     } else {
       const base64 = result.split(',')[1];
@@ -446,6 +459,7 @@ function fmtNum(v: number | null | undefined, decimals = 2): string {
 async function buildSharpZip(
   exp: ExperimentData,
   liveAnalysis?: LiveAnalysisBundle,
+  session?: Record<string, unknown> | null,
 ): Promise<Uint8Array> {
   const zip = new JSZip();
 
@@ -578,6 +592,11 @@ async function buildSharpZip(
   // exists so someone can `cat` the archive and understand it.
   zip.file('SUMMARY.txt', buildSharpSummary(exp, zip));
 
+  // session.json — working-session view state. Present only in `.sharpx`
+  // files; plain `.sharp` exports omit it so shared data carries no
+  // selection / analysis / style state.
+  if (session) zip.file('session.json', JSON.stringify(session, null, 2));
+
   return zip.generateAsync({ type: 'uint8array' });
 }
 
@@ -657,8 +676,9 @@ export async function saveSession(
   exp: ExperimentData,
   filePath: string,
   liveAnalysis?: LiveAnalysisBundle,
+  session?: Record<string, unknown> | null,
 ): Promise<string> {
-  const zipData = await buildSharpZip(exp, liveAnalysis);
+  const zipData = await buildSharpZip(exp, liveAnalysis, session);
   await writeFile(filePath, zipData);
   return filePath;
 }
@@ -681,6 +701,28 @@ export async function exportAsSharp(
   if (!filePath) return null;
 
   const zipData = await buildSharpZip(exp, liveAnalysis);
+  await writeFile(filePath, zipData);
+  return filePath;
+}
+
+/**
+ * Save a working session as a `.sharpx` file — a `.sharp` archive plus a
+ * `session.json` carrying the current view state (selections, baseline /
+ * normalization / drift settings, style, x-axis, plot tab). Reopening the
+ * `.sharpx` restores all of it. Plain `.sharp` exports never include it.
+ */
+export async function exportAsSharpx(
+  exp: ExperimentData,
+  session: Record<string, unknown>,
+  liveAnalysis?: LiveAnalysisBundle,
+): Promise<string | null> {
+  const filePath = await save({
+    defaultPath: `${exp.experimentId}.sharpx`,
+    filters: [{ name: 'SHARP Session', extensions: ['sharpx'] }],
+  });
+  if (!filePath) return null;
+
+  const zipData = await buildSharpZip(exp, liveAnalysis, session);
   await writeFile(filePath, zipData);
   return filePath;
 }

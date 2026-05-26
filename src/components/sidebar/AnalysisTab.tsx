@@ -1,8 +1,64 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAppState } from '@/hooks/useAppState';
 import type { WellBaselineOverride } from '@/hooks/useAppState';
+import { useAnalysisResults, useGlobalDrift } from '@/hooks/useAnalysisResults';
+import { cycleToXValue, xValueToCycle, X_AXIS_UNIT_LABEL } from '@/lib/analysis';
+import type { AmplificationData, XAxisMode } from '@/types/experiment';
 import { Checkbox } from '@/components/ui/checkbox';
 import { CollapsibleSection } from './CollapsibleSection';
+
+/**
+ * Number input for a baseline / plateau zone boundary. Stored internally
+ * as a 1-indexed cycle number, but displayed and edited in whatever unit
+ * the x-axis currently shows (cycle / s / min). Commits on blur/Enter so
+ * the nearest-cycle snapping doesn't fight the user mid-keystroke.
+ */
+function ZoneInput({
+  valueCycle, placeholderCycle, amp, xAxisMode, onCommit, allowEmpty = false, className,
+}: {
+  valueCycle: number | undefined;
+  placeholderCycle?: number;
+  amp: AmplificationData | null;
+  xAxisMode: XAxisMode;
+  onCommit: (cycle: number | undefined) => void;
+  allowEmpty?: boolean;
+  className?: string;
+}) {
+  const toDisp = (c: number): string => {
+    const v = amp ? cycleToXValue(c, xAxisMode, amp) : c;
+    return xAxisMode === 'cycle' ? String(Math.round(v)) : String(Math.round(v * 10) / 10);
+  };
+  const display = valueCycle != null ? toDisp(valueCycle) : '';
+  const [text, setText] = useState(display);
+  useEffect(() => {
+    setText(valueCycle != null ? toDisp(valueCycle) : '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [valueCycle, xAxisMode, amp]);
+
+  const commit = () => {
+    const t = text.trim();
+    if (t === '') {
+      if (allowEmpty) onCommit(undefined);
+      else setText(display);
+      return;
+    }
+    const num = Number(t);
+    if (!Number.isFinite(num)) { setText(display); return; }
+    onCommit(amp ? xValueToCycle(num, xAxisMode, amp) : Math.round(num));
+  };
+
+  return (
+    <input
+      type="number"
+      value={text}
+      placeholder={placeholderCycle != null ? toDisp(placeholderCycle) : undefined}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+      className={className}
+    />
+  );
+}
 
 export function AnalysisTab() {
   const baselineEnabled = useAppState((s) => s.baselineEnabled);
@@ -33,6 +89,25 @@ export function AnalysisTab() {
   const setMeltThresholdValue = useAppState((s) => s.setMeltThresholdValue);
   const setWellBaselineOverride = useAppState((s) => s.setWellBaselineOverride);
   const clearWellBaselineOverrides = useAppState((s) => s.clearWellBaselineOverrides);
+
+  const experiments = useAppState((s) => s.experiments);
+  const activeIdx = useAppState((s) => s.activeExperimentIndex);
+  const xAxisMode = useAppState((s) => s.xAxisMode);
+  const normalizeEnabled = useAppState((s) => s.normalizeEnabled);
+  const setNormalizeEnabled = useAppState((s) => s.setNormalizeEnabled);
+  const wellNormalizeOverrides = useAppState((s) => s.wellNormalizeOverrides);
+  const setWellNormalizeOverride = useAppState((s) => s.setWellNormalizeOverride);
+  const clearWellNormalizeOverrides = useAppState((s) => s.clearWellNormalizeOverrides);
+  const hoveredWell = useAppState((s) => s.hoveredWell);
+  const setHoveredWell = useAppState((s) => s.setHoveredWell);
+  const driftCorrectionEnabled = useAppState((s) => s.driftCorrectionEnabled);
+  const setDriftCorrectionEnabled = useAppState((s) => s.setDriftCorrectionEnabled);
+  const analysisResults = useAnalysisResults();
+  const { slope: driftSlope, nWells: driftWells } = useGlobalDrift();
+
+  const exp = experiments[activeIdx];
+  const amp = exp?.amplification ?? null;
+  const unitLabel = X_AXIS_UNIT_LABEL[xAxisMode];
 
   const selectedArr = useMemo(() => [...selectedWells], [selectedWells]);
   const selectedOverride: WellBaselineOverride | null = useMemo(() => {
@@ -67,6 +142,34 @@ export function AnalysisTab() {
 
   return (
     <div className="space-y-3">
+      <CollapsibleSection title="Drift Correction" defaultOpen={false}>
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={driftCorrectionEnabled}
+            onCheckedChange={(v) => setDriftCorrectionEnabled(v === true)}
+          />
+          Global slope correction
+        </label>
+
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-muted-foreground">Fitted drift:</span>
+          <span className="font-medium">
+            {driftWells > 0
+              ? `${driftSlope >= 0 ? '+' : '−'}${Math.abs(driftSlope).toFixed(2)} RFU/min`
+              : 'not detected'}
+          </span>
+          {driftWells > 0 && (
+            <span className="text-muted-foreground">({driftWells} well{driftWells > 1 ? 's' : ''})</span>
+          )}
+        </div>
+
+        <p className="text-[11px] text-muted-foreground italic">
+          Removes a single run-level slope — fitted across every well's
+          pre-amplification baseline — from all curves before baseline
+          correction. Per-well baseline offset is handled separately.
+        </p>
+      </CollapsibleSection>
+
       <CollapsibleSection title="Baseline Correction">
         <label className="flex items-center gap-2 text-sm">
           <Checkbox
@@ -113,23 +216,22 @@ export function AnalysisTab() {
         <div className="flex items-center gap-2 text-sm">
           <span className="text-muted-foreground">Zone:</span>
           <span>Start:</span>
-          <input
-            type="number"
-            min={1}
-            max={999}
-            value={baselineStart}
-            onChange={(e) => setBaselineZone(Number(e.target.value), baselineEnd)}
+          <ZoneInput
+            valueCycle={baselineStart}
+            amp={amp}
+            xAxisMode={xAxisMode}
+            onCommit={(c) => { if (c != null) setBaselineZone(c, baselineEnd); }}
             className="w-14 h-6 border rounded px-1 text-center text-sm"
           />
           <span>End:</span>
-          <input
-            type="number"
-            min={1}
-            max={999}
-            value={baselineEnd}
-            onChange={(e) => setBaselineZone(baselineStart, Number(e.target.value))}
+          <ZoneInput
+            valueCycle={baselineEnd}
+            amp={amp}
+            xAxisMode={xAxisMode}
+            onCommit={(c) => { if (c != null) setBaselineZone(baselineStart, c); }}
             className="w-14 h-6 border rounded px-1 text-center text-sm"
           />
+          <span className="text-xs text-muted-foreground">{unitLabel}</span>
           </div>
         </div>
 
@@ -205,32 +307,133 @@ export function AnalysisTab() {
             <div className="flex items-center gap-2 text-xs">
               <span className="text-muted-foreground">Zone:</span>
               <span>Start:</span>
-              <input
-                type="number"
-                min={1}
-                max={999}
-                value={selectedOverride?.start ?? ''}
-                placeholder={String(baselineStart)}
-                onChange={(e) => {
-                  const v = e.target.value ? Number(e.target.value) : undefined;
-                  setWellBaselineOverride(selectedArr, { start: v });
-                }}
+              <ZoneInput
+                valueCycle={selectedOverride?.start}
+                placeholderCycle={baselineStart}
+                amp={amp}
+                xAxisMode={xAxisMode}
+                allowEmpty
+                onCommit={(c) => setWellBaselineOverride(selectedArr, { start: c })}
                 className="w-12 h-6 border rounded px-1 text-center text-xs"
               />
               <span>End:</span>
-              <input
-                type="number"
-                min={1}
-                max={999}
-                value={selectedOverride?.end ?? ''}
-                placeholder={String(baselineEnd)}
-                onChange={(e) => {
-                  const v = e.target.value ? Number(e.target.value) : undefined;
-                  setWellBaselineOverride(selectedArr, { end: v });
-                }}
+              <ZoneInput
+                valueCycle={selectedOverride?.end}
+                placeholderCycle={baselineEnd}
+                amp={amp}
+                xAxisMode={xAxisMode}
+                allowEmpty
+                onCommit={(c) => setWellBaselineOverride(selectedArr, { end: c })}
                 className="w-12 h-6 border rounded px-1 text-center text-xs"
               />
+              <span className="text-muted-foreground">{unitLabel}</span>
             </div>
+            </div>
+          </div>
+        )}
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Normalization" defaultOpen={false}>
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={normalizeEnabled}
+            onCheckedChange={(v) => setNormalizeEnabled(v === true)}
+          />
+          Normalize selected
+        </label>
+
+        <p className="text-[11px] text-muted-foreground italic">
+          Rescales each curve 0→1 between its baseline and plateau regions. The baseline zone
+          follows Auto baseline; the plateau is auto-detected, falling back to the final reading
+          when no plateau is found.
+        </p>
+
+        {normalizeEnabled && exp && (
+          <div className="border-t pt-2 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground">Per-well zones</span>
+              <button
+                className="text-xs text-destructive hover:underline"
+                onClick={() => clearWellNormalizeOverrides(exp.wellsUsed)}
+              >
+                Reset
+              </button>
+            </div>
+            <div className="max-h-64 overflow-auto">
+              <table className="w-full text-[10px]">
+                <thead className="sticky top-0 bg-background">
+                  <tr className="text-muted-foreground">
+                    <th className="px-0.5 py-0.5 text-left">Well</th>
+                    <th className="px-0.5 py-0.5 text-center" title="Normalize this well">N</th>
+                    <th className="px-0.5 py-0.5 text-center" colSpan={2}>Baseline ({unitLabel})</th>
+                    <th className="px-0.5 py-0.5 text-center" colSpan={2}>Plateau ({unitLabel})</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {exp.wellsUsed.map((well) => {
+                    const ar = analysisResults.get(well);
+                    const normOv = wellNormalizeOverrides.get(well);
+                    const normOn = normOv?.enabled ?? true;
+                    const bw = ar?.baselineWindow ?? null;
+                    const pw = ar?.plateauWindow ?? null;
+                    const isHovered = hoveredWell === well;
+                    const isSelected = selectedWells.has(well);
+                    const shadowParts: string[] = [];
+                    if (isSelected) shadowParts.push('inset 3px 0 0 var(--brand-red)');
+                    if (isHovered) shadowParts.push('inset 0 0 0 9999px color-mix(in srgb, var(--brand-red) 18%, transparent)');
+                    const inputCls = 'w-9 h-5 border rounded px-0.5 text-center text-[10px] bg-background';
+                    return (
+                      <tr
+                        key={well}
+                        style={{ boxShadow: shadowParts.join(', ') || undefined, opacity: normOn ? 1 : 0.5 }}
+                        onMouseEnter={() => setHoveredWell(well)}
+                        onMouseLeave={() => { if (hoveredWell === well) setHoveredWell(null); }}
+                      >
+                        <td className="px-0.5 font-medium">{well}</td>
+                        <td className="px-0.5 text-center">
+                          <Checkbox
+                            className="h-3 w-3"
+                            checked={normOn}
+                            onCheckedChange={(v) => setWellNormalizeOverride([well], { enabled: v === true })}
+                          />
+                        </td>
+                        <td className="px-0.5">
+                          <ZoneInput
+                            valueCycle={bw?.start} placeholderCycle={baselineStart}
+                            amp={amp} xAxisMode={xAxisMode} allowEmpty
+                            onCommit={(c) => setWellBaselineOverride([well], { start: c, end: bw?.end, auto: false })}
+                            className={inputCls}
+                          />
+                        </td>
+                        <td className="px-0.5">
+                          <ZoneInput
+                            valueCycle={bw?.end} placeholderCycle={baselineEnd}
+                            amp={amp} xAxisMode={xAxisMode} allowEmpty
+                            onCommit={(c) => setWellBaselineOverride([well], { start: bw?.start, end: c, auto: false })}
+                            className={inputCls}
+                          />
+                        </td>
+                        <td className="px-0.5" title={pw ? undefined : 'No plateau detected — normalized to final reading'}>
+                          <ZoneInput
+                            valueCycle={pw?.start}
+                            amp={amp} xAxisMode={xAxisMode} allowEmpty
+                            onCommit={(c) => setWellNormalizeOverride([well], { plateauStart: c, plateauEnd: pw?.end, plateauAuto: false })}
+                            className={inputCls}
+                          />
+                        </td>
+                        <td className="px-0.5" title={pw ? undefined : 'No plateau detected — normalized to final reading'}>
+                          <ZoneInput
+                            valueCycle={pw?.end}
+                            amp={amp} xAxisMode={xAxisMode} allowEmpty
+                            onCommit={(c) => setWellNormalizeOverride([well], { plateauStart: pw?.start, plateauEnd: c, plateauAuto: false })}
+                            className={inputCls}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         )}

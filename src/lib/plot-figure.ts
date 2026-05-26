@@ -15,7 +15,7 @@
  */
 import type { Data, Layout, Shape, PlotData } from 'plotly.js';
 import type { ExperimentData, XAxisMode } from '@/types/experiment';
-import type { WellAnalysisResult } from '@/lib/analysis';
+import { normalizeMeltCurves, type WellAnalysisResult } from '@/lib/analysis';
 import { getPaletteColors } from '@/lib/constants';
 
 export type PlotType = 'amp' | 'melt' | 'melt_deriv' | 'doubling';
@@ -54,10 +54,12 @@ export interface BuildFigureInput {
   xAxisMode: XAxisMode;
   logScale: boolean;
   baselineEnabled: boolean;
+  normalizeEnabled: boolean;
   thresholdEnabled: boolean;
   thresholdRfu: number;
   meltThresholdEnabled: boolean;
   meltThresholdValue: number;
+  meltNormalizeEnabled: boolean;
   smoothingEnabled: boolean;
   smoothingWindow: number;
 }
@@ -81,8 +83,51 @@ const LEGEND_POS_MAP: Record<string, { x: number; y: number; xanchor: string; ya
   'center': { x: 0.5, y: 0.5, xanchor: 'center', yanchor: 'middle' },
 };
 
-function resolveLegendPosition(position: string): { x: number; y: number; xanchor: string; yanchor: string } {
-  if (position === 'best') return LEGEND_POS_MAP['upper right'];
+// Corners for the "best" auto-placement, in the same order as PlotArea's
+// on-screen logic so the wizard preview/export agree with the live view.
+const CORNER_CANDIDATES = [
+  { x: 1, y: 1, xanchor: 'right', yanchor: 'top' },     // upper right
+  { x: 0, y: 1, xanchor: 'left', yanchor: 'top' },      // upper left
+  { x: 1, y: 0, xanchor: 'right', yanchor: 'bottom' },  // lower right
+  { x: 0, y: 0, xanchor: 'left', yanchor: 'bottom' },   // lower left
+] as const;
+
+/** Pick the corner where the fewest data points fall — a hook-free port
+ *  of PlotArea's `bestLegendPosition` so "best" matches the live view. */
+function bestLegendPosition(traces: Data[]): { x: number; y: number; xanchor: string; yanchor: string } {
+  const counts = [0, 0, 0, 0]; // UR, UL, LR, LL
+  let hasData = false;
+  for (const trace of traces) {
+    const xs = (trace as { x?: number[] }).x;
+    const ys = (trace as { y?: number[] }).y;
+    if (!xs || !ys || xs.length === 0) continue;
+    hasData = true;
+    let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
+    for (let i = 0; i < xs.length; i++) {
+      if (xs[i] < xMin) xMin = xs[i];
+      if (xs[i] > xMax) xMax = xs[i];
+      if (ys[i] < yMin) yMin = ys[i];
+      if (ys[i] > yMax) yMax = ys[i];
+    }
+    const xRange = xMax - xMin || 1;
+    const yRange = yMax - yMin || 1;
+    for (let i = 0; i < xs.length; i++) {
+      const rightHalf = (xs[i] - xMin) / xRange > 0.5;
+      const topHalf = (ys[i] - yMin) / yRange > 0.5;
+      if (rightHalf && topHalf) counts[0]++;
+      else if (!rightHalf && topHalf) counts[1]++;
+      else if (rightHalf && !topHalf) counts[2]++;
+      else counts[3]++;
+    }
+  }
+  if (!hasData) return CORNER_CANDIDATES[0];
+  let minIdx = 0;
+  for (let i = 1; i < counts.length; i++) if (counts[i] < counts[minIdx]) minIdx = i;
+  return CORNER_CANDIDATES[minIdx];
+}
+
+function resolveLegendPosition(position: string, data: Data[]): { x: number; y: number; xanchor: string; yanchor: string } {
+  if (position === 'best') return bestLegendPosition(data);
   return LEGEND_POS_MAP[position] ?? LEGEND_POS_MAP['upper right'];
 }
 
@@ -235,7 +280,7 @@ function lineStyleFor(well: string, input: BuildFigureInput): { dash?: string; w
 // ── Amplification ───────────────────────────────────────────────────
 
 function buildAmp(input: BuildFigureInput): { data: Data[]; layout: Partial<Layout> } {
-  const { exp, visibleWells, style, xAxisMode, logScale, baselineEnabled, analysisResults } = input;
+  const { exp, visibleWells, style, xAxisMode, logScale, baselineEnabled, normalizeEnabled, analysisResults } = input;
   const amp = exp.amplification;
   const data: Data[] = [];
 
@@ -253,7 +298,9 @@ function buildAmp(input: BuildFigureInput): { data: Data[]; layout: Partial<Layo
     const raw = amp.wells[well];
     if (!raw) continue;
     const analysis = analysisResults.get(well);
-    const y = (baselineEnabled && analysis?.correctedRfu) || raw;
+    const y = (normalizeEnabled && analysis?.normalizedRfu)
+      || (baselineEnabled && analysis?.correctedRfu)
+      || raw;
     const color = colorMap.get(well) ?? '#999';
     const lsOv = lineStyleFor(well, input);
     const lg = legendGroups.get(well)!;
@@ -274,7 +321,8 @@ function buildAmp(input: BuildFigureInput): { data: Data[]; layout: Partial<Layo
   }
 
   const shapes: Partial<Shape>[] = [];
-  if (input.thresholdEnabled) {
+  // Threshold line is in raw-RFU units — hide it when the plot is normalized.
+  if (input.thresholdEnabled && !normalizeEnabled) {
     shapes.push({
       type: 'line', x0: 0, x1: 1, xref: 'paper',
       y0: input.thresholdRfu, y1: input.thresholdRfu, yref: 'y',
@@ -283,7 +331,7 @@ function buildAmp(input: BuildFigureInput): { data: Data[]; layout: Partial<Layo
   }
 
   const plotBg = resolvePlotBg(style);
-  const legendPos = resolveLegendPosition(style.legendPosition);
+  const legendPos = resolveLegendPosition(style.legendPosition, data);
 
   const layout: Partial<Layout> = {
     title: { text: titleText(exp.experimentId ?? 'Amplification', style), font: { family: style.fontFamily, size: style.titleSize } },
@@ -293,7 +341,10 @@ function buildAmp(input: BuildFigureInput): { data: Data[]; layout: Partial<Layo
       ...gridStyle(style),
     },
     yaxis: {
-      title: pfAxisLabel(baselineEnabled ? 'RFU (corrected)' : 'RFU', style),
+      title: pfAxisLabel(
+        normalizeEnabled ? 'Normalized fluorescence' : baselineEnabled ? 'RFU (corrected)' : 'RFU',
+        style,
+      ),
       type: logScale ? 'log' : 'linear',
       ...pfTickProps(style),
       ...gridStyle(style),
@@ -333,8 +384,9 @@ function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Dat
 
   // RFU traces (skip if derivative-only)
   if (!derivativeOnly) {
+    const meltRfu = input.meltNormalizeEnabled ? normalizeMeltCurves(melt.rfu) : melt.rfu;
     for (const well of visibleWells) {
-      const rfu = melt.rfu[well];
+      const rfu = meltRfu[well];
       if (!rfu) continue;
       const color = colorMap.get(well) ?? '#999';
       const lsOv = lineStyleFor(well, input);
@@ -388,7 +440,7 @@ function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Dat
   }
 
   const plotBg = resolvePlotBg(style);
-  const legendPos = resolveLegendPosition(style.legendPosition);
+  const legendPos = resolveLegendPosition(style.legendPosition, data);
   const shapes: Partial<Shape>[] = [];
 
   if (meltThresholdEnabled && hasDerivative) {
@@ -436,7 +488,10 @@ function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Dat
         ...baseLayout,
         xaxis,
         yaxis: {
-          title: pfAxisLabel(derivativeOnly ? '-dF/dT' : 'RFU', style),
+          title: pfAxisLabel(
+            derivativeOnly ? '-dF/dT' : input.meltNormalizeEnabled ? 'Normalized fluorescence' : 'RFU',
+            style,
+          ),
           ...pfTickProps(style),
           ...gridStyle(style),
         },
@@ -465,7 +520,7 @@ function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Dat
       xaxis: xaxisTop,
       xaxis2: xaxisBottom,
       yaxis: {
-        title: pfAxisLabel('RFU', style),
+        title: pfAxisLabel(input.meltNormalizeEnabled ? 'Normalized fluorescence' : 'RFU', style),
         ...pfTickProps(style),
         domain: [0.55, 1], anchor: 'x',
         ...gridStyle(style),
