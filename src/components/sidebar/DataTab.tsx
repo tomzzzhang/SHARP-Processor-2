@@ -6,7 +6,7 @@ import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { Button } from '@/components/ui/button';
 import { loadSharpFile } from '@/lib/sharp-loader';
 import { isInstrumentFile, isSupportedFile, loadInstrumentFile, loadBioradFolder } from '@/lib/instrument-loader';
-import { exportPlotImage, exportDataCsv, exportResultsCsv, exportMeltCsv, exportAsSharp } from '@/lib/export';
+import { exportPlotImage, exportDataCsv, exportResultsCsv, exportMeltCsv, exportAsSharp, exportAsSharpx, saveSession } from '@/lib/export';
 import { addRecentFile } from '@/lib/recent-files';
 
 export function DataTab() {
@@ -49,8 +49,8 @@ export function DataTab() {
   const handleOpen = useCallback(async () => {
     const path = await dialogOpen({
       filters: [
-        { name: 'Experiment Files', extensions: ['sharp', 'pcrd', 'tlpd', 'eds', 'amxd', 'adxd'] },
-        { name: 'SHARP Files', extensions: ['sharp'] },
+        { name: 'Experiment Files', extensions: ['sharp', 'sharpx', 'pcrd', 'tlpd', 'eds', 'amxd', 'adxd'] },
+        { name: 'SHARP Files', extensions: ['sharp', 'sharpx'] },
         { name: 'BioRad .pcrd', extensions: ['pcrd'] },
         { name: 'TianLong .tlpd', extensions: ['tlpd'] },
         { name: 'ThermoFisher .eds', extensions: ['eds'] },
@@ -142,6 +142,29 @@ export function DataTab() {
     }
   }, [exp, analysisResults, xAxisMode, setActiveSourcePath]);
 
+  // Save Session — writes back to the source .sharpx with no dialog when
+  // the experiment came from one; otherwise prompts (first-time session).
+  const handleSaveSession = useCallback(async () => {
+    if (!exp) return;
+    try {
+      const liveAnalysis = { results: analysisResults, ttIsCycle: xAxisMode === 'cycle' };
+      const session = useAppState.getState().getSessionState();
+      const sourcePath = useAppState.getState().getActiveSourcePath();
+      if (sourcePath?.toLowerCase().endsWith('.sharpx')) {
+        await saveSession(exp, sourcePath, liveAnalysis, session);
+        showStatus('Saved session');
+      } else {
+        const path = await exportAsSharpx(exp, session, liveAnalysis);
+        if (path) {
+          setActiveSourcePath(path);
+          showStatus('Saved session');
+        }
+      }
+    } catch (err) {
+      showStatus(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [exp, analysisResults, xAxisMode, setActiveSourcePath]);
+
   if (!exp) return null; // SidebarHome handles the empty state
 
   return (
@@ -189,6 +212,7 @@ export function DataTab() {
       <fieldset className="border rounded-md p-3 space-y-2">
         <legend className="text-sm font-semibold px-1">Save</legend>
         <Button variant="outline" size="sm" className="w-full h-7 text-xs" onClick={handleSaveSharp}>Save as .sharp</Button>
+        <Button variant="outline" size="sm" className="w-full h-7 text-xs" onClick={handleSaveSession} title="Saves a .sharpx — your data plus the current selections, analysis & style settings, so you can resume later">Save Session (.sharpx)</Button>
       </fieldset>
 
       {exportStatus && (

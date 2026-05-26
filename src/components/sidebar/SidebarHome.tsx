@@ -37,8 +37,8 @@ export function SidebarHome() {
     if (!dialog) return;
     const path = await dialog.open({
       filters: [
-        { name: 'Experiment Files', extensions: ['sharp', 'pcrd', 'tlpd', 'eds', 'amxd', 'adxd'] },
-        { name: 'SHARP Files', extensions: ['sharp'] },
+        { name: 'Experiment Files', extensions: ['sharp', 'sharpx', 'pcrd', 'tlpd', 'eds', 'amxd', 'adxd'] },
+        { name: 'SHARP Files', extensions: ['sharp', 'sharpx'] },
         { name: 'BioRad .pcrd', extensions: ['pcrd'] },
         { name: 'TianLong .tlpd', extensions: ['tlpd'] },
         { name: 'ThermoFisher .eds', extensions: ['eds'] },

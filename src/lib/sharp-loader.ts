@@ -222,6 +222,12 @@ export async function loadSharpFile(
     };
   }
 
+  // session.json (1.1+, .sharpx only) — working-session view state.
+  const sessionFile = zip.file('session.json');
+  const session = sessionFile
+    ? (JSON.parse(await sessionFile.async('string')) as Record<string, unknown>)
+    : null;
+
   // Wells used list
   const wellsUsed: string[] =
     metadata.data_summary?.wells_used ??
@@ -230,7 +236,7 @@ export async function loadSharpFile(
   // Extract experiment-level info
   const experimentId =
     metadata.experiment_id ??
-    fileName.replace(/\.sharp$/i, '');
+    fileName.replace(/\.sharpx?$/i, '');
 
   // Determine plate dimensions: explicit metadata > instrument lookup > infer from wells
   const explicitRows = (metadata.plate_layout?.rows ?? metadata.instrument?.plate_rows) as number | undefined;
@@ -268,5 +274,6 @@ export async function loadSharpFile(
     operator: metadata.run_info?.operator ?? '',
     notes: metadata.run_info?.notes ?? '',
     runStarted: metadata.run_info?.run_started_utc ?? '',
+    session,
   };
 }

@@ -152,7 +152,7 @@ Data exports:
 
 ## Upgrading from SHARP Processor v1
 
-SHARP Processor 2 is a complete rewrite with a modern interface. If you used the original [SHARP Processor](https://github.com/tomzzzhang/SHARP-data-processor), here's what's new:
+SHARP Processor 2 is a complete rewrite with a modern interface. If you used the original [SHARP Processor](https://github.com/tomzzzhang/SHARP-processor), here's what's new:
 
 - **Faster** — native desktop app (no Python startup delay)
 - **Interactive plots** — click and drag directly on curves (powered by Plotly.js)
@@ -212,7 +212,7 @@ Full format spec: [`docs/SHARP_FORMAT.md`](docs/SHARP_FORMAT.md).
 
 ## Architecture
 
-SHARP Processor 2 is a ground-up rewrite of the [original SHARP Processor](https://github.com/tomzzzhang/SHARP-data-processor) (Python + PyQt6 + matplotlib). Key improvements:
+SHARP Processor 2 is a ground-up rewrite of the [original SHARP Processor](https://github.com/tomzzzhang/SHARP-processor) (Python + PyQt6 + matplotlib). Key improvements:
 
 - **Native desktop performance** — Tauri 2 (Rust) shell with a React frontend, no Python startup delay
 - **Interactive charts** — Plotly.js replaces matplotlib for click-to-select, box-select, and drag-to-adjust
@@ -292,7 +292,7 @@ dist-release/
 - [`CLAUDE.md`](CLAUDE.md) — Developer guide, architecture, implementation notes
 - [`docs/SHARP_FORMAT.md`](docs/SHARP_FORMAT.md) — `.sharp` file format specification (current: v1.1)
 - [`docs/ALGORITHMS.md`](docs/ALGORITHMS.md) — Active vs archived analysis algorithms
-- [v1 .pcrd Reverse Engineering](https://github.com/tomzzzhang/SHARP-data-processor/blob/main/PCRD_FORMAT.md)
+- [v1 .pcrd Reverse Engineering](https://github.com/tomzzzhang/SHARP-processor/blob/main/PCRD_FORMAT.md)
 
 ---
 

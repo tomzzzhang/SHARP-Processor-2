@@ -3,7 +3,7 @@ import Plotly from 'plotly.js-dist-min';
 import _createPlotlyComponent from 'react-plotly.js/factory';
 import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
-import { analyzeDilutionSeries } from '@/lib/analysis';
+import { analyzeDilutionSeries, normalizeMeltCurves } from '@/lib/analysis';
 import { THRESHOLD_LINE_COLOR, MOD_KEY, getPaletteColors } from '@/lib/constants';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useBoxSelect, BOX_SELECT_OVERLAY_STYLE, RESIZE_OVERLAY_STYLE } from '@/hooks/useBoxSelect';
@@ -617,6 +617,7 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
   const baselineStart = useAppState((s) => s.baselineStart);
   const baselineEnd = useAppState((s) => s.baselineEnd);
   const wellBaselineOverrides = useAppState((s) => s.wellBaselineOverrides);
+  const normalizeEnabled = useAppState((s) => s.normalizeEnabled);
   const showRawOverlay = useAppState((s) => s.showRawOverlay);
   const thresholdEnabled = useAppState((s) => s.thresholdEnabled);
   const thresholdRfu = useAppState((s) => s.thresholdRfu);
@@ -663,7 +664,8 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
     const xData = xAxisMode === 'cycle' ? amp.cycle : xAxisMode === 'time_s' ? amp.timeS : amp.timeMin;
     const result: Data[] = [];
 
-    if (baselineEnabled && showRawOverlay) {
+    // Raw overlay is in raw-RFU units — suppress it when normalized.
+    if (baselineEnabled && showRawOverlay && !normalizeEnabled) {
       for (const well of visibleWells) {
         const color = colorMap.get(well) ?? '#999';
         result.push({
@@ -683,7 +685,9 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
       const isHovered = hoveredWell === well;
       const isDragHighlighted = dragPreviewWells ? dragPreviewWells.has(well) : null;
       const analysis = analysisResults.get(well);
-      const yData = (baselineEnabled && analysis?.correctedRfu) || amp.wells[well];
+      const yData = (normalizeEnabled && analysis?.normalizedRfu)
+        || (baselineEnabled && analysis?.correctedRfu)
+        || amp.wells[well];
       const li = legendInfo.get(well)!;
 
       // During drag select: highlight wells inside box, grey out everything else
@@ -709,7 +713,7 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
     }
     return result;
   }, [amp, exp, xAxisMode, selectedWells, hiddenWells, style.lineWidth,
-      style.legendVisibleOnly, visibleWells, baselineEnabled, showRawOverlay,
+      style.legendVisibleOnly, visibleWells, baselineEnabled, normalizeEnabled, showRawOverlay,
       analysisResults, wellStyleOverrides, colorMap, hoveredWell, dragPreviewWells, legendInfo, legendRanks]);
 
   // Compute baseline zone x-axis boundaries. Only shown when at least one
@@ -739,8 +743,9 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
     const title = exp?.experimentId ?? 'Amplification Plot';
     const shapes: Partial<Shape>[] = [];
 
-    // Baseline zone shading
-    if (baselineZoneBounds) {
+    // Baseline zone shading — hidden when normalized (zone is in cycle/RFU
+    // space; the normalized view changes the y-scale meaning).
+    if (baselineZoneBounds && !normalizeEnabled) {
       shapes.push({
         type: 'rect',
         x0: baselineZoneBounds.x0, x1: baselineZoneBounds.x1, xref: 'x',
@@ -751,8 +756,9 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
       });
     }
 
-    // Threshold line (not Plotly-editable; dragged via custom mouse handler)
-    if (thresholdEnabled) {
+    // Threshold line (not Plotly-editable; dragged via custom mouse handler).
+    // In raw-RFU units — hidden on the normalized view.
+    if (thresholdEnabled && !normalizeEnabled) {
       shapes.push({
         type: 'line', x0: 0, x1: 1, xref: 'paper',
         y0: thresholdRfu, y1: thresholdRfu, yref: 'y',
@@ -767,7 +773,10 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
         ...gridStyle(style, isDark),
       },
       yaxis: {
-        title: axisLabel(baselineEnabled ? 'RFU (corrected)' : 'RFU', style),
+        title: axisLabel(
+          normalizeEnabled ? 'Normalized fluorescence' : baselineEnabled ? 'RFU (corrected)' : 'RFU',
+          style,
+        ),
         type: logScale ? 'log' : 'linear',
         ...tickProps(style),
         ...gridStyle(style, isDark),
@@ -783,7 +792,7 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
       // experiment / x-axis change because the data domain itself shifts.
       uirevision: `amp-${exp?.experimentId ?? 'none'}-${xAxisMode}`,
     };
-  }, [exp, xAxisMode, logScale, thresholdEnabled, thresholdRfu, style, baselineEnabled, baselineZoneBounds, showLegendAmp, traces]);
+  }, [exp, xAxisMode, logScale, thresholdEnabled, thresholdRfu, style, baselineEnabled, normalizeEnabled, baselineZoneBounds, showLegendAmp, traces]);
   const rawOverlayCount = (baselineEnabled && showRawOverlay) ? visibleWells.length : 0;
 
   // Refs for box selection data matching
@@ -795,6 +804,8 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
   xAxisModeRef.current = xAxisMode;
   const baselineEnabledRef = useRef(baselineEnabled);
   baselineEnabledRef.current = baselineEnabled;
+  const normalizeEnabledRef = useRef(normalizeEnabled);
+  normalizeEnabledRef.current = normalizeEnabled;
   const analysisResultsRef = useRef(analysisResults);
   analysisResultsRef.current = analysisResults;
 
@@ -806,7 +817,9 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
     const matched = new Set<string>();
     for (const well of visibleWellsRef.current) {
       const analysis = analysisResultsRef.current.get(well);
-      const yData = (baselineEnabledRef.current && analysis?.correctedRfu) || currentAmp.wells[well];
+      const yData = (normalizeEnabledRef.current && analysis?.normalizedRfu)
+        || (baselineEnabledRef.current && analysis?.correctedRfu)
+        || currentAmp.wells[well];
       for (let i = 0; i < xData.length; i++) {
         if (xData[i] >= x0 && xData[i] <= x1 && yData[i] >= y0 && yData[i] <= y1) {
           matched.add(well);
@@ -841,7 +854,9 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
       const rawY = amp.wells[well];
       if (!rawY) continue;
       const analysis = results.get(well);
-      const yData = (baselineEn && analysis?.correctedRfu) || rawY;
+      const yData = (normalizeEnabled && analysis?.normalizedRfu)
+        || (baselineEn && analysis?.correctedRfu)
+        || rawY;
 
       let firstT: number | null = null;
       // Check each pair of consecutive data points for intersection with the arrow segment
@@ -868,7 +883,7 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
       setWellStyleOverride([hits[i].well], { color: colors[i] });
     }
     setPaletteArrowMode(false);
-  }, [amp, exp, xAxisMode, visibleWells, baselineEnabled, analysisResults, style.palette, setPaletteArrowMode, setWellStyleOverride]);
+  }, [amp, exp, xAxisMode, visibleWells, baselineEnabled, normalizeEnabled, analysisResults, style.palette, setPaletteArrowMode, setWellStyleOverride]);
 
   const { containerRef: plotContainerRef, overlayRef: selectionOverlayRef, resizeOverlayRef: ampResizeOverlayRef, arrowOverlayRef, traceClickedRef } = useBoxSelect({
     onSelect: handleBoxSelect,
@@ -1194,6 +1209,7 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
   const meltThresholdEnabled = useAppState((s) => s.meltThresholdEnabled);
   const meltThresholdValue = useAppState((s) => s.meltThresholdValue);
   const setMeltThresholdValue = useAppState((s) => s.setMeltThresholdValue);
+  const meltNormalizeEnabled = useAppState((s) => s.meltNormalizeEnabled);
 
   const exp = experiments[idx];
   const melt = exp?.melt;
@@ -1218,6 +1234,14 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
 
   const hasDerivative = melt && Object.keys(melt.derivative).length > 0;
 
+  // Melt RFU curves, HRM-normalized 1→0 when enabled. The derivative is
+  // intentionally left untouched — it must come from the raw melt signal.
+  const meltRfu = useMemo(() => {
+    if (!melt) return {} as Record<string, number[]>;
+    if (!meltNormalizeEnabled) return melt.rfu;
+    return normalizeMeltCurves(melt.rfu);
+  }, [melt, meltNormalizeEnabled]);
+
   // Pre-compute peak -dF/dT per well for threshold dimming. Derivative from
   // the parser is already smooth (BioRad port in parsers/utils.ts).
   const wellPeakDeriv = useMemo(() => {
@@ -1240,7 +1264,7 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
       const isSelected = selectedWells.size === 0 || selectedWells.has(well);
       const isHovered = hoveredWell === well;
       const isDragHighlighted = dragPreviewWells ? dragPreviewWells.has(well) : null;
-      const rfuData = melt.rfu[well];
+      const rfuData = meltRfu[well];
       if (!rfuData) continue;
       const li = legendInfo.get(well)!;
       let lineWidth = isSelected ? style.lineWidth : style.lineWidth * 0.6;
@@ -1295,11 +1319,12 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
       }
     }
     return result;
-  }, [melt, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells, meltThresholdEnabled, meltThresholdValue, wellPeakDeriv, legendInfo, legendRanks]);
+  }, [melt, meltRfu, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells, meltThresholdEnabled, meltThresholdValue, wellPeakDeriv, legendInfo, legendRanks]);
 
   const layout = useMemo((): Partial<Layout> => {
     const title = exp?.experimentId ? `${exp.experimentId} — Melt` : 'Melt Curve';
     const grid = gridStyle(style, isDark);
+    const rfuLabel = meltNormalizeEnabled ? 'Normalized fluorescence' : 'RFU';
     const shapes: Partial<Shape>[] = [];
     if (meltThresholdEnabled && hasDerivative) {
       shapes.push({
@@ -1317,7 +1342,7 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
         // Bottom subplot x-axis: matches xaxis so zoom/pan stay in sync,
         // anchored to yaxis2 so the Temperature label + ticks sit at the bottom.
         xaxis2: { title: axisLabel('Temperature (°C)', style), ...tickProps(style), ...grid, matches: 'x', anchor: 'y2' },
-        yaxis: { title: axisLabel('RFU', style), ...tickProps(style), domain: [0.55, 1], anchor: 'x', ...grid },
+        yaxis: { title: axisLabel(rfuLabel, style), ...tickProps(style), domain: [0.55, 1], anchor: 'x', ...grid },
         yaxis2: { title: axisLabel('-dF/dT', style), ...tickProps(style), domain: [0, 0.45], anchor: 'x2', ...grid },
         shapes: shapes as Layout['shapes'],
         dragmode: false as Layout['dragmode'], autosize: true, margin: computeMargins(style),
@@ -1329,27 +1354,30 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
     return {
       title: titleField(title, style),
       xaxis: { title: axisLabel('Temperature (°C)', style), ...tickProps(style), ...grid },
-      yaxis: { title: axisLabel('RFU', style), ...tickProps(style), ...grid },
+      yaxis: { title: axisLabel(rfuLabel, style), ...tickProps(style), ...grid },
       dragmode: false as Layout['dragmode'], autosize: true, margin: computeMargins(style),
       plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) }, ...legendLayout(style, showLegendMelt, traces, isDark),
       datarevision: Date.now(),
       uirevision: `melt-${exp?.experimentId ?? 'none'}`,
     };
-  }, [exp, style, hasDerivative, traces, showLegendMelt, meltThresholdEnabled, meltThresholdValue]);
+  }, [exp, style, hasDerivative, traces, showLegendMelt, meltThresholdEnabled, meltThresholdValue, meltNormalizeEnabled, isDark, plotBg, textColor]);
 
   // Box select on melt plot (uses RFU y-axis for matching)
   const visibleWellsRef = useRef(visibleWells);
   visibleWellsRef.current = visibleWells;
   const meltRef = useRef(melt);
   meltRef.current = melt;
+  const meltRfuRef = useRef(meltRfu);
+  meltRfuRef.current = meltRfu;
 
   const matchWellsInBox = useCallback((x0: number, x1: number, y0: number, y1: number, y2Bounds?: { y0: number; y1: number }): Set<string> => {
     const m = meltRef.current;
     if (!m) return new Set();
     const matched = new Set<string>();
     for (const well of visibleWellsRef.current) {
-      // Check RFU traces (yaxis)
-      const rfuData = m.rfu[well];
+      // Check RFU traces (yaxis) — match against the displayed (possibly
+      // normalized) curve so the box lines up with what's drawn.
+      const rfuData = meltRfuRef.current[well];
       if (rfuData) {
         for (let i = 0; i < m.temperatureC.length; i++) {
           if (m.temperatureC[i] >= x0 && m.temperatureC[i] <= x1 && rfuData[i] >= y0 && rfuData[i] <= y1) {

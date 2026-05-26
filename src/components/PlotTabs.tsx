@@ -24,6 +24,8 @@ export function PlotTabs() {
   const baselineAuto = useAppState((s) => s.baselineAuto);
   const setBaselineAuto = useAppState((s) => s.setBaselineAuto);
   const baselineEnabled = useAppState((s) => s.baselineEnabled);
+  const meltNormalizeEnabled = useAppState((s) => s.meltNormalizeEnabled);
+  const setMeltNormalizeEnabled = useAppState((s) => s.setMeltNormalizeEnabled);
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
   const hasExperiment = !!experiments[idx];
@@ -53,6 +55,20 @@ export function PlotTabs() {
       {/* Log Scale + X-axis selector — right side */}
       <div className={`flex items-center gap-3 px-3 text-xs ${!hasExperiment ? 'opacity-40 pointer-events-none' : ''}`}>
         <span className="mx-1 text-border">|</span>
+
+        {plotTab === 'melt' && (
+          <>
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <Checkbox
+                checked={meltNormalizeEnabled}
+                onCheckedChange={(v) => setMeltNormalizeEnabled(v === true)}
+                className="h-3.5 w-3.5"
+              />
+              Normalize
+            </label>
+            <span className="mx-1 text-border">|</span>
+          </>
+        )}
 
         <label className="flex items-center gap-1.5 cursor-pointer">
           <Checkbox

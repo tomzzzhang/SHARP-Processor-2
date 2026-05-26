@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ExperimentData, XAxisMode, ContentType } from '../types/experiment';
+import type { ExperimentData, XAxisMode, ContentType, WellInfo } from '../types/experiment';
 import type { DilutionConfig } from '../lib/analysis';
 import {
   DEFAULT_BASELINE_METHOD, DEFAULT_BASELINE_START, DEFAULT_BASELINE_END,
@@ -24,6 +24,17 @@ export interface WellBaselineOverride {
   auto?: boolean;
 }
 
+export interface WellNormalizeOverride {
+  /** Per-well opt-out of normalization. undefined = on (follows global
+   *  normalizeEnabled). false = this well stays raw/corrected. */
+  enabled?: boolean;
+  /** Plateau fit zone (1-indexed cycles). Used only when plateauAuto is false. */
+  plateauStart?: number;
+  plateauEnd?: number;
+  /** undefined = auto-detect the plateau region; false = use plateauStart/End. */
+  plateauAuto?: boolean;
+}
+
 /** State that is isolated per experiment tab */
 export interface ExperimentViewState {
   // Selection
@@ -34,6 +45,7 @@ export interface ExperimentViewState {
   // Per-well overrides
   wellStyleOverrides: Map<string, WellStyleOverride>;
   wellBaselineOverrides: Map<string, WellBaselineOverride>;
+  wellNormalizeOverrides: Map<string, WellNormalizeOverride>;
   wellGroups: Map<string, string>;
   legendWells: Set<string>;
 
@@ -49,6 +61,15 @@ export interface ExperimentViewState {
   baselineStart: number;
   baselineEnd: number;
   showRawOverlay: boolean;
+
+  // Analysis - Global drift correction (run-level slope, applied pre-baseline)
+  driftCorrectionEnabled: boolean;
+
+  // Analysis - Normalization (rescale curves 0→1 between baseline and plateau)
+  normalizeEnabled: boolean;
+
+  // Analysis - Melt RFU normalization (HRM-style 1→0 rescale, display only)
+  meltNormalizeEnabled: boolean;
 
   // Analysis - Threshold
   thresholdEnabled: boolean;
@@ -108,6 +129,7 @@ function defaultViewState(wellsUsed: string[] = []): ExperimentViewState {
     deactivatedWells: new Set(),
     wellStyleOverrides: new Map(),
     wellBaselineOverrides: new Map(),
+    wellNormalizeOverrides: new Map(),
     wellGroups: new Map(),
     legendWells: new Set(),
     xAxisMode: 'time_min',
@@ -119,6 +141,9 @@ function defaultViewState(wellsUsed: string[] = []): ExperimentViewState {
     baselineStart: DEFAULT_BASELINE_START,
     baselineEnd: DEFAULT_BASELINE_END,
     showRawOverlay: false,
+    driftCorrectionEnabled: false,
+    normalizeEnabled: false,
+    meltNormalizeEnabled: false,
     thresholdEnabled: false,
     thresholdRfu: DEFAULT_THRESHOLD_RFU,
     meltThresholdEnabled: false,
@@ -166,6 +191,7 @@ function snapshotViewState(state: AppState): ExperimentViewState {
     deactivatedWells: state.deactivatedWells,
     wellStyleOverrides: state.wellStyleOverrides,
     wellBaselineOverrides: state.wellBaselineOverrides,
+    wellNormalizeOverrides: state.wellNormalizeOverrides,
     wellGroups: state.wellGroups,
     legendWells: state.legendWells,
     xAxisMode: state.xAxisMode,
@@ -177,6 +203,9 @@ function snapshotViewState(state: AppState): ExperimentViewState {
     baselineStart: state.baselineStart,
     baselineEnd: state.baselineEnd,
     showRawOverlay: state.showRawOverlay,
+    driftCorrectionEnabled: state.driftCorrectionEnabled,
+    normalizeEnabled: state.normalizeEnabled,
+    meltNormalizeEnabled: state.meltNormalizeEnabled,
     thresholdEnabled: state.thresholdEnabled,
     thresholdRfu: state.thresholdRfu,
     meltThresholdEnabled: state.meltThresholdEnabled,
@@ -216,6 +245,34 @@ function snapshotViewState(state: AppState): ExperimentViewState {
   };
 }
 
+/** View-state fields that are Sets — serialized as plain arrays. */
+const SESSION_SET_FIELDS = ['selectedWells', 'hiddenWells', 'deactivatedWells', 'legendWells'] as const;
+/** View-state fields that are Maps — serialized as [key, value] entry arrays. */
+const SESSION_MAP_FIELDS = ['wellStyleOverrides', 'wellBaselineOverrides', 'wellNormalizeOverrides', 'wellGroups'] as const;
+
+/** Serialize a view-state snapshot to a JSON-safe object for a `.sharpx`
+ *  session file (Sets → arrays, Maps → entry arrays). */
+function serializeViewState(vs: ExperimentViewState): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...vs };
+  for (const f of SESSION_SET_FIELDS) out[f] = [...(vs[f] as Set<string>)];
+  for (const f of SESSION_MAP_FIELDS) out[f] = [...(vs[f] as Map<string, unknown>).entries()];
+  return out;
+}
+
+/** Inverse of `serializeViewState` — rebuilds Sets/Maps. Missing fields are
+ *  left for the caller's defaults to fill, so a session written by another
+ *  app version still loads cleanly. */
+function deserializeViewState(obj: Record<string, unknown>): Partial<ExperimentViewState> {
+  const out: Record<string, unknown> = { ...obj };
+  for (const f of SESSION_SET_FIELDS) {
+    if (Array.isArray(obj[f])) out[f] = new Set(obj[f] as string[]);
+  }
+  for (const f of SESSION_MAP_FIELDS) {
+    if (Array.isArray(obj[f])) out[f] = new Map(obj[f] as [string, unknown][]);
+  }
+  return out as Partial<ExperimentViewState>;
+}
+
 interface UndoEntry {
   snapshot: ExperimentViewState;
   /** Snapshot of the active experiment at the time of the action.
@@ -226,6 +283,29 @@ interface UndoEntry {
 }
 
 const MAX_UNDO_DEPTH = 50;
+
+/** A sample whose name reads as a no-template control (NTC, NTC 1,
+ *  NTC-2, …). */
+function isNtcName(sample: string): boolean {
+  return /^ntc(\d|\s|[-_]|$)/i.test(sample.trim());
+}
+
+/** Infer content type from sample name: a well named "NTC" is a
+ *  no-template control. Applied on load so NTC wells don't need their
+ *  type set by hand. */
+function inferContentTypes(data: ExperimentData): ExperimentData {
+  let changed = false;
+  const wells: Record<string, WellInfo> = {};
+  for (const [k, w] of Object.entries(data.wells)) {
+    if (w.content !== 'Neg Ctrl' && isNtcName(w.sample)) {
+      wells[k] = { ...w, content: 'Neg Ctrl' };
+      changed = true;
+    } else {
+      wells[k] = w;
+    }
+  }
+  return changed ? { ...data, wells } : data;
+}
 
 interface AppState extends ExperimentViewState {
   // Data (null entries represent empty "home" tabs)
@@ -254,6 +334,8 @@ interface AppState extends ExperimentViewState {
   loadExperiment: (data: ExperimentData, sourcePath?: string) => void;
   getActiveSourcePath: () => string | undefined;
   setActiveSourcePath: (path: string) => void;
+  /** Current per-experiment view state, serialized for a `.sharpx` session file. */
+  getSessionState: () => Record<string, unknown>;
   pushUndo: (description: string) => void;
   undo: () => void;
   redo: () => void;
@@ -287,6 +369,11 @@ interface AppState extends ExperimentViewState {
   clearAllColorOverrides: () => void;
   setWellBaselineOverride: (wells: string[], override: WellBaselineOverride) => void;
   clearWellBaselineOverrides: (wells: string[]) => void;
+  setNormalizeEnabled: (on: boolean) => void;
+  setWellNormalizeOverride: (wells: string[], override: WellNormalizeOverride) => void;
+  clearWellNormalizeOverrides: (wells: string[]) => void;
+  setDriftCorrectionEnabled: (on: boolean) => void;
+  setMeltNormalizeEnabled: (on: boolean) => void;
   setWellGroup: (wells: string[], group: string) => void;
   removeWellGroup: (wells: string[]) => void;
   autoGroupBySample: () => void;
@@ -383,16 +470,19 @@ export const useAppState = create<AppState>((set, get) => ({
       };
     }),
 
-  loadExperiment: (data, sourcePath?) =>
+  loadExperiment: (data, sourcePath?) => {
+    data = inferContentTypes(data);
     set((state) => {
       const snapshots = new Map(state._experimentSnapshots);
       const paths = new Map(state.sourceFilePaths);
       const currentIsEmpty = state.experiments[state.activeExperimentIndex] === null;
+      // Restore working-session state when opening a `.sharpx`.
+      const sessionView = data.session ? deserializeViewState(data.session) : null;
 
       if (currentIsEmpty) {
         // Replace the current empty/Welcome tab with this experiment
         const idx = state.activeExperimentIndex;
-        const newView = defaultViewState(data.wellsUsed);
+        const newView = { ...defaultViewState(data.wellsUsed), ...(sessionView ?? {}) };
         const exps = [...state.experiments];
         exps[idx] = data;
         snapshots.set(idx, newView);
@@ -412,7 +502,7 @@ export const useAppState = create<AppState>((set, get) => ({
         snapshots.set(state.activeExperimentIndex, snapshotViewState(state));
       }
       const newIndex = state.experiments.length;
-      const newView = defaultViewState(data.wellsUsed);
+      const newView = { ...defaultViewState(data.wellsUsed), ...(sessionView ?? {}) };
       snapshots.set(newIndex, newView);
       if (sourcePath) paths.set(newIndex, sourcePath);
       return {
@@ -424,7 +514,8 @@ export const useAppState = create<AppState>((set, get) => ({
         dragPreviewWells: null,
         ...newView,
       };
-    }),
+    });
+  },
 
   getActiveSourcePath: () => {
     const state = get();
@@ -437,6 +528,8 @@ export const useAppState = create<AppState>((set, get) => ({
       paths.set(state.activeExperimentIndex, path);
       return { sourceFilePaths: paths };
     }),
+
+  getSessionState: () => serializeViewState(snapshotViewState(get())),
 
   pushUndo: (description) => {
     const state = get();
@@ -722,7 +815,10 @@ export const useAppState = create<AppState>((set, get) => ({
       const exps = [...state.experiments];
       const exp = { ...current };
       const wellMap = { ...exp.wells };
-      if (wellMap[well]) wellMap[well] = { ...wellMap[well], sample: name };
+      if (wellMap[well]) {
+        wellMap[well] = { ...wellMap[well], sample: name };
+        if (isNtcName(name)) wellMap[well].content = 'Neg Ctrl';
+      }
       exp.wells = wellMap;
       exps[state.activeExperimentIndex] = exp;
       return { experiments: exps };
@@ -737,8 +833,12 @@ export const useAppState = create<AppState>((set, get) => ({
       const exps = [...state.experiments];
       const exp = { ...current };
       const wellMap = { ...exp.wells };
+      const ntc = isNtcName(name);
       for (const w of wells) {
-        if (wellMap[w]) wellMap[w] = { ...wellMap[w], sample: name };
+        if (wellMap[w]) {
+          wellMap[w] = { ...wellMap[w], sample: name };
+          if (ntc) wellMap[w].content = 'Neg Ctrl';
+        }
       }
       exp.wells = wellMap;
       exps[state.activeExperimentIndex] = exp;
@@ -796,6 +896,27 @@ export const useAppState = create<AppState>((set, get) => ({
       const next = new Map(state.wellBaselineOverrides);
       for (const w of wells) next.delete(w);
       return { wellBaselineOverrides: next };
+    });
+  },
+  setNormalizeEnabled: (on) => { get().pushUndo('Toggle normalization'); set({ normalizeEnabled: on }); },
+  setDriftCorrectionEnabled: (on) => { get().pushUndo('Toggle drift correction'); set({ driftCorrectionEnabled: on }); },
+  setMeltNormalizeEnabled: (on) => { get().pushUndo('Toggle melt normalization'); set({ meltNormalizeEnabled: on }); },
+  setWellNormalizeOverride: (wells, override) => {
+    get().pushUndo('Set well normalization');
+    set((state) => {
+      const next = new Map(state.wellNormalizeOverrides);
+      for (const w of wells) {
+        next.set(w, { ...next.get(w), ...override });
+      }
+      return { wellNormalizeOverrides: next };
+    });
+  },
+  clearWellNormalizeOverrides: (wells) => {
+    get().pushUndo('Clear well normalization');
+    set((state) => {
+      const next = new Map(state.wellNormalizeOverrides);
+      for (const w of wells) next.delete(w);
+      return { wellNormalizeOverrides: next };
     });
   },
   setWellGroup: (wells, group) => {

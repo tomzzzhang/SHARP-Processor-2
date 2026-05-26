@@ -7,7 +7,7 @@ import { checkForUpdates } from '@/lib/update-checker';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { loadSharpFile } from '@/lib/sharp-loader';
 import { isInstrumentFile, isSupportedFile, loadInstrumentFile, loadBioradFolder } from '@/lib/instrument-loader';
-import { exportPlotImage, exportCompositePlotImage, exportDataCsv, exportResultsCsv, exportMeltCsv, exportAsSharp, saveSession } from '@/lib/export';
+import { exportPlotImage, exportCompositePlotImage, exportDataCsv, exportResultsCsv, exportMeltCsv, exportAsSharp, exportAsSharpx, saveSession } from '@/lib/export';
 import { getRecentFiles, addRecentFile } from '@/lib/recent-files';
 import { getTheme, setTheme, type AppTheme } from '@/lib/theme';
 
@@ -171,8 +171,8 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
   const handleOpen = useCallback(async () => {
     const path = await dialogOpen({
       filters: [
-        { name: 'Experiment Files', extensions: ['sharp', 'pcrd', 'tlpd', 'eds', 'amxd', 'adxd'] },
-        { name: 'SHARP Files', extensions: ['sharp'] },
+        { name: 'Experiment Files', extensions: ['sharp', 'sharpx', 'pcrd', 'tlpd', 'eds', 'amxd', 'adxd'] },
+        { name: 'SHARP Files', extensions: ['sharp', 'sharpx'] },
         { name: 'BioRad .pcrd', extensions: ['pcrd'] },
         { name: 'TianLong .tlpd', extensions: ['tlpd'] },
         { name: 'ThermoFisher .eds', extensions: ['eds'] },
@@ -215,6 +215,38 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
     return path;
   }, [exp, analysisResults, xAxisMode, setActiveSourcePath]);
 
+  // Save Session As — always prompts for a `.sharpx` path, then adopts it
+  // as the active source so a later plain Save writes straight back.
+  const handleSaveSessionAs = useCallback(async (): Promise<string | null> => {
+    if (!exp) return null;
+    const liveAnalysis = { results: analysisResults, ttIsCycle: xAxisMode === 'cycle' };
+    const session = useAppState.getState().getSessionState();
+    const path = await exportAsSharpx(exp, session, liveAnalysis);
+    if (path) {
+      setActiveSourcePath(path);
+      setSaveStatus('Session saved');
+      setTimeout(() => setSaveStatus(null), 2000);
+    }
+    return path;
+  }, [exp, analysisResults, xAxisMode, setActiveSourcePath]);
+
+  // Save Session — writes back to the source `.sharpx` with no dialog when
+  // the experiment came from one; for a first-time session it falls through
+  // to Save Session As (so Save and Save As coincide the first time).
+  const handleSaveSession = useCallback(async () => {
+    if (!exp) return;
+    const sourcePath = getActiveSourcePath();
+    if (sourcePath?.toLowerCase().endsWith('.sharpx')) {
+      const liveAnalysis = { results: analysisResults, ttIsCycle: xAxisMode === 'cycle' };
+      const session = useAppState.getState().getSessionState();
+      await saveSession(exp, sourcePath, liveAnalysis, session);
+      setSaveStatus('Session saved');
+      setTimeout(() => setSaveStatus(null), 2000);
+    } else {
+      await handleSaveSessionAs();
+    }
+  }, [exp, analysisResults, xAxisMode, getActiveSourcePath, handleSaveSessionAs]);
+
   const handleSave = useCallback(async () => {
     if (!exp) return;
     // Bundle the live analysis so saved cq/end_rfu reflect current
@@ -222,9 +254,15 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
     // tt is in xAxis units — only meaningful as cq when in cycle mode.
     const liveAnalysis = { results: analysisResults, ttIsCycle: xAxisMode === 'cycle' };
     const sourcePath = getActiveSourcePath();
-    if (sourcePath?.toLowerCase().endsWith('.sharp')) {
+    const lower = sourcePath?.toLowerCase() ?? '';
+    if (lower.endsWith('.sharpx')) {
+      // Quick save back to the session file, keeping the working state.
+      await saveSession(exp, sourcePath!, liveAnalysis, useAppState.getState().getSessionState());
+      setSaveStatus('Saved');
+      setTimeout(() => setSaveStatus(null), 2000);
+    } else if (lower.endsWith('.sharp')) {
       // Quick save to same path
-      await saveSession(exp, sourcePath, liveAnalysis);
+      await saveSession(exp, sourcePath!, liveAnalysis);
       setSaveStatus('Saved');
       setTimeout(() => setSaveStatus(null), 2000);
     } else {
@@ -325,6 +363,8 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
         { separator: true },
         { label: 'Save', shortcut: `${MOD_KEY}+S`, action: handleSave, disabled: !hasData },
         { label: 'Save as .sharp', action: handleSaveAsSharp, disabled: !hasData },
+        { label: 'Save Session', action: handleSaveSession, disabled: !hasData },
+        { label: 'Save Session As...', action: handleSaveSessionAs, disabled: !hasData },
         ...(recentFiles.length > 0 ? [
           { separator: true } as MenuItem,
           ...recentFiles.slice(0, 5).map((f) => ({

@@ -1,4 +1,47 @@
-import type { WellCall } from '@/types/experiment';
+import type { WellCall, XAxisMode, AmplificationData } from '@/types/experiment';
+
+// ── X-axis unit conversion ───────────────────────────────────────────
+
+/** Pick the x-data array for a given x-axis mode. */
+function xArrayFor(xAxisMode: XAxisMode, amp: AmplificationData): number[] {
+  return xAxisMode === 'cycle' ? amp.cycle : xAxisMode === 'time_s' ? amp.timeS : amp.timeMin;
+}
+
+/**
+ * Convert a 1-indexed cycle number to its x-axis value in the current
+ * display unit (cycle / seconds / minutes). Used to show baseline-zone
+ * boundaries — stored internally as cycle indices — in the unit the
+ * x-axis is currently displaying.
+ */
+export function cycleToXValue(cycle: number, xAxisMode: XAxisMode, amp: AmplificationData): number {
+  const arr = xArrayFor(xAxisMode, amp);
+  if (arr.length === 0) return cycle;
+  const idx = Math.max(0, Math.min(arr.length - 1, Math.round(cycle) - 1));
+  return arr[idx];
+}
+
+/**
+ * Convert an x-axis value (in the current display unit) back to the
+ * nearest 1-indexed cycle number. Inverse of `cycleToXValue`.
+ */
+export function xValueToCycle(value: number, xAxisMode: XAxisMode, amp: AmplificationData): number {
+  const arr = xArrayFor(xAxisMode, amp);
+  if (arr.length === 0) return Math.round(value);
+  let bestIdx = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < arr.length; i++) {
+    const d = Math.abs(arr[i] - value);
+    if (d < bestDist) { bestDist = d; bestIdx = i; }
+  }
+  return bestIdx + 1;
+}
+
+/** Short unit label for an x-axis mode (used next to zone inputs). */
+export const X_AXIS_UNIT_LABEL: Record<XAxisMode, string> = {
+  cycle: 'cycle',
+  time_s: 's',
+  time_min: 'min',
+};
 
 // ── Baseline Correction ──────────────────────────────────────────────
 
@@ -59,24 +102,19 @@ function baselineLinear(rfu: number[], xData: number[], start: number, end: numb
   };
 }
 
-/**
- * Auto-detect the longest contiguous flat region of an amplification curve
- * suitable for horizontal baseline subtraction.
- *
- * Approach: find the quietest 5-point rolling std as a noise floor σ, then
- * use a two-pointer sweep to find the longest contiguous window whose std
- * stays below k·σ. Search is capped to the first ~70% of the curve so a
- * flat plateau past exponential rise is never picked. Returns 1-indexed
- * cycle bounds matching `applyBaseline`'s convention. Returns null if no
- * usable flat region (≥5 points) is found.
- */
-export function findFlatBaselineWindow(rfu: number[]): { start: number; end: number } | null {
-  const n = rfu.length;
-  if (n < 10) return null;
+/** Minimum point count for a flat region to count as usable. */
+const MIN_FLAT_RUN = 5;
 
-  // --- Step 1: estimate noise floor from quietest 5-point window ---
+/**
+ * Estimate the noise floor σ of a curve from the quietest 5-point
+ * rolling window. Returns NaN if the curve is too short. Clamped to a
+ * tiny positive minimum so a perfectly flat integer run still admits a
+ * little per-point jitter as "flat."
+ */
+function noiseFloor(rfu: number[]): number {
   const NOISE_WIN = 5;
-  let sigmaNoise = Infinity;
+  const n = rfu.length;
+  let sigma = Infinity;
   for (let i = 0; i + NOISE_WIN <= n; i++) {
     let sum = 0;
     for (let j = i; j < i + NOISE_WIN; j++) sum += rfu[j];
@@ -87,70 +125,221 @@ export function findFlatBaselineWindow(rfu: number[]): { start: number; end: num
       varSum += d * d;
     }
     const std = Math.sqrt(varSum / NOISE_WIN);
-    if (std < sigmaNoise) sigmaNoise = std;
+    if (std < sigma) sigma = std;
   }
-  if (!Number.isFinite(sigmaNoise)) return null;
-  // Avoid a pathological zero floor (e.g. integer data with a flat run) —
-  // clamp to a tiny absolute minimum so we still accept a small amount of
-  // per-point jitter as "flat."
-  if (sigmaNoise < 1e-9) sigmaNoise = 1e-9;
+  if (!Number.isFinite(sigma)) return NaN;
+  return sigma < 1e-9 ? 1e-9 : sigma;
+}
 
-  // --- Step 2: flatness threshold ---
-  const K = 2.5;
-  const eps = K * sigmaNoise;
+/** Min/max of a curve. */
+function curveRange(rfu: number[]): { lo: number; hi: number; range: number } {
+  let lo = Infinity, hi = -Infinity;
+  for (const v of rfu) { if (v < lo) lo = v; if (v > hi) hi = v; }
+  return { lo, hi, range: hi - lo };
+}
 
-  // --- Step 3: longest-flat two-pointer sweep, capped to first 70% ---
+/**
+ * Auto-detect the pre-amplification flat baseline region of a curve.
+ *
+ * The baseline is everything before amplification takes off. We locate
+ * the amplification onset — the first cycle that has risen a small
+ * fraction into the curve's total span — and return the stretch from
+ * the start of the curve to a few cycles before it, trimming any
+ * leading instrument warm-up drift. A nearly-flat (non-amplifying)
+ * curve returns a generous early window. Returns 1-indexed inclusive
+ * cycle bounds, or null when no usable baseline exists (e.g. the curve
+ * amplifies from its very first cycles).
+ *
+ * Onset-based rather than a flat-window sweep: a real baseline drifts
+ * slowly, so a fixed std threshold derived from local point-to-point
+ * noise fragments it into tiny pieces and the detector locks onto an
+ * arbitrary 5-point chunk. Anchoring on amplification onset captures
+ * the whole baseline regardless of drift, and never selects a
+ * post-plateau flat region since that lies after onset.
+ */
+export function findFlatBaselineWindow(rfu: number[]): { start: number; end: number } | null {
+  const n = rfu.length;
+  if (n < 10) return null;
+
+  const { lo, range } = curveRange(rfu);
+  const sigma = noiseFloor(rfu);
+  if (!Number.isFinite(sigma)) return null;
+
   const jMax = Math.max(9, Math.floor(n * 0.7));
-  // Welford running stats over the window [left..right] inclusive.
-  let left = 0;
-  let count = 0;
-  let mean = 0;
-  let m2 = 0; // sum of squared deviations from mean
 
-  const addPoint = (x: number) => {
-    count++;
-    const delta = x - mean;
-    mean += delta / count;
-    m2 += delta * (x - mean);
-  };
-  const removePoint = (x: number) => {
-    if (count <= 1) {
-      count = 0;
-      mean = 0;
-      m2 = 0;
-      return;
-    }
-    const prevMean = mean;
-    mean = (mean * count - x) / (count - 1);
-    m2 -= (x - prevMean) * (x - mean);
-    if (m2 < 0) m2 = 0; // guard against FP drift
-    count--;
-  };
-  const currentStd = () => (count > 1 ? Math.sqrt(m2 / count) : 0);
-
-  let bestStart = -1;
-  let bestEnd = -1;
-  let bestLen = 0;
-
-  for (let right = 0; right < jMax; right++) {
-    addPoint(rfu[right]);
-    while (currentStd() > eps && left <= right) {
-      removePoint(rfu[left]);
-      left++;
-    }
-    const len = right - left + 1;
-    if (len > bestLen) {
-      bestLen = len;
-      bestStart = left;
-      bestEnd = right;
-    }
+  // Nearly-flat curve (no amplification): the whole early span is baseline.
+  if (range < Math.max(10 * sigma, 1e-6)) {
+    return { start: 1, end: jMax };
   }
 
-  // --- Step 4: fallback if nothing meaningful found ---
-  if (bestLen < 5 || bestStart < 0) return null;
+  // Amplification onset: first cycle risen 10% into the curve's span.
+  const onsetThreshold = lo + 0.10 * range;
+  let onset = n;
+  for (let i = 0; i < n; i++) {
+    if (rfu[i] >= onsetThreshold) { onset = i; break; }
+  }
 
-  // Convert 0-indexed [bestStart..bestEnd] → 1-indexed inclusive [start..end]
-  return { start: bestStart + 1, end: bestEnd + 1 };
+  // Trim leading warm-up drift — points sitting notably above the floor.
+  const driftTol = Math.max(5 * sigma, 0.03 * range);
+  let start = 0;
+  while (start < onset - MIN_FLAT_RUN && rfu[start] > lo + driftTol) start++;
+
+  // End a few cycles before onset so the takeoff isn't averaged in.
+  const end = Math.min(jMax, onset - 3);
+  if (end - start < MIN_FLAT_RUN) return null;
+
+  return { start: start + 1, end };
+}
+
+/**
+ * Auto-detect the final flat plateau region of an amplification curve.
+ *
+ * Anchors on the last data point and walks backward while the curve
+ * stays flat — each step small relative to the curve's steepest rise.
+ * A genuine plateau yields a long trailing flat run; a still-rising,
+ * decaying, or noisy curve yields only a couple of trailing points and
+ * returns null, so the caller falls back to the final RFU value as the
+ * upper normalization anchor. Returns 1-indexed inclusive cycle bounds.
+ */
+export function findFlatPlateauWindow(rfu: number[]): { start: number; end: number } | null {
+  const n = rfu.length;
+  if (n < 10) return null;
+
+  const { range } = curveRange(rfu);
+  const sigma = noiseFloor(rfu);
+  if (!Number.isFinite(sigma)) return null;
+
+  // No amplification → no meaningful plateau.
+  if (range < Math.max(10 * sigma, 1e-6)) return null;
+
+  // Steepest single-cycle step: the plateau is where the curve has
+  // essentially stopped climbing relative to that.
+  let maxStep = 0;
+  for (let i = 0; i < n - 1; i++) {
+    const d = Math.abs(rfu[i + 1] - rfu[i]);
+    if (d > maxStep) maxStep = d;
+  }
+  const flatTol = Math.max(3 * sigma, 0.10 * maxStep);
+
+  // Walk back from the last point while consecutive steps stay flat.
+  let start = n - 1;
+  while (start > 0 && Math.abs(rfu[start] - rfu[start - 1]) <= flatTol) start--;
+
+  if (n - start < MIN_FLAT_RUN) return null;
+  return { start: start + 1, end: n };
+}
+
+/**
+ * Estimate a single global drift rate (RFU per minute) for the whole
+ * experiment via a pooled, within-well linear fit over every well's
+ * pre-amplification baseline region.
+ *
+ * Each well contributes its own intercept (within-well centering) so
+ * genuine well-to-well baseline-level differences don't bias the shared
+ * slope — the slope is purely the run-level instrument drift. Amplifying
+ * wells contribute their early cycles; non-amplifying wells contribute
+ * their full flat span, anchoring the fit. Returns slope 0 when no well
+ * has a usable baseline region.
+ *
+ * This is deliberately separate from per-well baseline correction: drift
+ * is a property of the run, estimated once and applied globally; baseline
+ * offset is per-well and handled downstream.
+ */
+export function computeDriftSlope(
+  amp: AmplificationData,
+  wellsUsed: string[],
+): { slope: number; nWells: number } {
+  const t = amp.timeMin;
+  if (!t || t.length < 2) return { slope: 0, nWells: 0 };
+
+  let sxy = 0, sxx = 0, nWells = 0;
+  for (const well of wellsUsed) {
+    const rfu = amp.wells[well];
+    if (!rfu) continue;
+    const bw = findFlatBaselineWindow(rfu);
+    if (!bw) continue; // amplifies from the first cycles — no usable baseline
+    const end = Math.min(rfu.length, t.length, bw.end); // 0-indexed exclusive
+    if (end < 2) continue;
+
+    let tSum = 0, ySum = 0;
+    for (let i = 0; i < end; i++) { tSum += t[i]; ySum += rfu[i]; }
+    const tMean = tSum / end, yMean = ySum / end;
+    for (let i = 0; i < end; i++) {
+      const dt = t[i] - tMean;
+      sxy += dt * (rfu[i] - yMean);
+      sxx += dt * dt;
+    }
+    nWells++;
+  }
+  return { slope: sxx > 1e-12 ? sxy / sxx : 0, nWells };
+}
+
+/** A curve counts as a real melt only if its pre→post drop is at least
+ *  this fraction of the largest melt transition on the plate. Flat
+ *  curves (dye temperature-response only, no DNA transition) fall well
+ *  short — they have a tiny drop regardless of how smooth they are, so
+ *  an absolute-range test separates them; an SNR test does not, since a
+ *  clean flat curve can have a very high range-to-noise ratio. */
+const MELT_RANGE_FRAC = 0.15;
+
+/**
+ * HRM-normalize a set of melt RFU curves. Each curve is rescaled
+ * between its pre-melt plateau (first points — dsDNA intact, high
+ * signal) and post-melt plateau (last points — denatured, low signal)
+ * so a real melt runs 1→0.
+ *
+ * A curve with no genuine melt transition (flat — e.g. an NTC with no
+ * product, showing only the dye's temperature response) is not
+ * stretched to its own tiny range, which would dress noise up as a
+ * melt. Instead it is divided by the median range of the real melters,
+ * so it renders as a small flat curve near 0.
+ *
+ * Display transform only — the −dF/dT derivative must still be computed
+ * from the raw melt signal, since peak height reflects the raw rate of
+ * fluorescence change.
+ */
+export function normalizeMeltCurves(rfuByWell: Record<string, number[]>): Record<string, number[]> {
+  const wells = Object.keys(rfuByWell);
+  const info: Record<string, { post: number; range: number }> = {};
+  let maxRange = 0;
+
+  for (const w of wells) {
+    const rfu = rfuByWell[w];
+    const n = rfu.length;
+    if (n < 6) { info[w] = { post: 0, range: 0 }; continue; }
+    const k = Math.max(2, Math.round(n * 0.08));
+    let pre = 0, post = 0;
+    for (let i = 0; i < k; i++) pre += rfu[i];
+    for (let i = n - k; i < n; i++) post += rfu[i];
+    pre /= k;
+    post /= k;
+    const range = pre - post;
+    info[w] = { post, range };
+    if (range > maxRange) maxRange = range;
+  }
+
+  // A curve melts if its drop is a meaningful fraction of the biggest
+  // transition on the plate.
+  const meltThreshold = MELT_RANGE_FRAC * maxRange;
+  const melterRanges: number[] = [];
+  for (const w of wells) {
+    if (info[w].range > 0 && info[w].range >= meltThreshold) melterRanges.push(info[w].range);
+  }
+  melterRanges.sort((a, b) => a - b);
+  const medianRange = melterRanges.length
+    ? melterRanges[Math.floor(melterRanges.length / 2)]
+    : NaN;
+
+  const out: Record<string, number[]> = {};
+  for (const w of wells) {
+    const { post, range } = info[w];
+    const melts = range > 0 && range >= meltThreshold;
+    const divisor = melts ? range : medianRange;
+    out[w] = (Number.isFinite(divisor) && Math.abs(divisor) > 1e-9)
+      ? rfuByWell[w].map((x) => (x - post) / divisor)
+      : [...rfuByWell[w]]; // nothing melts at all — leave raw
+  }
+  return out;
 }
 
 export function applyBaseline(
@@ -342,6 +531,12 @@ export interface WellAnalysisResult {
   dt: number | null;
   call: WellCall;
   endRfu: number;
+  /** Effective baseline window (1-indexed cycles) used for correction. */
+  baselineWindow: { start: number; end: number } | null;
+  /** Curve rescaled 0→1 between baseline and plateau. null when not normalized. */
+  normalizedRfu: number[] | null;
+  /** Effective plateau window (1-indexed cycles), or null when no plateau detected. */
+  plateauWindow: { start: number; end: number } | null;
 }
 
 export function analyzeWell(
@@ -386,7 +581,11 @@ export function analyzeWell(
     dt = fit.doublingTime;
   }
 
-  return { correctedRfu, tt, dt, call, endRfu };
+  const baselineWindow = options.baselineEnabled
+    ? { start: options.baselineStart, end: options.baselineEnd }
+    : null;
+
+  return { correctedRfu, tt, dt, call, endRfu, baselineWindow, normalizedRfu: null, plateauWindow: null };
 }
 
 // ── Dilution Series (Standard Curve) ──────────────────────────────────
