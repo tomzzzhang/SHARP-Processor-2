@@ -89,7 +89,8 @@ const sections: Section[] = [
               <span key={m} style={{ color: '#212224', fontSize: 9 }}>{m}</span>
             ))}
           </div>
-          <div className="flex" style={{ minHeight: 180 }}>
+          {/* Main row — sidebar | content column | MENU panel (full height) */}
+          <div className="flex" style={{ minHeight: 200 }}>
             {/* Sidebar */}
             <div className="shrink-0" style={{ width: 170, borderRight: '1px solid #ddd8d3' }}>
               {/* Sidebar tabs */}
@@ -107,12 +108,18 @@ const sections: Section[] = [
                 <div style={{ fontSize: 8, color: '#999' }}>No experiment loaded.</div>
                 <div className="text-center py-1.5 rounded" style={{ border: '1px solid #ddd8d3', fontSize: 9, color: '#212224', fontWeight: 500, background: '#faf9f8' }}>Load file...</div>
                 <div className="text-center" style={{ fontSize: 7, color: '#aaa' }}>or drag &amp; drop a file</div>
-                <div className="text-center" style={{ fontSize: 7, color: '#bbb' }}>.sharp · .pcrd · .tlpd · .eds · .amxd</div>
+                <div className="text-center" style={{ fontSize: 7, color: '#bbb' }}>.sharp · .sharpx · .pcrd · .tlpd · .eds · .amxd</div>
               </div>
             </div>
-            {/* Main area */}
+
+            {/* Content column — plot tabs + plot + mini-plot + resize handle + results table */}
             <div className="flex-1 flex flex-col min-w-0">
-              {/* Plot tabs + X-axis + Log Scale on same row */}
+              {/* Experiment tab bar (placeholder — appears only when experiments are loaded) */}
+              <div className="flex items-end" style={{ borderBottom: '1px solid #ddd8d3', background: '#eeece9', minHeight: 14 }}>
+                <span style={{ fontSize: 7, color: '#bbb', padding: '2px 6px' }}>(experiment tabs appear here once a file is loaded)</span>
+              </div>
+
+              {/* Plot tabs + Auto Baseline + Log + X-axis on same row */}
               <div className="flex items-center" style={{ borderBottom: '1px solid #ddd8d3' }}>
                 {['Amplification', 'Melt', 'Doubling Time'].map((t, i) => (
                   <div key={t} className="px-2 py-1" style={{
@@ -124,6 +131,8 @@ const sections: Section[] = [
                 <span className="flex-1" />
                 <div className="flex items-center gap-1 pr-2" style={{ fontSize: 7, color: '#666' }}>
                   <span style={{ color: '#ccc' }}>|</span>
+                  <span>☑Auto Baseline</span>
+                  <span style={{ color: '#ccc' }}>|</span>
                   <span>☐Log</span>
                   <span style={{ color: '#ccc' }}>|</span>
                   <span>X:</span>
@@ -132,23 +141,22 @@ const sections: Section[] = [
                   <span style={{ color: '#aa2026' }}>●Min</span>
                 </div>
               </div>
-              {/* Plot area + MENU */}
-              <div className="flex flex-1">
-                <div className="flex-1 flex items-center justify-center m-1 rounded" style={{ background: '#faf9f8', border: '1px solid #e8e5e2', color: '#bbb', fontSize: 10, minHeight: 70 }}>
-                  Plot Area
-                </div>
-                <div className="flex items-center justify-center" style={{ width: 16, borderLeft: '1px solid #ddd8d3', background: '#f3f2f0', color: '#7d2126', writingMode: 'vertical-rl', fontSize: 7, fontWeight: 700, letterSpacing: '0.08em' }}>
-                  MENU
-                </div>
+
+              {/* Plot area */}
+              <div className="flex-1 flex items-center justify-center m-1 rounded" style={{ background: '#faf9f8', border: '1px solid #e8e5e2', color: '#bbb', fontSize: 10, minHeight: 60 }}>
+                Plot Area
               </div>
-              {/* Melt deriv mini-plot */}
-              <div className="flex items-center justify-center mx-1 mb-0.5 rounded" style={{ height: 28, background: '#faf9f8', borderTop: '1px solid #e8e5e2', border: '1px solid #e8e5e2', color: '#bbb', fontSize: 8 }}>
+
+              {/* Melt deriv mini-plot — only on the Amplification tab when melt data is present */}
+              <div className="flex items-center justify-center mx-1 mb-0.5 rounded" style={{ height: 26, background: '#faf9f8', border: '1px solid #e8e5e2', color: '#bbb', fontSize: 8 }}>
                 Melt derivative mini-plot
               </div>
-              {/* Resize handle */}
+
+              {/* Resize handle — between plot area and results table */}
               <div className="flex items-center justify-center" style={{ height: 5, borderTop: '1px solid #ddd8d3', borderBottom: '1px solid #ddd8d3' }}>
-                <span style={{ fontSize: 6, color: '#bbb' }}>• • •</span>
+                <span style={{ fontSize: 6, color: '#bbb', letterSpacing: '1px' }}>· · ·</span>
               </div>
+
               {/* Results table */}
               <div style={{ fontSize: 7, padding: '3px 6px', color: '#888' }}>
                 <div className="flex" style={{ borderBottom: '1px solid #e8e5e2', paddingBottom: 2, marginBottom: 2, fontWeight: 600, color: '#555' }}>
@@ -169,14 +177,18 @@ const sections: Section[] = [
                 </div>
               </div>
             </div>
+
+            {/* MENU panel — full height, right edge */}
+            <div className="flex items-center justify-center" style={{ width: 16, borderLeft: '1px solid #ddd8d3', background: '#f3f2f0', color: '#7d2126', writingMode: 'vertical-rl', fontSize: 7, fontWeight: 700, letterSpacing: '0.08em' }}>
+              MENU
+            </div>
           </div>
         </div>
 
         <ul className="list-disc pl-5 space-y-1">
-          <li><strong>Left sidebar</strong> — four tabs: Data, Wells, Analysis, Style (resizable drag-border)</li>
-          <li><strong>Centre</strong> — plot tabs with optional melt derivative mini-plot below</li>
-          <li><strong>Right edge</strong> — collapsible MENU panel (quick actions)</li>
-          <li><strong>Bottom</strong> — results table with sortable columns (resizable drag-border)</li>
+          <li><strong>Left sidebar</strong> — four tabs: Data, Wells, Analysis, Style (drag the right border to resize, 300–450 px).</li>
+          <li><strong>Centre column</strong> — experiment tab bar (once files are loaded), plot tabs row with Auto Baseline / Log Scale / X-axis selector, the plot, an optional melt-derivative mini-plot below the amplification chart, and the results table at the bottom (drag the horizontal divider to resize).</li>
+          <li><strong>Right edge</strong> — collapsible <strong>MENU</strong> panel spanning the full main-area height (quick actions mirroring the right-click context menu).</li>
         </ul>
       </div>
     ),
