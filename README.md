@@ -11,13 +11,29 @@
 
 <p align="center">
   <a href="https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest">
-    <img src="https://img.shields.io/github/v/release/tomzzzhang/SHARP-Processor-2?label=Download&style=for-the-badge&color=c42a30" alt="Download latest release" />
+    <img src="https://img.shields.io/github/v/release/tomzzzhang/SHARP-Processor-2?label=Download%20(Stable)&style=for-the-badge&color=c42a30" alt="Download stable release" />
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.0">
+    <img src="https://img.shields.io/badge/Pre--release-v0.2.0%20(multichannel)-d29922?style=for-the-badge" alt="v0.2.0 pre-release (multichannel)" />
   </a>
 </p>
 
 ---
 
 ## Download & Install
+
+**Two versions are available — pick one:**
+
+| Version | Status | Best for | Get it |
+|---|---|---|---|
+| **v0.1.13** | 🟢 **Stable** *(recommended)* | Everyday lab work — proven and reliable | **[Download v0.1.13 (Latest) →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest)** |
+| **v0.2.0** | 🧪 **Pre-release** *(early access)* | Trying the new **multichannel / multi‑fluorophore** support | **[Download v0.2.0 (pre-release) →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.0)** |
+
+- **v0.1.13** is the default "Latest" release — it's what the big **Download** button above and the app's built‑in update check both point to. Choose this unless you specifically want the new features.
+- **v0.2.0** adds multi‑fluorophore (multichannel) analysis — see *What's New in v0.2.0* below. It's marked **pre-release** while it's being validated, so the app will **not** prompt you to upgrade; download it from its page above if you'd like to try it. Your existing files keep working either way.
+
+The install steps below are the same for either version. (Installing one replaces the other, since it's the same app — to switch back to v0.1.13, just reinstall it from its page above.)
 
 ### Windows
 
@@ -61,6 +77,8 @@ SHARP Processor 2 now reads **every fluorophore channel** in your experiment, no
 **Smoother, too.** Plots and interactions — hovering, selecting, dragging the threshold line, toggling channels — are noticeably more responsive in this version.
 
 **Backward compatible.** Single-channel `.sharp` and `.sharpx` files from any earlier version open unchanged.
+
+**[Download v0.2.0 (pre-release) →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.0)** — or stay on the stable **[v0.1.13](https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest)** for everyday use.
 
 ---
 
