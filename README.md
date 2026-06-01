@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest">
-    <img src="https://img.shields.io/github/v/release/tomzzzhang/SHARP-Processor-2?label=Download%20(Tested)&style=for-the-badge&color=c42a30" alt="Download tested release" />
+    <img src="https://img.shields.io/github/v/release/tomzzzhang/SHARP-Processor-2?label=Download&style=for-the-badge&color=c42a30" alt="Download latest release" />
   </a>
   &nbsp;&nbsp;
   <a href="https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.0">
@@ -23,28 +23,23 @@
 
 ## Download & Install
 
-**Two versions are available — pick one:**
+**Two versions are available:**
 
-| Version | Status | Best for | Get it |
-|---|---|---|---|
-| **v0.1.13** | 🟢 **Tested** *(recommended)* | Everyday lab work — proven and reliable | **[Download v0.1.13 (Latest) →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest)** |
-| **v0.2.0** | 🧪 **Beta** *(needs verification)* | Trying the new **multichannel / multi‑fluorophore** support | **[Download v0.2.0 (beta) →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.0)** |
+| Version | What it is | Download |
+|---|---|---|
+| **v0.1.13** | Single-channel support | **[v0.1.13 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest)** |
+| **v0.2.0** | Multichannel support (beta) | **[v0.2.0 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.0)** |
 
-- **v0.1.13** is the default "Latest" release — it's what the big **Download** button above and the app's built‑in update check both point to. Choose this unless you specifically want the new features.
-- **v0.2.0** adds multi‑fluorophore (multichannel) analysis — see *What's New in v0.2.0* below. It's a **beta** (marked *pre-release* on GitHub) while it's being verified, so the app will **not** prompt you to upgrade; download it from its page above if you'd like to try it. Your existing files keep working either way.
-
-The install steps below are the same for either version. (Installing one replaces the other, since it's the same app — to switch back to v0.1.13, just reinstall it from its page above.)
+v0.1.13 is the current "Latest" release; v0.2.0 is a pre-release. See *What's New in v0.2.0* below.
 
 ### Windows
 
 1. Click the **Download** button above (or go to the [Releases](https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest) page)
 2. Download the installer for your system:
-   - **64-bit** (most PCs): **`SHARP Processor 2_x64-setup.exe`**
-   - **32-bit** (older lab PCs): **`SHARP Processor 2_x86-setup.exe`**
+   - **64-bit:** **`SHARP Processor 2_x64-setup.exe`**
+   - **32-bit:** **`SHARP Processor 2_x86-setup.exe`**
 3. Double-click the installer and follow the prompts
 4. Open **SHARP Processor 2** from the Start Menu or desktop shortcut
-
-> **Not sure which to pick?** If your PC runs Windows 10 or 11, use the 64-bit version. Use 32-bit only for older machines (e.g., lab PCs connected to legacy instruments).
 
 > **Windows may show a SmartScreen warning** the first time you run the app ("Windows protected your PC"). This is normal for new apps that haven't been code-signed yet. Click **"More info"** → **"Run anyway"** to proceed.
 
@@ -70,7 +65,7 @@ SHARP Processor 2 now reads **every fluorophore channel** in your experiment, no
 - **Show or hide each channel.** Toggle fluorophores on the plot — all wells at once, or per individual well.
 - **Assign Fluorophores** (**Tools → Assign Fluorophores…**). Give each channel a name and color; the labels flow through the legend, the wells table, and the results.
 - **Independent analysis per dye.** Baseline, threshold, normalization, and drift correction are set separately for each channel — pick the channel with **"Settings for: [channel]"** in the Analysis panel. Each dye remembers its own settings.
-- **Single-channel view for multi-dye files.** **View → Channel Display → Single** hides the channel controls and shows the familiar one-curve-per-well layout, so you can focus on a single dye. Switch back to **Multichannel** anytime.
+- **Single-channel view for multi-dye files.** **View → Channel Display → Single** hides the channel controls and shows the familiar one-curve-per-well layout. Switch back to **Multichannel** anytime.
 - **Per-channel results.** The results table shows **Tt**, **Tm**, and the positive/negative call for each (well, dye) combination, with collapsible per-sample rows and a **Fluorophore** column.
 - **Channel-aware selection.** Click a curve to select that one (well, dye); click a well on the grid to select all of its dyes. A new **"Fluor…"** button in the Wells tab selects every curve of a chosen dye at once.
 
@@ -78,7 +73,7 @@ SHARP Processor 2 now reads **every fluorophore channel** in your experiment, no
 
 **Backward compatible.** Single-channel `.sharp` and `.sharpx` files from any earlier version open unchanged.
 
-**[Download v0.2.0 (beta) →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.0)** — or stay on the tested **[v0.1.13](https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest)** for everyday use.
+**[Download v0.2.0 (beta) →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.0)**
 
 ---
 
