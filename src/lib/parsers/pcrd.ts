@@ -48,13 +48,17 @@ export async function parsePcrd(buffer: ArrayBuffer, fileName: string): Promise<
   runInfo.file_name = fileName;
 
   // Parse protocol
-  const protocol = parseProtocol(doc, runInfo);
+  const protocol = parseProtocol(doc);
 
   // Parse plate setup (sample map)
   const sampleMap = parsePlateSetup(doc);
 
-  // Parse fluorescence data + timestamps
-  const { ampData, meltData, cycleTimes } = parseRunData(doc, protocol);
+  // Channel → fluorophore assignment (authoritative: BioRad's own dye layers).
+  const dyeChannels = parseDyeLayers(doc);
+
+  // Parse fluorescence data + timestamps (all 6 optical channels).
+  const { cycles, ampChannels, ampPresent, temperatures, meltChannels, meltPresent, cycleTimes } =
+    parseRunData(doc);
 
   // Filter to occupied wells
   const occupied = new Set(Object.keys(sampleMap));
@@ -67,33 +71,61 @@ export async function parsePcrd(buffer: ArrayBuffer, fileName: string): Promise<
     return filtered;
   };
 
-  // Build amplification
-  let amplification: AmplificationData | null = null;
-  if (ampData) {
-    const filteredWells = filterWells(ampData.wells);
-    const timeS = cycleTimes;
-    const timeMin = cycleTimes.map(t => t / 60);
-    amplification = {
-      cycle: ampData.cycles,
-      timeS,
-      timeMin,
-      wells: filteredWells,
-    };
+  const timeS = cycleTimes;
+  const timeMin = cycleTimes.map(t => t / 60);
+
+  // Decide which optical channels to emit. A channel counts only if it carries
+  // real signal (unused channels are all-zero in the PAr blob). When BioRad
+  // assigned dye layers, those are authoritative — emit exactly the assigned
+  // channels that also have data, named from the dye layer. Otherwise fall back
+  // to any channel with data, named "Channel N".
+  const hasSignal = (ch: number) =>
+    (ampPresent && channelHasSignal(ampChannels[ch])) ||
+    (meltPresent && channelHasSignal(meltChannels[ch]));
+
+  const emitted: { idx: number; name: string }[] = [];
+  for (let ch = 0; ch < CHANNELS; ch++) {
+    const assignedName = dyeChannels.get(ch);
+    if (dyeChannels.size > 0) {
+      if (assignedName !== undefined && hasSignal(ch)) emitted.push({ idx: ch, name: assignedName });
+    } else if (hasSignal(ch)) {
+      emitted.push({ idx: ch, name: `Channel ${ch + 1}` });
+    }
+  }
+  // Fallbacks: never emit zero channels.
+  if (emitted.length === 0) {
+    for (let ch = 0; ch < CHANNELS; ch++) {
+      if (hasSignal(ch)) emitted.push({ idx: ch, name: dyeChannels.get(ch) ?? `Channel ${ch + 1}` });
+    }
+  }
+  if (emitted.length === 0) emitted.push({ idx: 0, name: dyeChannels.get(0) ?? 'Channel 1' });
+
+  // Build per-channel amplification + melt.
+  const channels: string[] = [];
+  const channelFluorophore: Record<string, string> = {};
+  const amplificationByChannel: Record<string, AmplificationData | null> = {};
+  const meltByChannel: Record<string, MeltData | null> = {};
+  const usedIds = new Set<string>();
+  for (const { idx, name } of emitted) {
+    let id = name;
+    if (usedIds.has(id)) id = `${name} (ch${idx + 1})`;  // disambiguate duplicate dye names
+    usedIds.add(id);
+    channels.push(id);
+    channelFluorophore[id] = name;
+
+    amplificationByChannel[id] = ampPresent
+      ? { cycle: cycles, timeS, timeMin, wells: filterWells(ampChannels[idx]) }
+      : null;
+
+    if (meltPresent) {
+      const rfu = filterWells(meltChannels[idx]);
+      meltByChannel[id] = { temperatureC: temperatures, rfu, derivative: computeMeltDerivative(temperatures, rfu) };
+    } else {
+      meltByChannel[id] = null;
+    }
   }
 
-  // Build melt data
-  let melt: MeltData | null = null;
-  if (meltData) {
-    const filteredRfu = filterWells(meltData.wells);
-    const derivative = computeMeltDerivative(meltData.temperatures, filteredRfu);
-    melt = {
-      temperatureC: meltData.temperatures,
-      rfu: filteredRfu,
-      derivative,
-    };
-  }
-
-  // Build well info
+  // Build well info (channel-independent identity).
   const wells: Record<string, WellInfo> = {};
   for (const [name, info] of Object.entries(sampleMap)) {
     wells[name] = {
@@ -108,9 +140,16 @@ export async function parsePcrd(buffer: ArrayBuffer, fileName: string): Promise<
     };
   }
 
-  const wellsUsed = sortWells(
-    amplification ? Object.keys(amplification.wells) : Object.keys(wells)
-  );
+  // Wells used: union across channels (all channels share the plate layout).
+  const wellSet = new Set<string>();
+  for (const id of channels) {
+    const amp = amplificationByChannel[id];
+    const m = meltByChannel[id];
+    if (amp) for (const w of Object.keys(amp.wells)) wellSet.add(w);
+    else if (m) for (const w of Object.keys(m.rfu)) wellSet.add(w);
+  }
+  if (wellSet.size === 0) for (const w of Object.keys(wells)) wellSet.add(w);
+  const wellsUsed = sortWells([...wellSet]);
 
   // Time reconstruction metadata
   const stats = computeTimeStats(cycleTimes);
@@ -136,8 +175,10 @@ export async function parsePcrd(buffer: ArrayBuffer, fileName: string): Promise<
     },
     wells,
     wellsUsed,
-    amplification,
-    melt,
+    channels,
+    channelFluorophore,
+    amplificationByChannel,
+    meltByChannel,
     plateRows: 8,
     plateCols: 12,
     timeReconstruction,
@@ -212,7 +253,7 @@ interface ProtocolData {
   rawDefinition: string;
 }
 
-function parseProtocol(doc: Document, _runInfo: { file_name: string }): ProtocolData {
+function parseProtocol(doc: Document): ProtocolData {
   const protoEl = doc.getElementsByTagName('protocol2')[0];
   if (!protoEl) return { experimentType: 'unknown', reactionTemp: null, ampCycles: null, hasMelt: false, rawDefinition: '' };
 
@@ -295,15 +336,37 @@ function parsePlateSetup(doc: Document): Record<string, { sample: string; conten
 // Fluorescence data
 // ---------------------------------------------------------------------------
 
+/** Per-channel well series: channel index → { well → series }. Channels with
+ *  no signal stay as empty/all-zero maps and are dropped by the caller. */
+type ChannelWells = Record<number, Record<string, number[]>>;
+
 interface RawRunData {
-  ampData: { cycles: number[]; wells: Record<string, number[]> } | null;
-  meltData: { temperatures: number[]; wells: Record<string, number[]> } | null;
+  cycles: number[];
+  ampChannels: ChannelWells;
+  ampPresent: boolean;
+  temperatures: number[];
+  meltChannels: ChannelWells;
+  meltPresent: boolean;
   cycleTimes: number[];
 }
 
-function parseRunData(doc: Document, _protocol: ProtocolData): RawRunData {
+// Plate well names, indexed by plateIndex (computed once).
+const WELL_NAMES = Array.from({ length: DATA_WELLS }, (_, i) => plateIndexToWell(i));
+
+function emptyChannelWells(): ChannelWells {
+  const cw: ChannelWells = {};
+  for (let c = 0; c < CHANNELS; c++) cw[c] = {};
+  return cw;
+}
+
+function parseRunData(doc: Document): RawRunData {
+  const empty: RawRunData = {
+    cycles: [], ampChannels: emptyChannelWells(), ampPresent: false,
+    temperatures: [], meltChannels: emptyChannelWells(), meltPresent: false,
+    cycleTimes: [],
+  };
   const plateReads = Array.from(doc.querySelectorAll('plateReadDataVector > plateRead > PlateRead'));
-  if (plateReads.length === 0) return { ampData: null, meltData: null, cycleTimes: [] };
+  if (plateReads.length === 0) return empty;
 
   // Group by step number
   const readsByStep = new Map<number, Element[]>();
@@ -320,64 +383,51 @@ function parseRunData(doc: Document, _protocol: ProtocolData): RawRunData {
   const ampStep = stepNumbers[0] ?? null;
   const meltStep = stepNumbers.length > 1 ? stepNumbers[1] : null;
 
-  // Amplification data
-  let ampData: RawRunData['ampData'] = null;
+  // Amplification data — all 6 channels.
+  const cycles: number[] = [];
+  const ampChannels = emptyChannelWells();
+  let ampPresent = false;
   const cycleTimestamps: number[] = [];
 
   if (ampStep !== null) {
-    const reads = readsByStep.get(ampStep)!;
-    const cycles: number[] = [];
-    const wells: Record<string, number[]> = {};
-
-    for (const pr of reads) {
+    for (const pr of readsByStep.get(ampStep)!) {
       const header = pr.querySelector('Hdr > PlateReadDataHeader');
       const cycleEl = header?.querySelector('Cycle');
       const timeEl = header?.querySelector('Time');
       const cycle = parseInt(cycleEl?.textContent ?? '0') || 0;
 
+      const all = extractAllChannels(pr);
+      if (!all) continue;
+
       if (timeEl?.textContent) {
         const ts = parseRfc2822(timeEl.textContent);
         if (ts !== null) cycleTimestamps.push(ts);
       }
-
-      const wellValues = extractChannelMeans(pr);
-      if (!wellValues) continue;
-
       cycles.push(cycle);
-      for (const [wn, val] of Object.entries(wellValues)) {
-        if (!wells[wn]) wells[wn] = [];
-        wells[wn].push(val);
-      }
+      appendRead(ampChannels, all);
     }
-
-    if (cycles.length > 0) ampData = { cycles, wells };
+    ampPresent = cycles.length > 0;
   }
 
-  // Melt data
-  let meltData: RawRunData['meltData'] = null;
+  // Melt data — all 6 channels.
+  const temperatures: number[] = [];
+  const meltChannels = emptyChannelWells();
+  let meltPresent = false;
 
   if (meltStep !== null) {
-    const reads = readsByStep.get(meltStep)!;
-    const temperatures: number[] = [];
-    const wells: Record<string, number[]> = {};
-
-    for (const pr of reads) {
+    for (const pr of readsByStep.get(meltStep)!) {
       const header = pr.querySelector('Hdr > PlateReadDataHeader');
       const blockTmpEl = header?.querySelector('BlockTmp');
       const tempC = parseFloat(blockTmpEl?.textContent ?? '');
       if (isNaN(tempC)) continue;
 
-      const wellValues = extractChannelMeans(pr);
-      if (!wellValues) continue;
+      const all = extractAllChannels(pr);
+      if (!all) continue;
 
       temperatures.push(Math.round(tempC * 100) / 100);
-      for (const [wn, val] of Object.entries(wellValues)) {
-        if (!wells[wn]) wells[wn] = [];
-        wells[wn].push(val);
-      }
+      appendRead(meltChannels, all);
     }
-
-    if (temperatures.length > 0) meltData = { temperatures, wells };
+    meltPresent = temperatures.length > 0;
   }
 
   // Build cycle times from timestamps
@@ -385,30 +435,72 @@ function parseRunData(doc: Document, _protocol: ProtocolData): RawRunData {
   if (cycleTimestamps.length >= 2) {
     const t0 = cycleTimestamps[0];
     cycleTimes = cycleTimestamps.map(t => (t - t0) / 1000); // ms to s
-  } else if (ampData) {
+  } else if (ampPresent) {
     // Fallback: estimate 23s per cycle
-    cycleTimes = ampData.cycles.map((_, i) => i * 23.0);
+    cycleTimes = cycles.map((_, i) => i * 23.0);
   }
 
-  return { ampData, meltData, cycleTimes };
+  return { cycles, ampChannels, ampPresent, temperatures, meltChannels, meltPresent, cycleTimes };
 }
 
-function extractChannelMeans(plateRead: Element, channel = 0): Record<string, number> | null {
+/** Append one plate read's per-channel means (channel-major [ch][wellIdx]) to
+ *  the running per-channel well series. */
+function appendRead(channelWells: ChannelWells, read: number[][]): void {
+  for (let c = 0; c < CHANNELS; c++) {
+    const chWells = channelWells[c];
+    const vals = read[c];
+    for (let pi = 0; pi < DATA_WELLS; pi++) {
+      const wn = WELL_NAMES[pi];
+      (chWells[wn] ??= []).push(vals[pi]);
+    }
+  }
+}
+
+/** Extract the mean (stat 0) for every data well across all 6 channels from a
+ *  single plate read's PAr blob. Returns [channel][wellIndex] or null. */
+function extractAllChannels(plateRead: Element): number[][] | null {
   const parEl = plateRead.querySelector('Data > PAr');
   if (!parEl?.textContent) return null;
 
   const values = parEl.textContent.split(';');
   if (values.length < VALUES_PER_READ) return null;
 
-  const channelOffset = channel * (WELLS_PER_PLATE * STATS_PER_WELL);
-  const result: Record<string, number> = {};
-
-  for (let pi = 0; pi < DATA_WELLS; pi++) {
-    const idx = channelOffset + pi * STATS_PER_WELL; // stat 0 = mean
-    const rfu = parseFloat(values[idx]) || 0;
-    result[plateIndexToWell(pi)] = rfu;
+  const out: number[][] = [];
+  for (let c = 0; c < CHANNELS; c++) {
+    const channelOffset = c * (WELLS_PER_PLATE * STATS_PER_WELL);
+    const arr = new Array<number>(DATA_WELLS);
+    for (let pi = 0; pi < DATA_WELLS; pi++) {
+      arr[pi] = parseFloat(values[channelOffset + pi * STATS_PER_WELL]) || 0; // stat 0 = mean
+    }
+    out.push(arr);
   }
-  return result;
+  return out;
+}
+
+/** A channel carries real signal if any well has a non-zero reading (unused
+ *  optical channels are exactly zero throughout the PAr blob). */
+function channelHasSignal(wells: Record<string, number[]>): boolean {
+  for (const series of Object.values(wells)) {
+    for (const v of series) if (v !== 0) return true;
+  }
+  return false;
+}
+
+/** Map each assigned fluorophore's optical channel index → dye name, from
+ *  BioRad's `<dyeLayersList>`. Empty when the file declares no dye layers. */
+function parseDyeLayers(doc: Document): Map<number, string> {
+  const map = new Map<number, string>();
+  for (const fl of Array.from(doc.querySelectorAll('dyeLayersList fluor'))) {
+    if ((fl.getAttribute('isDeleted') ?? '').toLowerCase() === 'true') continue;
+    const posStr = fl.getAttribute('channelPosition');
+    if (posStr === null) continue;
+    const pos = parseInt(posStr);
+    if (isNaN(pos) || pos < 0 || pos >= CHANNELS) continue;
+    if (map.has(pos)) continue;
+    const name = (fl.getAttribute('fluorName') ?? '').trim();
+    map.set(pos, name || `Channel ${pos + 1}`);
+  }
+  return map;
 }
 
 // ---------------------------------------------------------------------------

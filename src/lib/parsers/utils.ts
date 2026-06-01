@@ -3,8 +3,11 @@
  * metadata builder, melt derivative computation.
  */
 
-import type { ExperimentData, WellInfo, MeltData } from '@/types/experiment';
+import type { ExperimentData, WellInfo, MeltData, AmplificationData } from '@/types/experiment';
 import { inferPlateDimensions, getInstrumentPlateLayout, DEFAULT_PLATE_ROW_COUNT, DEFAULT_PLATE_COL_COUNT } from '@/lib/constants';
+
+/** Canonical channel ID used by single-channel files and the backward-compat shim. */
+export const DEFAULT_CHANNEL = 'default';
 
 // ---------------------------------------------------------------------------
 // Well utilities
@@ -233,12 +236,39 @@ export function buildExperimentData(opts: {
   protocol: { type?: string; reaction_temp_c?: number | null; amp_cycle_count?: number | null; has_melt?: boolean; raw_definition?: string };
   wells: Record<string, WellInfo>;
   wellsUsed: string[];
-  amplification: ExperimentData['amplification'];
-  melt: MeltData | null;
+  /** Single-channel convenience: the lone channel's data. Used when
+   *  `channels`/`amplificationByChannel`/`meltByChannel` are not supplied. */
+  amplification?: AmplificationData | null;
+  melt?: MeltData | null;
+  /** Multichannel: canonical channel IDs (display order) and their data. When
+   *  provided, these win and the derived active channel = `channels[0]`. */
+  channels?: string[];
+  amplificationByChannel?: Record<string, AmplificationData | null>;
+  meltByChannel?: Record<string, MeltData | null>;
+  /** Parser-detected dye per channel (e.g. FAM/SYBR), when known. */
+  channelFluorophore?: Record<string, string>;
   plateRows?: number;
   plateCols?: number;
   timeReconstruction?: Record<string, unknown>;
 }): ExperimentData {
+  // Resolve the channel model. Multichannel parsers pass channel-keyed maps;
+  // single-channel parsers pass `amplification`/`melt` and we wrap them into a
+  // lone `'default'` channel.
+  let channels: string[];
+  let amplificationByChannel: Record<string, AmplificationData | null>;
+  let meltByChannel: Record<string, MeltData | null>;
+  if (opts.channels && opts.channels.length > 0 && opts.amplificationByChannel && opts.meltByChannel) {
+    channels = opts.channels;
+    amplificationByChannel = opts.amplificationByChannel;
+    meltByChannel = opts.meltByChannel;
+  } else {
+    channels = [DEFAULT_CHANNEL];
+    amplificationByChannel = { [DEFAULT_CHANNEL]: opts.amplification ?? null };
+    meltByChannel = { [DEFAULT_CHANNEL]: opts.melt ?? null };
+  }
+  const activeAmp = amplificationByChannel[channels[0]] ?? null;
+  const activeMelt = meltByChannel[channels[0]] ?? null;
+
   // Build metadata matching .sharp format
   const metaWells: Record<string, unknown> = {};
   for (const [name, info] of Object.entries(opts.wells)) {
@@ -261,7 +291,7 @@ export function buildExperimentData(opts: {
     wells: metaWells,
     data_summary: {
       wells_used: opts.wellsUsed,
-      cycle_count: opts.amplification?.cycle.length ?? 0,
+      cycle_count: activeAmp?.cycle.length ?? 0,
     },
   };
   if (opts.timeReconstruction) metadata.time_reconstruction = opts.timeReconstruction;
@@ -291,8 +321,12 @@ export function buildExperimentData(opts: {
     experimentId: opts.experimentId,
     sourcePath: opts.fileName,
     metadata,
-    amplification: opts.amplification,
-    melt: opts.melt,
+    channels,
+    channelFluorophore: opts.channelFluorophore,
+    amplificationByChannel,
+    meltByChannel,
+    amplification: activeAmp,
+    melt: activeMelt,
     wells: opts.wells,
     wellsUsed: opts.wellsUsed,
     plateRows,
@@ -302,5 +336,34 @@ export function buildExperimentData(opts: {
     operator: opts.runInfo.operator ?? '',
     notes: opts.runInfo.notes ?? '',
     runStarted: opts.runInfo.run_started_utc ?? '',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Backward-compat: guarantee the channel model on any ExperimentData
+// ---------------------------------------------------------------------------
+
+/** Ensure `data` carries the channel model. Old `.sharp`/`.sharpx` JSON and any
+ *  code path that predates multichannel may lack `channels` /
+ *  `amplificationByChannel` / `meltByChannel`; this synthesizes a single
+ *  `'default'` channel from the legacy `amplification` / `melt` fields so the
+ *  rest of the app can assume the channel maps exist. A no-op when the channel
+ *  model is already present. Call at the top of `loadExperiment`. */
+export function normalizeExperiment(data: ExperimentData): ExperimentData {
+  // The type marks the channel fields required, but runtime data (parsed JSON,
+  // older parser output) may omit them — treat them as possibly-absent here.
+  const d = data as ExperimentData & {
+    channels?: string[];
+    amplificationByChannel?: Record<string, AmplificationData | null>;
+    meltByChannel?: Record<string, MeltData | null>;
+  };
+  if (d.channels?.length && d.amplificationByChannel && d.meltByChannel) {
+    return data;
+  }
+  return {
+    ...data,
+    channels: [DEFAULT_CHANNEL],
+    amplificationByChannel: { [DEFAULT_CHANNEL]: data.amplification },
+    meltByChannel: { [DEFAULT_CHANNEL]: data.melt },
   };
 }

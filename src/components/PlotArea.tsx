@@ -2,9 +2,11 @@ import { Component, type ReactNode, useCallback, useEffect, useMemo, useRef, use
 import Plotly from 'plotly.js-dist-min';
 import _createPlotlyComponent from 'react-plotly.js/factory';
 import { useAppState } from '@/hooks/useAppState';
-import { useAnalysisResults } from '@/hooks/useAnalysisResults';
+import { useAnalysisResults, useAllChannelResults } from '@/hooks/useAnalysisResults';
 import { analyzeDilutionSeries, normalizeMeltCurves } from '@/lib/analysis';
-import { THRESHOLD_LINE_COLOR, MOD_KEY, getPaletteColors } from '@/lib/constants';
+import { THRESHOLD_LINE_COLOR, MOD_KEY, getPaletteColors, monochromeRamp } from '@/lib/constants';
+import { effectiveChannelLabel, effectiveChannelColor } from '@/lib/channels';
+import { curveKey } from '@/lib/curves';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useBoxSelect, BOX_SELECT_OVERLAY_STYLE, RESIZE_OVERLAY_STYLE } from '@/hooks/useBoxSelect';
 import { ContextMenu, useContextMenu } from './ContextMenu';
@@ -129,23 +131,36 @@ function bestLegendPosition(traces: Data[]): { x: number; y: number; xanchor: st
 }
 
 function usePlotStyle() {
-  return {
-    lineWidth: useAppState((s) => s.lineWidth),
-    palette: useAppState((s) => s.palette),
-    showGrid: useAppState((s) => s.showGrid),
-    gridAlpha: useAppState((s) => s.gridAlpha),
-    fontFamily: useAppState((s) => s.fontFamily),
-    titleSize: useAppState((s) => s.titleSize),
-    labelSize: useAppState((s) => s.labelSize),
-    tickSize: useAppState((s) => s.tickSize),
-    legendSize: useAppState((s) => s.legendSize),
-    showLegend: useAppState((s) => s.showLegend),
-    legendPosition: useAppState((s) => s.legendPosition),
-    legendVisibleOnly: useAppState((s) => s.legendVisibleOnly),
-    showTitle: useAppState((s) => s.showTitle),
-    showLabels: useAppState((s) => s.showLabels),
-    showTicks: useAppState((s) => s.showTicks),
-  };
+  const lineWidth = useAppState((s) => s.lineWidth);
+  const palette = useAppState((s) => s.palette);
+  const showGrid = useAppState((s) => s.showGrid);
+  const gridAlpha = useAppState((s) => s.gridAlpha);
+  const fontFamily = useAppState((s) => s.fontFamily);
+  const titleSize = useAppState((s) => s.titleSize);
+  const labelSize = useAppState((s) => s.labelSize);
+  const tickSize = useAppState((s) => s.tickSize);
+  const legendSize = useAppState((s) => s.legendSize);
+  const showLegend = useAppState((s) => s.showLegend);
+  const legendPosition = useAppState((s) => s.legendPosition);
+  const legendVisibleOnly = useAppState((s) => s.legendVisibleOnly);
+  const showTitle = useAppState((s) => s.showTitle);
+  const showLabels = useAppState((s) => s.showLabels);
+  const showTicks = useAppState((s) => s.showTicks);
+  // Memoize so the returned object is referentially stable while the
+  // individual style values are unchanged. Without this, every render of a
+  // plot produced a fresh `style` object, busting the `layout`/`traces`
+  // memos that depend on it and forcing a full Plotly redraw on every
+  // re-render (hover, selection, unrelated store changes).
+  return useMemo(
+    () => ({
+      lineWidth, palette, showGrid, gridAlpha, fontFamily, titleSize,
+      labelSize, tickSize, legendSize, showLegend, legendPosition,
+      legendVisibleOnly, showTitle, showLabels, showTicks,
+    }),
+    [lineWidth, palette, showGrid, gridAlpha, fontFamily, titleSize,
+     labelSize, tickSize, legendSize, showLegend, legendPosition,
+     legendVisibleOnly, showTitle, showLabels, showTicks],
+  );
 }
 
 /** Build an axis title object — returns empty text when labels are hidden. */
@@ -271,9 +286,17 @@ function segmentIntersectT(
   return null;
 }
 
-function getWellLineStyle(well: string, overrides: Map<string, unknown>) {
-  const ov = overrides.get(well) as { lineStyle?: string; lineWidth?: number } | undefined;
-  return { dash: ov?.lineStyle, width: ov?.lineWidth };
+/** Resolved per-curve colour + line width: a per-curve override (right-click /
+ *  quick-style menu on the selected curve) wins over the per-well override. */
+function resolveCurveColorWidth(
+  well: string,
+  ch: string,
+  curveStyleOverrides: Map<string, unknown>,
+  wellStyleOverrides: Map<string, unknown>,
+): { color?: string; width?: number } {
+  const wellOv = wellStyleOverrides.get(well) as { color?: string; lineWidth?: number } | undefined;
+  const curveOv = curveStyleOverrides.get(curveKey(well, ch)) as { color?: string; lineWidth?: number } | undefined;
+  return { color: curveOv?.color ?? wellOv?.color, width: curveOv?.lineWidth ?? wellOv?.lineWidth };
 }
 
 /**
@@ -294,61 +317,65 @@ function getWellLineStyle(well: string, overrides: Map<string, unknown>) {
  * get their own single-member legend-group keyed by the well name (so
  * they still show up as individual entries in the legend).
  */
-function computeLegendInfo(
-  visibleWells: string[],
+/**
+ * Curve-aware legend info, keyed by **curveKey** (`well channel`). Returns one
+ * `{ name, group, isLegendRep }` per rendered `(well, channel)` curve.
+ *
+ * - **Multichannel** (`multiChannel`, i.e. >1 channel visible): one legend entry
+ *   per **S-C pair**. In sample/well mode the label is `<sample|well> · <fluor>`
+ *   and the legendgroup is `curve:<key>` (each curve is its own entry). In group
+ *   mode, curves sharing an *effective* group (`curveGroups[key] ?? wellGroups[well]`)
+ *   collapse to one `grp:<name>` entry; ungrouped curves still show per S-C pair.
+ * - **Single channel** (one visible channel): the legacy one-entry-per-well
+ *   behaviour, no fluorophore suffix — `legendContent` picks the name.
+ * - Curve groups are honoured **only in group mode**, so a curve-group name never
+ *   leaks into a sample/well legend.
+ * - Exactly one curve per legendgroup is the `isLegendRep` (carries `showlegend`),
+ *   chosen in render order — preferring a selected curve when visible-only is on.
+ */
+function computeCurveLegendInfo(
+  renderedPairs: { well: string; channel: string }[],
+  curveGroups: Map<string, string>,
   wellGroups: Map<string, string>,
   experimentWells: Record<string, { sample: string }> | undefined,
-  selectedWells: Set<string>,
+  selectedCurves: Set<string>,
   legendContent: 'well' | 'sample' | 'group',
   legendVisibleOnly: boolean,
+  multiChannel: boolean,
+  fluorOf: (channel: string) => string,
 ): Map<string, { name: string; group: string; isLegendRep: boolean }> {
   const info = new Map<string, { name: string; group: string; isLegendRep: boolean }>();
 
-  // First pass: assign name + group key per well
-  for (const well of visibleWells) {
+  for (const { well, channel } of renderedPairs) {
+    const key = curveKey(well, channel);
+    const sample = experimentWells?.[well]?.sample ?? well;
     let name: string;
     let group: string;
     if (legendContent === 'group') {
-      const g = wellGroups.get(well);
-      if (g) {
-        name = g;
-        group = `grp:${g}`;
-      } else {
-        // Ungrouped wells still get their own legend entry
-        name = experimentWells?.[well]?.sample ?? well;
-        group = `well:${well}`;
-      }
-    } else if (legendContent === 'sample') {
-      name = experimentWells?.[well]?.sample ?? well;
-      group = `well:${well}`;
+      const g = curveGroups.get(key) ?? wellGroups.get(well);
+      if (g) { name = g; group = `grp:${g}`; }
+      else if (multiChannel) { name = `${sample} · ${fluorOf(channel)}`; group = `curve:${key}`; }
+      else { name = sample; group = `well:${well}`; }
     } else {
-      name = well;
-      group = `well:${well}`;
+      const base = legendContent === 'well' ? well : sample;
+      if (multiChannel) { name = `${base} · ${fluorOf(channel)}`; group = `curve:${key}`; }
+      else { name = base; group = `well:${well}`; }
     }
-    info.set(well, { name, group, isLegendRep: false });
+    info.set(key, { name, group, isLegendRep: false });
   }
 
-  // Second pass: pick one representative per group
+  // Pick one representative curve per group, in render order. Visible-only mode
+  // restricts reps to selected curves (so an all-unselected group → no entry).
   const repPicked = new Set<string>();
-  const hasSelection = selectedWells.size > 0;
-  const isSelected = (w: string) => !hasSelection || selectedWells.has(w);
-
-  // Prefer a selected well as the legend rep when visible-only is on
-  if (legendVisibleOnly) {
-    for (const well of visibleWells) {
-      const entry = info.get(well)!;
-      if (repPicked.has(entry.group)) continue;
-      if (!isSelected(well)) continue;
-      entry.isLegendRep = true;
-      repPicked.add(entry.group);
-    }
-  } else {
-    for (const well of visibleWells) {
-      const entry = info.get(well)!;
-      if (repPicked.has(entry.group)) continue;
-      entry.isLegendRep = true;
-      repPicked.add(entry.group);
-    }
+  const hasSelection = selectedCurves.size > 0;
+  const isSelected = (key: string) => !hasSelection || selectedCurves.has(key);
+  for (const { well, channel } of renderedPairs) {
+    const key = curveKey(well, channel);
+    const entry = info.get(key)!;
+    if (repPicked.has(entry.group)) continue;
+    if (legendVisibleOnly && !isSelected(key)) continue;
+    entry.isLegendRep = true;
+    repPicked.add(entry.group);
   }
 
   return info;
@@ -362,6 +389,83 @@ function computeLegendInfo(
  * - Per-well style overrides take highest priority.
  * - paletteReversed flips the color assignment order.
  */
+/** Pure color-map builder: groups → Tt-sorted units → colors drawn from
+ *  `colorsFor(n)`, then per-well color overrides applied last (highest
+ *  priority). Shared by the active-channel palette map and, in colour-
+ *  separation mode, each channel's monochrome ramp. */
+function buildColorMap(
+  visibleWells: string[],
+  colorsFor: (n: number) => string[],
+  wellGroups: Map<string, string>,
+  wellStyleOverrides: Map<string, unknown>,
+  analysisResults?: Map<string, { tt?: number | null }>,
+  paletteReversed?: boolean,
+  groupColors?: boolean,
+): Map<string, string> {
+  const colorMap = new Map<string, string>();
+  if (visibleWells.length === 0) return colorMap;
+
+  // Build palette units
+  const units: [number, string[]][] = [];
+
+  if (groupColors) {
+    // Grouped mode: each group = 1 unit, ungrouped wells = individual units
+    const groupMembers = new Map<string, string[]>();
+    const ungrouped: string[] = [];
+    const seenGroups = new Set<string>();
+    for (const well of visibleWells) {
+      const group = wellGroups.get(well);
+      if (group) {
+        if (!seenGroups.has(group)) { seenGroups.add(group); groupMembers.set(group, []); }
+        groupMembers.get(group)!.push(well);
+      } else {
+        ungrouped.push(well);
+      }
+    }
+    for (const [, members] of groupMembers) {
+      let sum = 0, count = 0;
+      for (const w of members) {
+        const tt = analysisResults?.get(w)?.tt;
+        if (tt != null) { sum += tt; count++; }
+      }
+      units.push([count > 0 ? sum / count : Infinity, members]);
+    }
+    for (const well of ungrouped) {
+      const tt = analysisResults?.get(well)?.tt;
+      units.push([tt ?? Infinity, [well]]);
+    }
+  } else {
+    // Individual mode: one color per well
+    for (const well of visibleWells) {
+      const tt = analysisResults?.get(well)?.tt ?? Infinity;
+      units.push([tt, [well]]);
+    }
+  }
+
+  // Sort by Tt ascending
+  if (analysisResults && analysisResults.size > 0) {
+    units.sort((a, b) => a[0] - b[0]);
+  }
+
+  let colors = colorsFor(units.length);
+  if (paletteReversed) colors = [...colors].reverse();
+
+  for (let i = 0; i < units.length; i++) {
+    const color = colors[i % colors.length];
+    for (const well of units[i][1]) {
+      colorMap.set(well, color);
+    }
+  }
+
+  // Apply per-well style overrides (highest priority)
+  for (const [well, ov] of wellStyleOverrides.entries()) {
+    const override = ov as { color?: string } | undefined;
+    if (override?.color) colorMap.set(well, override.color);
+  }
+
+  return colorMap;
+}
+
 function useGroupedColors(
   _wellsUsed: string[],
   visibleWells: string[],
@@ -372,86 +476,113 @@ function useGroupedColors(
   paletteReversed?: boolean,
   groupColors?: boolean,
 ): Map<string, string> {
+  return useMemo(
+    () => buildColorMap(
+      visibleWells,
+      (n) => getPaletteColors(paletteName, n),
+      wellGroups, wellStyleOverrides, analysisResults, paletteReversed, groupColors,
+    ),
+    [visibleWells, paletteName, wellGroups, wellStyleOverrides, analysisResults, paletteReversed, groupColors],
+  );
+}
+
+// ── Auto-scale freeze ────────────────────────────────────────────────
+type AxisRange = [number, number];
+interface FrozenRanges { x: AxisRange | null; y: AxisRange | null; y2?: AxisRange | null; }
+
+/** Read the plot's current axis ranges off Plotly's `_fullLayout`. */
+function readPlotRanges(container: HTMLElement | null): FrozenRanges | null {
+  const div = container?.querySelector('.js-plotly-plot') as (HTMLElement & { _fullLayout?: Record<string, { range?: number[] }> }) | null;
+  const fl = div?._fullLayout;
+  if (!fl) return null;
+  const r = (ax?: { range?: number[] }): AxisRange | null =>
+    (ax?.range && ax.range.length === 2 ? [ax.range[0], ax.range[1]] : null);
+  return { x: r(fl.xaxis), y: r(fl.yaxis), y2: r(fl.yaxis2) };
+}
+
+/** Layout axis props to pin an explicit range (autorange off) when frozen, so
+ *  a data change (e.g. toggling a channel) can't re-autorange. Empty when not
+ *  frozen → Plotly's default autorange (today's behaviour). */
+function rangeProps(r: AxisRange | null | undefined, frozen: boolean): Record<string, unknown> {
+  return frozen && r ? { range: [r[0], r[1]], autorange: false } : {};
+}
+
+/** Per-channel color maps: `Map<channel, Map<well, color>>`.
+ *  - `useRamps` (multichannel view of a >1-channel experiment): each channel
+ *    gets a monochrome ramp in its representative colour, with that channel's
+ *    own Tt ordering. Keyed on the experiment being multichannel (not the
+ *    visible count), so hiding a channel doesn't snap the rest back to palette.
+ *  - Otherwise (single-channel view, or a single-channel experiment): every
+ *    channel reuses the shared SHARP palette `colorMap` (v0.1.x look).
+ *  Per-well colour overrides are applied last inside `buildColorMap`. */
+function useChannelColorMaps(
+  visibleChannelList: string[],
+  visibleWells: string[],
+  useRamps: boolean,
+  paletteReversed: boolean,
+  groupColors: boolean,
+  wellGroups: Map<string, string>,
+  wellStyleOverrides: Map<string, unknown>,
+  allChannelResults: Map<string, Map<string, { tt?: number | null }>>,
+  sharedColorMap: Map<string, string>,
+  channelColors: Map<string, string>,
+  channelLabels: Map<string, string>,
+  channelFluorophore: Record<string, string> | undefined,
+): Map<string, Map<string, string>> {
   return useMemo(() => {
-    const colorMap = new Map<string, string>();
-    if (visibleWells.length === 0) return colorMap;
-
-    // Build palette units
-    const units: [number, string[]][] = [];
-
-    if (groupColors) {
-      // Grouped mode: each group = 1 unit, ungrouped wells = individual units
-      const groupMembers = new Map<string, string[]>();
-      const ungrouped: string[] = [];
-      const seenGroups = new Set<string>();
-      for (const well of visibleWells) {
-        const group = wellGroups.get(well);
-        if (group) {
-          if (!seenGroups.has(group)) { seenGroups.add(group); groupMembers.set(group, []); }
-          groupMembers.get(group)!.push(well);
-        } else {
-          ungrouped.push(well);
-        }
-      }
-      for (const [, members] of groupMembers) {
-        let sum = 0, count = 0;
-        for (const w of members) {
-          const tt = analysisResults?.get(w)?.tt;
-          if (tt != null) { sum += tt; count++; }
-        }
-        units.push([count > 0 ? sum / count : Infinity, members]);
-      }
-      for (const well of ungrouped) {
-        const tt = analysisResults?.get(well)?.tt;
-        units.push([tt ?? Infinity, [well]]);
-      }
-    } else {
-      // Individual mode: one color per well
-      for (const well of visibleWells) {
-        const tt = analysisResults?.get(well)?.tt ?? Infinity;
-        units.push([tt, [well]]);
+    const out = new Map<string, Map<string, string>>();
+    for (const ch of visibleChannelList) {
+      if (useRamps) {
+        const rep = effectiveChannelColor(ch, channelColors, channelLabels, channelFluorophore);
+        const results = allChannelResults.get(ch);
+        out.set(ch, buildColorMap(
+          visibleWells, (n) => monochromeRamp(rep, n),
+          wellGroups, wellStyleOverrides, results, paletteReversed, groupColors,
+        ));
+      } else {
+        out.set(ch, sharedColorMap);
       }
     }
+    return out;
+  }, [visibleChannelList, visibleWells, useRamps, paletteReversed, groupColors,
+      wellGroups, wellStyleOverrides, allChannelResults, sharedColorMap,
+      channelColors, channelLabels, channelFluorophore]);
+}
 
-    // Sort by Tt ascending
-    if (analysisResults && analysisResults.size > 0) {
-      units.sort((a, b) => a[0] - b[0]);
-    }
-
-    let colors = getPaletteColors(paletteName, units.length);
-    if (paletteReversed) colors = [...colors].reverse();
-
-    for (let i = 0; i < units.length; i++) {
-      const color = colors[i % colors.length];
-      for (const well of units[i][1]) {
-        colorMap.set(well, color);
-      }
-    }
-
-    // Apply per-well style overrides (highest priority)
-    for (const [well, ov] of wellStyleOverrides.entries()) {
-      const override = ov as { color?: string } | undefined;
-      if (override?.color) colorMap.set(well, override.color);
-    }
-
-    return colorMap;
-  }, [visibleWells, paletteName, wellGroups, wellStyleOverrides, analysisResults, paletteReversed, groupColors]);
+/** Dash for a (well, channel) curve. Precedence: per-curve lineStyle override →
+ *  per-well lineStyle override (right-click / quick-style menu) → per-channel
+ *  line-style (set by "Separate by line style" or the Style tab) → solid. */
+function resolveDash(
+  well: string,
+  ch: string,
+  curveStyleOverrides: Map<string, unknown>,
+  wellStyleOverrides: Map<string, unknown>,
+  channelLineStyles: Map<string, string>,
+): string {
+  const perCurve = (curveStyleOverrides.get(curveKey(well, ch)) as { lineStyle?: string } | undefined)?.lineStyle;
+  if (perCurve) return perCurve;
+  const perWell = (wellStyleOverrides.get(well) as { lineStyle?: string } | undefined)?.lineStyle;
+  if (perWell) return perWell;
+  return channelLineStyles.get(ch) ?? 'solid';
 }
 
 // ── Middle-mouse-button pan hook ─────────────────────────────────────
-/** Attach Plotly legend hover/unhover events to set hoveredWell */
+/** Attach Plotly legend hover/unhover events to set hoveredWell. The resolver
+ *  maps a Plotly curveNumber to a well (or null for non-well legend entries
+ *  like the per-channel markers); kept in a ref so the effect needn't re-bind. */
 function useLegendHover(
   containerRef: React.RefObject<HTMLDivElement | null>,
-  visibleWells: string[],
-  traceOffset: number,
+  resolveWell: (curveNumber: number) => string | null,
   setHoveredWell: (well: string | null) => void,
 ) {
+  const resolveRef = useRef(resolveWell);
+  resolveRef.current = resolveWell;
   useEffect(() => {
     const el = containerRef.current?.querySelector('.js-plotly-plot') as any;
     if (!el?.on) return;
     const onHover = (e: any) => {
-      const idx = (e.curveNumber ?? 0) - traceOffset;
-      if (idx >= 0 && idx < visibleWells.length) setHoveredWell(visibleWells[idx]);
+      const well = resolveRef.current(e.curveNumber ?? 0);
+      if (well) setHoveredWell(well);
     };
     const onUnhover = () => setHoveredWell(null);
     el.on('plotly_legendhover', onHover);
@@ -460,7 +591,7 @@ function useLegendHover(
       el.removeAllListeners?.('plotly_legendhover');
       el.removeAllListeners?.('plotly_legendunhover');
     };
-  }, [containerRef, visibleWells, traceOffset, setHoveredWell]);
+  }, [containerRef, setHoveredWell]);
 }
 
 function useMiddleMousePan(containerRef: React.RefObject<HTMLDivElement | null>) {
@@ -600,43 +731,71 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
   const idx = useAppState((s) => s.activeExperimentIndex);
   const xAxisMode = useAppState((s) => s.xAxisMode);
   const logScale = useAppState((s) => s.logScale);
-  const selectedWells = useAppState((s) => s.selectedWells);
+  const selectedCurves = useAppState((s) => s.selectedCurves);
   const hiddenWells = useAppState((s) => s.hiddenWells);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
-  const setSelectedWells = useAppState((s) => s.setSelectedWells);
-  const selectOnly = useAppState((s) => s.selectOnly);
+  const curveStyleOverrides = useAppState((s) => s.curveStyleOverrides);
+  const curveGroups = useAppState((s) => s.curveGroups);
+  const setSelectedCurves = useAppState((s) => s.setSelectedCurves);
+  const selectCurvesOnly = useAppState((s) => s.selectCurvesOnly);
   const deselectAll = useAppState((s) => s.deselectAll);
-  const toggleWellSelection = useAppState((s) => s.toggleWellSelection);
+  const toggleCurves = useAppState((s) => s.toggleCurves);
   const hoveredWell = useAppState((s) => s.hoveredWell);
   const setHoveredWell = useAppState((s) => s.setHoveredWell);
   const paletteArrowMode = useAppState((s) => s.paletteArrowMode);
+  const paletteArrowChannel = useAppState((s) => s.paletteArrowChannel);
   const setPaletteArrowMode = useAppState((s) => s.setPaletteArrowMode);
-  const setWellStyleOverride = useAppState((s) => s.setWellStyleOverride);
+  const setCurveStyleOverride = useAppState((s) => s.setCurveStyleOverride);
   const baselineEnabled = useAppState((s) => s.baselineEnabled);
   const baselineAuto = useAppState((s) => s.baselineAuto);
   const baselineStart = useAppState((s) => s.baselineStart);
   const baselineEnd = useAppState((s) => s.baselineEnd);
   const wellBaselineOverrides = useAppState((s) => s.wellBaselineOverrides);
   const normalizeEnabled = useAppState((s) => s.normalizeEnabled);
+  const driftCorrectionEnabled = useAppState((s) => s.driftCorrectionEnabled);
   const showRawOverlay = useAppState((s) => s.showRawOverlay);
   const thresholdEnabled = useAppState((s) => s.thresholdEnabled);
   const thresholdRfu = useAppState((s) => s.thresholdRfu);
   const setThresholdRfu = useAppState((s) => s.setThresholdRfu);
+  const [frozenRanges, setFrozenRanges] = useState<FrozenRanges | null>(null);
   const showLegendAmp = useAppState((s) => s.showLegendAmp);
   const legendContent = useAppState((s) => s.legendContent);
   const legendVisibleOnly = useAppState((s) => s.legendVisibleOnly);
   const legendOrder = useAppState((s) => s.legendOrder);
   const paletteReversed = useAppState((s) => s.paletteReversed);
   const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
+  const visibleChannels = useAppState((s) => s.visibleChannels);
+  const channelLabels = useAppState((s) => s.channelLabels);
+  const channelColors = useAppState((s) => s.channelColors);
+  const viewMode = useAppState((s) => s.viewMode);
+  const activeChannel = useAppState((s) => s.activeChannel);
+  const channelLineStyles = useAppState((s) => s.channelLineStyles);
+  const wellChannelHidden = useAppState((s) => s.wellChannelHidden);
+  const autoScale = useAppState((s) => s.autoScale);
+  const autoScalePulse = useAppState((s) => s._autoScalePulse);
   const style = usePlotStyle();
   const analysisResults = useAnalysisResults();
-  const dragPreviewWells = useAppState((s) => s.dragPreviewWells);
-  const setDragPreviewWells = useAppState((s) => s.setDragPreviewWells);
+  const allChannelResults = useAllChannelResults();
+  const dragPreviewCurves = useAppState((s) => s.dragPreviewCurves);
+  const setDragPreviewCurves = useAppState((s) => s.setDragPreviewCurves);
 
   const wellGroups = useAppState((s) => s.wellGroups);
 
   const exp = experiments[idx];
   const amp = exp?.amplification;
+
+  // Single view → just the active channel (simple v0.1.x look); multi view →
+  // every globally-enabled channel.
+  const visibleChannelList = useMemo(
+    () => (viewMode === 'single'
+      ? (exp?.channels.includes(activeChannel) ? [activeChannel] : (exp?.channels.slice(0, 1) ?? []))
+      : (exp?.channels ?? []).filter((c) => visibleChannels.has(c))),
+    [exp, visibleChannels, viewMode, activeChannel],
+  );
+  const multiChannel = visibleChannelList.length > 1;
+  // Per-channel colour ramps only in the multichannel view of a >1-channel
+  // experiment; otherwise the shared SHARP palette (v0.1.x look).
+  const useRamps = viewMode === 'multi' && (exp?.channels.length ?? 0) > 1;
 
   const visibleWells = useMemo(() => {
     if (!exp) return [];
@@ -649,72 +808,126 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
     paletteGroupColors
   );
 
-  const legendInfo = useMemo(
-    () => computeLegendInfo(visibleWells, wellGroups, exp?.wells, selectedWells, legendContent, legendVisibleOnly),
-    [visibleWells, wellGroups, exp?.wells, selectedWells, legendContent, legendVisibleOnly]
+  const channelColorMaps = useChannelColorMaps(
+    visibleChannelList, visibleWells, useRamps, paletteReversed, paletteGroupColors,
+    wellGroups, wellStyleOverrides,
+    allChannelResults as Map<string, Map<string, { tt?: number | null }>>,
+    colorMap, channelColors, channelLabels, exp?.channelFluorophore,
   );
 
   const legendRanks = useMemo(() => buildLegendRanks(legendOrder), [legendOrder]);
 
-  const traces = useMemo((): Data[] => {
-    if (!amp) {
-      return [];
-    }
-
-    const xData = xAxisMode === 'cycle' ? amp.cycle : xAxisMode === 'time_s' ? amp.timeS : amp.timeMin;
-    const result: Data[] = [];
-
-    // Raw overlay is in raw-RFU units — suppress it when normalized.
-    if (baselineEnabled && showRawOverlay && !normalizeEnabled) {
+  // Ordered list of the (well, channel) pairs actually rendered as curves —
+  // drives curveNumber → (well, channel) resolution for click / hover / legend.
+  const renderedPairs = useMemo(() => {
+    const pairs: { well: string; channel: string }[] = [];
+    for (const ch of visibleChannelList) {
+      if (!exp?.amplificationByChannel[ch]) continue;
       for (const well of visibleWells) {
-        const color = colorMap.get(well) ?? '#999';
-        result.push({
-          x: xData, y: amp.wells[well],
-          type: 'scatter' as const, mode: 'lines' as const,
-          name: `${well} (raw)`,
-          line: { color, width: style.lineWidth * 0.5, dash: 'dot' },
-          opacity: 0.3, hoverinfo: 'skip' as const, showlegend: false,
-        });
+        if (wellChannelHidden.get(well)?.has(ch)) continue;
+        pairs.push({ well, channel: ch });
+      }
+    }
+    return pairs;
+  }, [exp, visibleChannelList, visibleWells, wellChannelHidden]);
+
+  const legendInfo = useMemo(
+    () => computeCurveLegendInfo(renderedPairs, curveGroups, wellGroups, exp?.wells, selectedCurves, legendContent, legendVisibleOnly, multiChannel, (ch) => effectiveChannelLabel(ch, channelLabels, exp?.channelFluorophore)),
+    [renderedPairs, curveGroups, wellGroups, exp, selectedCurves, legendContent, legendVisibleOnly, multiChannel, channelLabels]
+  );
+
+  // Raw overlay is added (over all visible wells) only when exactly one channel
+  // is visible, so its trace count stays regular for curveNumber math.
+  const singleVisibleChannel = visibleChannelList.length === 1 ? visibleChannelList[0] : null;
+  const rawOverlayCount =
+    (singleVisibleChannel && baselineEnabled && showRawOverlay && !normalizeEnabled)
+      ? visibleWells.length : 0;
+
+  const dash6 = (d: string | undefined) => d as 'solid' | 'dash' | 'dot' | 'dashdot' | 'longdash' | 'longdashdot' | undefined;
+
+  const traces = useMemo((): Data[] => {
+    if (visibleChannelList.length === 0) return [];
+    const result: Data[] = [];
+    // Show the "| fluorophore" hover suffix only when ≥2 channels overlay; a
+    // single visible channel (including every single-dye file, whose channel
+    // is named e.g. 'SYBR' rather than 'default') stays sample-only, matching
+    // the pre-multichannel hover and the melt/derivative plots.
+    const showFluor = multiChannel;
+    // One legend entry per sample/group, emitted on the FIRST channel where its
+    // representative well actually renders — so a rep hidden on the first
+    // channel (but shown on a later one) doesn't drop the entry.
+    const emittedLegend = new Set<string>();
+
+    // Raw overlay (raw-RFU units) — single-visible-channel case only.
+    if (singleVisibleChannel && baselineEnabled && showRawOverlay && !normalizeEnabled) {
+      const chAmp = exp?.amplificationByChannel[singleVisibleChannel];
+      if (chAmp) {
+        const xRaw = xAxisMode === 'cycle' ? chAmp.cycle : xAxisMode === 'time_s' ? chAmp.timeS : chAmp.timeMin;
+        for (const well of visibleWells) {
+          const color = colorMap.get(well) ?? '#999';
+          result.push({
+            x: xRaw, y: chAmp.wells[well],
+            type: 'scatter' as const, mode: 'lines' as const, name: `${well} (raw)`,
+            line: { color, width: style.lineWidth * 0.5, dash: 'dot' },
+            opacity: 0.3, hoverinfo: 'skip' as const, showlegend: false,
+          });
+        }
       }
     }
 
-    for (const well of visibleWells) {
-      const color = colorMap.get(well) ?? '#999';
-      const lsOverride = getWellLineStyle(well, wellStyleOverrides);
-      const isSelected = selectedWells.size === 0 || selectedWells.has(well);
-      const isHovered = hoveredWell === well;
-      const isDragHighlighted = dragPreviewWells ? dragPreviewWells.has(well) : null;
-      const analysis = analysisResults.get(well);
-      const yData = (normalizeEnabled && analysis?.normalizedRfu)
-        || (baselineEnabled && analysis?.correctedRfu)
-        || amp.wells[well];
-      const li = legendInfo.get(well)!;
+    for (let ci = 0; ci < visibleChannelList.length; ci++) {
+      const ch = visibleChannelList[ci];
+      const chAmp = exp?.amplificationByChannel[ch];
+      if (!chAmp) continue;
+      const chX = xAxisMode === 'cycle' ? chAmp.cycle : xAxisMode === 'time_s' ? chAmp.timeS : chAmp.timeMin;
+      const chResults = allChannelResults.get(ch);
+      const fluorLabel = effectiveChannelLabel(ch, channelLabels, exp?.channelFluorophore);
+      for (const well of visibleWells) {
+        if (wellChannelHidden.get(well)?.has(ch)) continue;
+        const key = curveKey(well, ch);
+        const cw = resolveCurveColorWidth(well, ch, curveStyleOverrides, wellStyleOverrides);
+        const color = cw.color ?? channelColorMaps.get(ch)?.get(well) ?? colorMap.get(well) ?? '#999';
+        const isSelected = selectedCurves.size === 0 || selectedCurves.has(key);
+        const isHovered = hoveredWell === well;
+        const isDragHighlighted = dragPreviewCurves ? dragPreviewCurves.has(key) : null;
+        const r = chResults?.get(well);
+        const yData = r?.displayRfu ?? chAmp.wells[well];
+        const li = legendInfo.get(key)!;
 
-      // During drag select: highlight wells inside box, grey out everything else
-      let lineWidth = lsOverride.width ?? (isSelected ? style.lineWidth : style.lineWidth * 0.6);
-      let opacity = isSelected ? 1.0 : 0.25;
-      if (isDragHighlighted === true) { lineWidth = style.lineWidth * 1.4; opacity = 1.0; }
-      else if (isDragHighlighted === false) { opacity = 0.15; }
-      if (isHovered) { lineWidth = Math.max(lineWidth, style.lineWidth * 1.6); }
+        let lineWidth = cw.width ?? (isSelected ? style.lineWidth : style.lineWidth * 0.6);
+        let opacity = isSelected ? 1.0 : 0.25;
+        if (isDragHighlighted === true) { lineWidth = style.lineWidth * 1.4; opacity = 1.0; }
+        else if (isDragHighlighted === false) { opacity = 0.15; }
+        if (isHovered) { lineWidth = Math.max(lineWidth, style.lineWidth * 1.6); }
 
-      result.push({
-        x: xData, y: yData,
-        type: 'scatter' as const, mode: 'lines' as const, name: li.name,
-        legendgroup: li.group,
-        legendrank: legendRanks.get(li.group) ?? 1000,
-        line: {
-          color,
-          width: lineWidth,
-          dash: lsOverride.dash as 'solid' | 'dash' | 'dot' | 'dashdot' | undefined,
-        },
-        opacity,
-        hoverinfo: 'name' as const, showlegend: li.isLegendRep,
-      });
+        const showLegAmp = li.isLegendRep && !emittedLegend.has(li.group);
+        if (showLegAmp) emittedLegend.add(li.group);
+
+        result.push({
+          x: chX, y: yData,
+          type: 'scatter' as const, mode: 'lines' as const, name: li.name,
+          legendgroup: li.group,
+          legendrank: legendRanks.get(li.group) ?? 1000,
+          line: {
+            color,
+            width: lineWidth,
+            dash: dash6(resolveDash(well, ch, curveStyleOverrides, wellStyleOverrides, channelLineStyles)),
+          },
+          opacity,
+          hovertext: showFluor ? `${exp?.wells[well]?.sample ?? well} | ${fluorLabel}` : li.name,
+          hoverinfo: 'text' as const,
+          showlegend: showLegAmp,
+        });
+      }
     }
+    // (Channels are keyed by the FAM/HEX toggles in the plot-tabs bar, so no
+    // separate per-channel legend block is added here.)
     return result;
-  }, [amp, exp, xAxisMode, selectedWells, hiddenWells, style.lineWidth,
-      style.legendVisibleOnly, visibleWells, baselineEnabled, normalizeEnabled, showRawOverlay,
-      analysisResults, wellStyleOverrides, colorMap, hoveredWell, dragPreviewWells, legendInfo, legendRanks]);
+  }, [exp, xAxisMode, selectedCurves, style.lineWidth, visibleWells, visibleChannelList, multiChannel,
+      singleVisibleChannel, baselineEnabled, normalizeEnabled, showRawOverlay, allChannelResults,
+      wellChannelHidden, channelLabels, channelColors, channelLineStyles,
+      wellStyleOverrides, curveStyleOverrides, colorMap, channelColorMaps, hoveredWell, dragPreviewCurves,
+      legendInfo, legendRanks, showLegendAmp, isDark]);
 
   // Compute baseline zone x-axis boundaries. Only shown when at least one
   // visible well is in manual baseline mode (auto mode uses per-well windows,
@@ -738,6 +951,17 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
     if (startIdx >= xData.length || endIdx < 0) return null;
     return { x0: xData[startIdx], x1: xData[endIdx] };
   }, [baselineEnabled, amp, xAxisMode, baselineStart, baselineEnd, baselineAuto, wellBaselineOverrides, visibleWells]);
+
+  const frozen = !autoScale && frozenRanges != null;
+
+  // Plotly `datarevision`: bump ONLY when the plotted x/y data could change
+  // (experiment, x-axis unit, or recomputed analysis results). Hover,
+  // selection, palette, legend and other styling changes keep the same
+  // revision so Plotly applies a cheap style diff instead of a full data
+  // replot — the difference between janky and smooth on a dense plate.
+  const dataRevRef = useRef(0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const dataRevision = useMemo(() => ++dataRevRef.current, [exp, xAxisMode, allChannelResults]);
 
   const layout = useMemo((): Partial<Layout> => {
     const title = exp?.experimentId ?? 'Amplification Plot';
@@ -771,6 +995,7 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
         title: axisLabel(X_AXIS_LABELS[xAxisMode], style),
         ...tickProps(style),
         ...gridStyle(style, isDark),
+        ...rangeProps(frozenRanges?.x, frozen),
       },
       yaxis: {
         title: axisLabel(
@@ -780,6 +1005,7 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
         type: logScale ? 'log' : 'linear',
         ...tickProps(style),
         ...gridStyle(style, isDark),
+        ...rangeProps(frozenRanges?.y, frozen),
       },
       shapes,
       dragmode: false as Layout['dragmode'],
@@ -787,43 +1013,50 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
       margin: computeMargins(style),
       plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) },
       ...legendLayout(style, showLegendAmp, traces, isDark),
-      datarevision: Date.now(),
-      // Preserve zoom/pan across hover & selection re-renders. Reset on
-      // experiment / x-axis change because the data domain itself shifts.
-      uirevision: `amp-${exp?.experimentId ?? 'none'}-${xAxisMode}`,
+      datarevision: dataRevision,
+      // Preserve zoom/pan across hover & selection re-renders. With auto-scale
+      // on, fold the data-transform signature in so toggling normalization /
+      // baseline / drift / log re-fits the axes to the new data; with it off,
+      // the revision stays stable so the user's manual view persists.
+      uirevision: autoScale
+        ? `amp-${exp?.experimentId ?? 'none'}-${xAxisMode}-n${normalizeEnabled ? 1 : 0}b${baselineEnabled ? 1 : 0}l${logScale ? 1 : 0}d${driftCorrectionEnabled ? 1 : 0}`
+        : `amp-${exp?.experimentId ?? 'none'}-${xAxisMode}`,
     };
-  }, [exp, xAxisMode, logScale, thresholdEnabled, thresholdRfu, style, baselineEnabled, normalizeEnabled, baselineZoneBounds, showLegendAmp, traces]);
-  const rawOverlayCount = (baselineEnabled && showRawOverlay) ? visibleWells.length : 0;
+  }, [exp, xAxisMode, logScale, thresholdEnabled, thresholdRfu, style, baselineEnabled, normalizeEnabled, driftCorrectionEnabled, autoScale, frozen, frozenRanges, baselineZoneBounds, showLegendAmp, traces, dataRevision]);
 
-  // Refs for box selection data matching
+  // Refs for box selection data matching (channel-aware)
   const visibleWellsRef = useRef(visibleWells);
   visibleWellsRef.current = visibleWells;
-  const ampRef = useRef(amp);
-  ampRef.current = amp;
+  const expRef = useRef(exp);
+  expRef.current = exp;
   const xAxisModeRef = useRef(xAxisMode);
   xAxisModeRef.current = xAxisMode;
-  const baselineEnabledRef = useRef(baselineEnabled);
-  baselineEnabledRef.current = baselineEnabled;
-  const normalizeEnabledRef = useRef(normalizeEnabled);
-  normalizeEnabledRef.current = normalizeEnabled;
-  const analysisResultsRef = useRef(analysisResults);
-  analysisResultsRef.current = analysisResults;
+  const visibleChannelListRef = useRef(visibleChannelList);
+  visibleChannelListRef.current = visibleChannelList;
+  const wellChannelHiddenRef = useRef(wellChannelHidden);
+  wellChannelHiddenRef.current = wellChannelHidden;
+  const allChannelResultsRef = useRef(allChannelResults);
+  allChannelResultsRef.current = allChannelResults;
 
   const matchWellsInBox = useCallback((x0: number, x1: number, y0: number, y1: number): Set<string> => {
-    const currentAmp = ampRef.current;
-    if (!currentAmp) return new Set();
+    const currentExp = expRef.current;
+    if (!currentExp) return new Set();
     const mode = xAxisModeRef.current;
-    const xData = mode === 'cycle' ? currentAmp.cycle : mode === 'time_s' ? currentAmp.timeS : currentAmp.timeMin;
     const matched = new Set<string>();
-    for (const well of visibleWellsRef.current) {
-      const analysis = analysisResultsRef.current.get(well);
-      const yData = (normalizeEnabledRef.current && analysis?.normalizedRfu)
-        || (baselineEnabledRef.current && analysis?.correctedRfu)
-        || currentAmp.wells[well];
-      for (let i = 0; i < xData.length; i++) {
-        if (xData[i] >= x0 && xData[i] <= x1 && yData[i] >= y0 && yData[i] <= y1) {
-          matched.add(well);
-          break;
+    for (const ch of visibleChannelListRef.current) {
+      const chAmp = currentExp.amplificationByChannel[ch];
+      if (!chAmp) continue;
+      const xData = mode === 'cycle' ? chAmp.cycle : mode === 'time_s' ? chAmp.timeS : chAmp.timeMin;
+      const chResults = allChannelResultsRef.current.get(ch);
+      for (const well of visibleWellsRef.current) {
+        if (wellChannelHiddenRef.current.get(well)?.has(ch)) continue;
+        const yData = chResults?.get(well)?.displayRfu ?? chAmp.wells[well];
+        if (!yData) continue;
+        for (let i = 0; i < xData.length; i++) {
+          if (xData[i] >= x0 && xData[i] <= x1 && yData[i] >= y0 && yData[i] <= y1) {
+            matched.add(curveKey(well, ch));
+            break;
+          }
         }
       }
     }
@@ -832,58 +1065,74 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
 
   const handleBoxSelect = useCallback((x0: number, x1: number, y0: number, y1: number) => {
     const matched = matchWellsInBox(x0, x1, y0, y1);
-    if (matched.size > 0) setSelectedWells(matched);
-  }, [setSelectedWells, matchWellsInBox]);
+    if (matched.size > 0) setSelectedCurves(matched);
+  }, [setSelectedCurves, matchWellsInBox]);
 
   const handleDragMove = useCallback((x0: number, x1: number, y0: number, y1: number) => {
-    setDragPreviewWells(matchWellsInBox(x0, x1, y0, y1));
-  }, [matchWellsInBox]);
+    setDragPreviewCurves(matchWellsInBox(x0, x1, y0, y1));
+  }, [matchWellsInBox, setDragPreviewCurves]);
 
-  const handleDragEnd = useCallback(() => setDragPreviewWells(null), []);
+  const handleDragEnd = useCallback(() => setDragPreviewCurves(null), [setDragPreviewCurves]);
 
-  // Palette arrow callback — compute curve intersections, apply palette
+  // Palette arrow callback — find the first arrow intersection per visible
+  // (well, channel) CURVE across every visible channel, then assign the palette
+  // along the arrow. With "Group coloring" on, each effective group (curve group
+  // → well group) is ONE colour unit (all its crossed members share a colour),
+  // ordered by its earliest crossing; otherwise one colour per S-C pair.
   const handlePaletteArrow = useCallback((ax0: number, ay0: number, ax1: number, ay1: number) => {
-    if (!amp || !exp) return;
-    const xData = xAxisMode === 'cycle' ? amp.cycle : xAxisMode === 'time_s' ? amp.timeS : amp.timeMin;
-    const baselineEn = baselineEnabled;
-    const results = analysisResults;
-
-    // For each visible well, find the first intersection t-value along the arrow.
-    const hits: Array<{ well: string; t: number }> = [];
-    for (const well of visibleWells) {
-      const rawY = amp.wells[well];
-      if (!rawY) continue;
-      const analysis = results.get(well);
-      const yData = (normalizeEnabled && analysis?.normalizedRfu)
-        || (baselineEn && analysis?.correctedRfu)
-        || rawY;
-
-      let firstT: number | null = null;
-      // Check each pair of consecutive data points for intersection with the arrow segment
-      for (let i = 0; i < xData.length - 1; i++) {
-        const t = segmentIntersectT(
-          ax0, ay0, ax1, ay1,
-          xData[i], yData[i], xData[i + 1], yData[i + 1]
-        );
-        if (t !== null && (firstT === null || t < firstT)) {
-          firstT = t;
+    if (!exp) return;
+    const hits: Array<{ key: string; well: string; t: number }> = [];
+    for (const ch of visibleChannelList) {
+      // When armed from a single-channel Style scope, only colour that channel.
+      if (paletteArrowChannel && ch !== paletteArrowChannel) continue;
+      const chAmp = exp.amplificationByChannel[ch];
+      if (!chAmp) continue;
+      const xData = xAxisMode === 'cycle' ? chAmp.cycle : xAxisMode === 'time_s' ? chAmp.timeS : chAmp.timeMin;
+      const chResults = allChannelResults.get(ch);
+      for (const well of visibleWells) {
+        if (wellChannelHidden.get(well)?.has(ch)) continue;
+        const yData = chResults?.get(well)?.displayRfu ?? chAmp.wells[well];
+        if (!yData) continue;
+        let firstT: number | null = null;
+        for (let i = 0; i < xData.length - 1; i++) {
+          const t = segmentIntersectT(ax0, ay0, ax1, ay1, xData[i], yData[i], xData[i + 1], yData[i + 1]);
+          if (t !== null && (firstT === null || t < firstT)) firstT = t;
         }
+        if (firstT !== null) hits.push({ key: curveKey(well, ch), well, t: firstT });
       }
-      if (firstT !== null) hits.push({ well, t: firstT });
     }
 
     if (hits.length === 0) { setPaletteArrowMode(false); return; }
 
-    // Sort by t (position along arrow direction)
-    hits.sort((a, b) => a.t - b.t);
-    const colors = getPaletteColors(style.palette, hits.length);
+    // Build colour units (group → one shared colour when group coloring is on),
+    // ordered by position along the arrow.
+    const units: Array<{ t: number; keys: string[] }> = [];
+    if (paletteGroupColors) {
+      const byGroup = new Map<string, { t: number; keys: string[] }>();
+      for (const h of hits) {
+        const g = curveGroups.get(h.key) ?? wellGroups.get(h.well);
+        if (g) {
+          const u = byGroup.get(g);
+          if (u) { u.keys.push(h.key); u.t = Math.min(u.t, h.t); }
+          else byGroup.set(g, { t: h.t, keys: [h.key] });
+        } else {
+          units.push({ t: h.t, keys: [h.key] });
+        }
+      }
+      for (const u of byGroup.values()) units.push(u);
+    } else {
+      for (const h of hits) units.push({ t: h.t, keys: [h.key] });
+    }
+    units.sort((a, b) => a.t - b.t);
+
+    const colors = getPaletteColors(style.palette, units.length);
     const pushUndo = useAppState.getState().pushUndo;
     pushUndo('Arrow palette');
-    for (let i = 0; i < hits.length; i++) {
-      setWellStyleOverride([hits[i].well], { color: colors[i] });
+    for (let i = 0; i < units.length; i++) {
+      setCurveStyleOverride(units[i].keys, { color: colors[i % colors.length] });
     }
     setPaletteArrowMode(false);
-  }, [amp, exp, xAxisMode, visibleWells, baselineEnabled, normalizeEnabled, analysisResults, style.palette, setPaletteArrowMode, setWellStyleOverride]);
+  }, [exp, xAxisMode, visibleWells, visibleChannelList, wellChannelHidden, allChannelResults, paletteGroupColors, curveGroups, wellGroups, paletteArrowChannel, style.palette, setPaletteArrowMode, setCurveStyleOverride]);
 
   const { containerRef: plotContainerRef, overlayRef: selectionOverlayRef, resizeOverlayRef: ampResizeOverlayRef, arrowOverlayRef, traceClickedRef } = useBoxSelect({
     onSelect: handleBoxSelect,
@@ -903,33 +1152,73 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
     onShowContextMenu: openContextMenu,
   });
 
+  // Resolve a Plotly curveNumber to the well it represents (hover = whole-well).
+  const resolveWell = useCallback((curveNumber: number): string | null => {
+    const i = curveNumber - rawOverlayCount;
+    if (i < 0 || i >= renderedPairs.length) return null; // raw overlay or channel-legend marker
+    return renderedPairs[i].well;
+  }, [renderedPairs, rawOverlayCount]);
+
+  // Resolve a Plotly curveNumber to the curveKey (S-C pair) it represents.
+  const resolveCurve = useCallback((curveNumber: number): string | null => {
+    const i = curveNumber - rawOverlayCount;
+    if (i < 0 || i >= renderedPairs.length) return null;
+    const p = renderedPairs[i];
+    return curveKey(p.well, p.channel);
+  }, [renderedPairs, rawOverlayCount]);
+
   const handleClick = useCallback((event: Readonly<PlotMouseEvent>) => {
-    if (!event.points.length || !visibleWells.length) return;
+    if (!event.points.length) return;
     const browserEvent = event.event as MouseEvent | undefined;
     if (browserEvent && browserEvent.button !== 0) return;
     traceClickedRef.current = true; // suppress empty-click deselect
-    const traceIdx = event.points[0].curveNumber - rawOverlayCount;
-    if (traceIdx < 0 || traceIdx >= visibleWells.length) return;
-    const well = visibleWells[traceIdx];
+    const key = resolveCurve(event.points[0].curveNumber);
+    if (!key) return;
     if (browserEvent && (browserEvent.ctrlKey || browserEvent.metaKey)) {
-      toggleWellSelection(well);
+      toggleCurves([key]);
     } else {
-      selectOnly(well);
+      selectCurvesOnly([key]);
     }
-  }, [visibleWells, rawOverlayCount, selectOnly, toggleWellSelection, traceClickedRef]);
+  }, [resolveCurve, selectCurvesOnly, toggleCurves, traceClickedRef]);
 
   const handleHover = useCallback((event: Readonly<PlotMouseEvent>) => {
     if (!event.points.length) return;
-    const traceIdx = event.points[0].curveNumber - rawOverlayCount;
-    if (traceIdx >= 0 && traceIdx < visibleWells.length) {
-      setHoveredWell(visibleWells[traceIdx]);
-    }
-  }, [visibleWells, rawOverlayCount, setHoveredWell]);
+    const well = resolveWell(event.points[0].curveNumber);
+    if (well) setHoveredWell(well);
+  }, [resolveWell, setHoveredWell]);
 
   const handleUnhover = useCallback(() => setHoveredWell(null), [setHoveredWell]);
 
   useMiddleMousePan(plotContainerRef);
-  useLegendHover(plotContainerRef, visibleWells, rawOverlayCount, setHoveredWell);
+  useLegendHover(plotContainerRef, resolveWell, setHoveredWell);
+
+  // Auto-scale OFF freezes the axes: snapshot the current view and pin it
+  // (autorange:false) so data changes (e.g. toggling a channel) can't rescale.
+  // ON releases the pin and re-fits. Re-runs on experiment / x-axis change so
+  // the frozen view follows an intentional data-domain switch.
+  useEffect(() => {
+    const container = plotContainerRef.current;
+    if (!autoScale) {
+      const id = requestAnimationFrame(() => setFrozenRanges(readPlotRanges(container)));
+      return () => cancelAnimationFrame(id);
+    }
+    setFrozenRanges(null);
+    const div = container?.querySelector('.js-plotly-plot') as HTMLElement | null;
+    if (div) Plotly.relayout(div, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+  }, [autoScale, exp?.experimentId, xAxisMode]);
+
+  // "Fit" button bumps _autoScalePulse → re-fit to autorange. When frozen,
+  // adopt the fitted view as the new pin so it doesn't snap back.
+  useEffect(() => {
+    if (autoScalePulse === 0) return;
+    const container = plotContainerRef.current;
+    const div = container?.querySelector('.js-plotly-plot') as HTMLElement | null;
+    if (div) Plotly.relayout(div, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+    if (!autoScale) {
+      const id = requestAnimationFrame(() => setFrozenRanges(readPlotRanges(container)));
+      return () => cancelAnimationFrame(id);
+    }
+  }, [autoScalePulse]);
 
   return (
     <div
@@ -962,9 +1251,10 @@ function MeltDerivMini({ openContextMenu }: { openContextMenu: (x: number, y: nu
   const { plotBg, isDark, textColor } = usePlotTheme();
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
-  const selectedWells = useAppState((s) => s.selectedWells);
+  const selectedCurves = useAppState((s) => s.selectedCurves);
   const hiddenWells = useAppState((s) => s.hiddenWells);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
+  const curveStyleOverrides = useAppState((s) => s.curveStyleOverrides);
   const wellGroups = useAppState((s) => s.wellGroups);
   const paletteReversed = useAppState((s) => s.paletteReversed);
   const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
@@ -972,18 +1262,36 @@ function MeltDerivMini({ openContextMenu }: { openContextMenu: (x: number, y: nu
   const setHoveredWell = useAppState((s) => s.setHoveredWell);
   const deselectAll = useAppState((s) => s.deselectAll);
   const style = usePlotStyle();
-  const setSelectedWells = useAppState((s) => s.setSelectedWells);
-  const selectOnly = useAppState((s) => s.selectOnly);
-  const toggleWellSelection = useAppState((s) => s.toggleWellSelection);
+  const setSelectedCurves = useAppState((s) => s.setSelectedCurves);
+  const selectCurvesOnly = useAppState((s) => s.selectCurvesOnly);
+  const toggleCurves = useAppState((s) => s.toggleCurves);
   const analysisResults = useAnalysisResults();
-  const dragPreviewWells = useAppState((s) => s.dragPreviewWells);
-  const setDragPreviewWells = useAppState((s) => s.setDragPreviewWells);
+  const dragPreviewCurves = useAppState((s) => s.dragPreviewCurves);
+  const setDragPreviewCurves = useAppState((s) => s.setDragPreviewCurves);
   const meltThresholdEnabled = useAppState((s) => s.meltThresholdEnabled);
   const meltThresholdValue = useAppState((s) => s.meltThresholdValue);
   const setMeltThresholdValue = useAppState((s) => s.setMeltThresholdValue);
+  const visibleChannels = useAppState((s) => s.visibleChannels);
+  const wellChannelHidden = useAppState((s) => s.wellChannelHidden);
+  const channelColors = useAppState((s) => s.channelColors);
+  const channelLabels = useAppState((s) => s.channelLabels);
+  const viewMode = useAppState((s) => s.viewMode);
+  const activeChannel = useAppState((s) => s.activeChannel);
+  const channelLineStyles = useAppState((s) => s.channelLineStyles);
+  const autoScalePulse = useAppState((s) => s._autoScalePulse);
+  const allChannelResults = useAllChannelResults();
 
   const exp = experiments[idx];
   const melt = exp?.melt;
+
+  const visibleChannelList = useMemo(
+    () => (viewMode === 'single'
+      ? (exp?.meltByChannel[activeChannel] ? [activeChannel] : [])
+      : (exp?.channels ?? []).filter((c) => visibleChannels.has(c) && exp?.meltByChannel[c])),
+    [exp, visibleChannels, viewMode, activeChannel],
+  );
+  const multiChannel = visibleChannelList.length > 1;
+  const useRamps = viewMode === 'multi' && (exp?.channels.length ?? 0) > 1;
 
   const visibleWells = useMemo(() => {
     if (!exp) return [];
@@ -996,52 +1304,91 @@ function MeltDerivMini({ openContextMenu }: { openContextMenu: (x: number, y: nu
     paletteGroupColors
   );
 
+  const channelColorMaps = useChannelColorMaps(
+    visibleChannelList, visibleWells, useRamps, paletteReversed, paletteGroupColors,
+    wellGroups, wellStyleOverrides,
+    allChannelResults as Map<string, Map<string, { tt?: number | null }>>,
+    colorMap, channelColors, channelLabels, exp?.channelFluorophore,
+  );
+
   const hasDerivative = melt && Object.keys(melt.derivative).length > 0;
 
-  // Pre-compute peak -dF/dT per well for threshold dimming. The derivative
-  // coming from the parser is already smooth (BioRad port in parsers/utils.ts),
-  // so we consume it as-is — no further filtering needed.
+  // Rendered (well, channel) deriv-trace order for curveNumber resolution.
+  const renderedPairs = useMemo(() => {
+    const pairs: { well: string; channel: string }[] = [];
+    for (const ch of visibleChannelList) {
+      const m = exp?.meltByChannel[ch];
+      if (!m) continue;
+      for (const well of visibleWells) {
+        if (wellChannelHidden.get(well)?.has(ch)) continue;
+        if (!m.derivative[well]) continue;
+        pairs.push({ well, channel: ch });
+      }
+    }
+    return pairs;
+  }, [exp, visibleChannelList, visibleWells, wellChannelHidden]);
+
+  // Pre-compute peak -dF/dT per (channel, well) for threshold dimming.
   const wellPeakDeriv = useMemo(() => {
-    if (!melt || !hasDerivative) return new Map<string, number>();
     const peaks = new Map<string, number>();
-    for (const well of visibleWells) {
-      const derData = melt.derivative[well];
-      if (!derData) continue;
-      peaks.set(well, Math.max(...derData));
+    if (!exp) return peaks;
+    for (const ch of visibleChannelList) {
+      const m = exp.meltByChannel[ch];
+      if (!m) continue;
+      for (const well of visibleWells) {
+        const derData = m.derivative[well];
+        if (!derData) continue;
+        peaks.set(`${ch} ${well}`, Math.max(...derData));
+      }
     }
     return peaks;
-  }, [melt, visibleWells, hasDerivative]);
+  }, [exp, visibleChannelList, visibleWells]);
+
+  const dash6 = (d: string | undefined) => d as 'solid' | 'dash' | 'dot' | 'dashdot' | 'longdash' | 'longdashdot' | undefined;
 
   const traces = useMemo((): Data[] => {
     if (!melt || !hasDerivative) return [];
     const result: Data[] = [];
-    for (const well of visibleWells) {
-      const color = colorMap.get(well) ?? '#999';
-      const isSelected = selectedWells.size === 0 || selectedWells.has(well);
-      const isHovered = hoveredWell === well;
-      const isDragHighlighted = dragPreviewWells ? dragPreviewWells.has(well) : null;
-      const derData = melt.derivative[well];
-      if (!derData) continue;
-      let lineWidth = isSelected ? style.lineWidth : style.lineWidth * 0.6;
-      let opacity = isSelected ? 1.0 : 0.25;
-      if (isDragHighlighted === true) { lineWidth = style.lineWidth * 1.4; opacity = 1.0; }
-      else if (isDragHighlighted === false) { opacity = 0.15; }
-      if (isHovered) { lineWidth = Math.max(lineWidth, style.lineWidth * 1.6); }
-      // Dim wells below melt threshold
-      if (meltThresholdEnabled && (wellPeakDeriv.get(well) ?? 0) < meltThresholdValue) {
-        opacity = Math.min(opacity, 0.25);
-        lineWidth = Math.min(lineWidth, style.lineWidth * 0.6);
+    for (let ci = 0; ci < visibleChannelList.length; ci++) {
+      const ch = visibleChannelList[ci];
+      const m = exp?.meltByChannel[ch];
+      if (!m) continue;
+      for (const well of visibleWells) {
+        if (wellChannelHidden.get(well)?.has(ch)) continue;
+        const derData = m.derivative[well];
+        if (!derData) continue;
+        const key = curveKey(well, ch);
+        const cw = resolveCurveColorWidth(well, ch, curveStyleOverrides, wellStyleOverrides);
+        const color = cw.color ?? channelColorMaps.get(ch)?.get(well) ?? colorMap.get(well) ?? '#999';
+        const isSelected = selectedCurves.size === 0 || selectedCurves.has(key);
+        const isHovered = hoveredWell === well;
+        const isDragHighlighted = dragPreviewCurves ? dragPreviewCurves.has(key) : null;
+        let lineWidth = cw.width ?? (isSelected ? style.lineWidth : style.lineWidth * 0.6);
+        let opacity = isSelected ? 1.0 : 0.25;
+        if (isDragHighlighted === true) { lineWidth = style.lineWidth * 1.4; opacity = 1.0; }
+        else if (isDragHighlighted === false) { opacity = 0.15; }
+        if (isHovered) { lineWidth = Math.max(lineWidth, style.lineWidth * 1.6); }
+        if (meltThresholdEnabled && (wellPeakDeriv.get(`${ch} ${well}`) ?? 0) < meltThresholdValue) {
+          opacity = Math.min(opacity, 0.25);
+          lineWidth = Math.min(lineWidth, style.lineWidth * 0.6);
+        }
+        result.push({
+          x: m.temperatureC, y: derData,
+          type: 'scatter' as const, mode: 'lines' as const, name: well,
+          line: { color, width: lineWidth, dash: dash6(resolveDash(well, ch, curveStyleOverrides, wellStyleOverrides, channelLineStyles)) },
+          opacity,
+          hoverinfo: 'name' as const, showlegend: false,
+        });
       }
-      result.push({
-        x: melt.temperatureC, y: derData,
-        type: 'scatter' as const, mode: 'lines' as const, name: well,
-        line: { color, width: lineWidth },
-        opacity,
-        hoverinfo: 'name' as const, showlegend: false,
-      });
     }
     return result;
-  }, [melt, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells, meltThresholdEnabled, meltThresholdValue, wellPeakDeriv]);
+  }, [exp, melt, visibleWells, visibleChannelList, multiChannel, wellChannelHidden, selectedCurves, style, hasDerivative, colorMap, channelColorMaps, channelLineStyles, wellStyleOverrides, curveStyleOverrides, hoveredWell, dragPreviewCurves, meltThresholdEnabled, meltThresholdValue, wellPeakDeriv]);
+
+  // Bump only on data change (derivative depends solely on the experiment);
+  // hover/selection/threshold-dimming stay a cheap restyle. See AmplificationPlot.
+  const dataRevRef = useRef(0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const dataRevision = useMemo(() => ++dataRevRef.current, [exp]);
 
   const layout = useMemo((): Partial<Layout> => {
     const shapes: Partial<Shape>[] = [];
@@ -1073,44 +1420,67 @@ function MeltDerivMini({ openContextMenu }: { openContextMenu: (x: number, y: nu
       margin: computeMiniMargins(style),
       plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) },
       showlegend: false,
-      datarevision: Date.now(),
+      datarevision: dataRevision,
       uirevision: `deriv-${experiments[idx]?.experimentId ?? 'none'}`,
     };
-  }, [style, traces, meltThresholdEnabled, meltThresholdValue, experiments, idx]);
+  }, [style, traces, meltThresholdEnabled, meltThresholdValue, experiments, idx, dataRevision]);
 
-  // Box select on melt derivative
+  // Box select on melt derivative (channel-aware)
   const visibleWellsRef = useRef(visibleWells);
   visibleWellsRef.current = visibleWells;
-  const meltRef = useRef(melt);
-  meltRef.current = melt;
+  const expRef = useRef(exp);
+  expRef.current = exp;
+  const visibleChannelListRef = useRef(visibleChannelList);
+  visibleChannelListRef.current = visibleChannelList;
+  const wellChannelHiddenRef = useRef(wellChannelHidden);
+  wellChannelHiddenRef.current = wellChannelHidden;
+  const renderedPairsRef = useRef(renderedPairs);
+  renderedPairsRef.current = renderedPairs;
 
   const matchWellsInBox = useCallback((x0: number, x1: number, y0: number, y1: number): Set<string> => {
-    const m = meltRef.current;
-    if (!m) return new Set();
+    const currentExp = expRef.current;
+    if (!currentExp) return new Set();
     const matched = new Set<string>();
-    for (const well of visibleWellsRef.current) {
-      const yData = m.derivative[well];
-      if (!yData) continue;
-      for (let i = 0; i < m.temperatureC.length; i++) {
-        if (m.temperatureC[i] >= x0 && m.temperatureC[i] <= x1 && yData[i] >= y0 && yData[i] <= y1) {
-          matched.add(well);
-          break;
+    for (const ch of visibleChannelListRef.current) {
+      const m = currentExp.meltByChannel[ch];
+      if (!m) continue;
+      for (const well of visibleWellsRef.current) {
+        if (wellChannelHiddenRef.current.get(well)?.has(ch)) continue;
+        const yData = m.derivative[well];
+        if (!yData) continue;
+        for (let i = 0; i < m.temperatureC.length; i++) {
+          if (m.temperatureC[i] >= x0 && m.temperatureC[i] <= x1 && yData[i] >= y0 && yData[i] <= y1) {
+            matched.add(curveKey(well, ch));
+            break;
+          }
         }
       }
     }
     return matched;
   }, []);
 
+  const resolveWell = useCallback((curveNumber: number): string | null => {
+    const pairs = renderedPairsRef.current;
+    return curveNumber >= 0 && curveNumber < pairs.length ? pairs[curveNumber].well : null;
+  }, []);
+
+  const resolveCurve = useCallback((curveNumber: number): string | null => {
+    const pairs = renderedPairsRef.current;
+    if (curveNumber < 0 || curveNumber >= pairs.length) return null;
+    const p = pairs[curveNumber];
+    return curveKey(p.well, p.channel);
+  }, []);
+
   const handleBoxSelect = useCallback((x0: number, x1: number, y0: number, y1: number) => {
     const matched = matchWellsInBox(x0, x1, y0, y1);
-    if (matched.size > 0) setSelectedWells(matched);
-  }, [setSelectedWells, matchWellsInBox]);
+    if (matched.size > 0) setSelectedCurves(matched);
+  }, [setSelectedCurves, matchWellsInBox]);
 
   const handleDragMove = useCallback((x0: number, x1: number, y0: number, y1: number) => {
-    setDragPreviewWells(matchWellsInBox(x0, x1, y0, y1));
-  }, [matchWellsInBox]);
+    setDragPreviewCurves(matchWellsInBox(x0, x1, y0, y1));
+  }, [matchWellsInBox, setDragPreviewCurves]);
 
-  const handleDragEnd = useCallback(() => setDragPreviewWells(null), []);
+  const handleDragEnd = useCallback(() => setDragPreviewCurves(null), [setDragPreviewCurves]);
 
   const { containerRef, overlayRef, resizeOverlayRef: derivResizeOverlayRef } = useBoxSelect({
     onSelect: handleBoxSelect,
@@ -1134,28 +1504,34 @@ function MeltDerivMini({ openContextMenu }: { openContextMenu: (x: number, y: nu
   });
 
   const handleClick = useCallback((event: Readonly<PlotMouseEvent>) => {
-    if (!event.points.length || !visibleWells.length) return;
+    if (!event.points.length) return;
     const browserEvent = event.event as MouseEvent | undefined;
     if (browserEvent && browserEvent.button !== 0) return;
-    const ci = event.points[0].curveNumber;
-    if (ci < 0 || ci >= visibleWells.length) return;
-    const well = visibleWells[ci];
+    const key = resolveCurve(event.points[0].curveNumber);
+    if (!key) return;
     if (browserEvent && (browserEvent.ctrlKey || browserEvent.metaKey)) {
-      toggleWellSelection(well);
+      toggleCurves([key]);
     } else {
-      selectOnly(well);
+      selectCurvesOnly([key]);
     }
-  }, [visibleWells, selectOnly, toggleWellSelection]);
+  }, [resolveCurve, selectCurvesOnly, toggleCurves]);
 
   const handleHover = useCallback((event: Readonly<PlotMouseEvent>) => {
     if (!event.points.length) return;
-    const ci = event.points[0].curveNumber;
-    if (ci >= 0 && ci < visibleWells.length) setHoveredWell(visibleWells[ci]);
-  }, [visibleWells, setHoveredWell]);
+    const well = resolveWell(event.points[0].curveNumber);
+    if (well) setHoveredWell(well);
+  }, [resolveWell, setHoveredWell]);
 
   const handleUnhover = useCallback(() => setHoveredWell(null), [setHoveredWell]);
 
   useMiddleMousePan(containerRef);
+
+  // "Fit" button → re-fit axes to autorange.
+  useEffect(() => {
+    if (autoScalePulse === 0) return;
+    const div = containerRef.current?.querySelector('.js-plotly-plot') as HTMLElement | null;
+    if (div) Plotly.relayout(div, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+  }, [autoScalePulse]);
 
   if (!hasDerivative) return null;
 
@@ -1186,16 +1562,18 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
   const { plotBg, isDark, textColor } = usePlotTheme();
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
-  const selectedWells = useAppState((s) => s.selectedWells);
+  const selectedCurves = useAppState((s) => s.selectedCurves);
   const hiddenWells = useAppState((s) => s.hiddenWells);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
+  const curveStyleOverrides = useAppState((s) => s.curveStyleOverrides);
   const wellGroups = useAppState((s) => s.wellGroups);
+  const curveGroups = useAppState((s) => s.curveGroups);
   const paletteReversed = useAppState((s) => s.paletteReversed);
   const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
-  const setSelectedWells = useAppState((s) => s.setSelectedWells);
-  const selectOnly = useAppState((s) => s.selectOnly);
+  const setSelectedCurves = useAppState((s) => s.setSelectedCurves);
+  const selectCurvesOnly = useAppState((s) => s.selectCurvesOnly);
   const deselectAll = useAppState((s) => s.deselectAll);
-  const toggleWellSelection = useAppState((s) => s.toggleWellSelection);
+  const toggleCurves = useAppState((s) => s.toggleCurves);
   const hoveredWell = useAppState((s) => s.hoveredWell);
   const setHoveredWell = useAppState((s) => s.setHoveredWell);
   const showLegendMelt = useAppState((s) => s.showLegendMelt);
@@ -1204,15 +1582,34 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
   const legendOrder = useAppState((s) => s.legendOrder);
   const style = usePlotStyle();
   const analysisResults = useAnalysisResults();
-  const dragPreviewWells = useAppState((s) => s.dragPreviewWells);
-  const setDragPreviewWells = useAppState((s) => s.setDragPreviewWells);
+  const dragPreviewCurves = useAppState((s) => s.dragPreviewCurves);
+  const setDragPreviewCurves = useAppState((s) => s.setDragPreviewCurves);
   const meltThresholdEnabled = useAppState((s) => s.meltThresholdEnabled);
   const meltThresholdValue = useAppState((s) => s.meltThresholdValue);
   const setMeltThresholdValue = useAppState((s) => s.setMeltThresholdValue);
   const meltNormalizeEnabled = useAppState((s) => s.meltNormalizeEnabled);
+  const visibleChannels = useAppState((s) => s.visibleChannels);
+  const channelLabels = useAppState((s) => s.channelLabels);
+  const channelColors = useAppState((s) => s.channelColors);
+  const viewMode = useAppState((s) => s.viewMode);
+  const activeChannel = useAppState((s) => s.activeChannel);
+  const channelLineStyles = useAppState((s) => s.channelLineStyles);
+  const wellChannelHidden = useAppState((s) => s.wellChannelHidden);
+  const autoScale = useAppState((s) => s.autoScale);
+  const autoScalePulse = useAppState((s) => s._autoScalePulse);
+  const allChannelResults = useAllChannelResults();
 
   const exp = experiments[idx];
   const melt = exp?.melt;
+
+  const visibleChannelList = useMemo(
+    () => (viewMode === 'single'
+      ? (exp?.meltByChannel[activeChannel] ? [activeChannel] : [])
+      : (exp?.channels ?? []).filter((c) => visibleChannels.has(c) && exp?.meltByChannel[c])),
+    [exp, visibleChannels, viewMode, activeChannel],
+  );
+  const multiChannel = visibleChannelList.length > 1;
+  const useRamps = viewMode === 'multi' && (exp?.channels.length ?? 0) > 1;
 
   const visibleWells = useMemo(() => {
     if (!exp) return [];
@@ -1225,101 +1622,174 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
     paletteGroupColors
   );
 
-  const legendInfo = useMemo(
-    () => computeLegendInfo(visibleWells, wellGroups, exp?.wells, selectedWells, legendContent, legendVisibleOnly),
-    [visibleWells, wellGroups, exp?.wells, selectedWells, legendContent, legendVisibleOnly]
+  const channelColorMaps = useChannelColorMaps(
+    visibleChannelList, visibleWells, useRamps, paletteReversed, paletteGroupColors,
+    wellGroups, wellStyleOverrides,
+    allChannelResults as Map<string, Map<string, { tt?: number | null }>>,
+    colorMap, channelColors, channelLabels, exp?.channelFluorophore,
   );
 
   const legendRanks = useMemo(() => buildLegendRanks(legendOrder), [legendOrder]);
 
-  const hasDerivative = melt && Object.keys(melt.derivative).length > 0;
+  const hasDerivative = !!melt && visibleChannelList.some((ch) => {
+    const m = exp?.meltByChannel[ch];
+    return m && Object.keys(m.derivative).length > 0;
+  });
 
-  // Melt RFU curves, HRM-normalized 1→0 when enabled. The derivative is
-  // intentionally left untouched — it must come from the raw melt signal.
-  const meltRfu = useMemo(() => {
-    if (!melt) return {} as Record<string, number[]>;
-    if (!meltNormalizeEnabled) return melt.rfu;
-    return normalizeMeltCurves(melt.rfu);
-  }, [melt, meltNormalizeEnabled]);
+  // Per-channel melt RFU, HRM-normalized 1→0 when enabled. Derivative left raw.
+  const meltRfuByChannel = useMemo(() => {
+    const out = new Map<string, Record<string, number[]>>();
+    if (!exp) return out;
+    for (const ch of visibleChannelList) {
+      const m = exp.meltByChannel[ch];
+      if (!m) continue;
+      out.set(ch, meltNormalizeEnabled ? normalizeMeltCurves(m.rfu) : m.rfu);
+    }
+    return out;
+  }, [exp, visibleChannelList, meltNormalizeEnabled]);
 
-  // Pre-compute peak -dF/dT per well for threshold dimming. Derivative from
-  // the parser is already smooth (BioRad port in parsers/utils.ts).
+  // Rendered (well, channel) order for the RFU block (deriv block mirrors it).
+  const renderedPairs = useMemo(() => {
+    const pairs: { well: string; channel: string }[] = [];
+    for (const ch of visibleChannelList) {
+      const rfu = meltRfuByChannel.get(ch);
+      if (!rfu) continue;
+      for (const well of visibleWells) {
+        if (wellChannelHidden.get(well)?.has(ch)) continue;
+        if (!rfu[well]) continue;
+        pairs.push({ well, channel: ch });
+      }
+    }
+    return pairs;
+  }, [visibleChannelList, meltRfuByChannel, visibleWells, wellChannelHidden]);
+
+  const legendInfo = useMemo(
+    () => computeCurveLegendInfo(renderedPairs, curveGroups, wellGroups, exp?.wells, selectedCurves, legendContent, legendVisibleOnly, multiChannel, (ch) => effectiveChannelLabel(ch, channelLabels, exp?.channelFluorophore)),
+    [renderedPairs, curveGroups, wellGroups, exp, selectedCurves, legendContent, legendVisibleOnly, multiChannel, channelLabels]
+  );
+
+  // Peak -dF/dT per (channel, well) for threshold dimming.
   const wellPeakDeriv = useMemo(() => {
-    if (!melt || !hasDerivative) return new Map<string, number>();
     const peaks = new Map<string, number>();
-    for (const well of visibleWells) {
-      const derData = melt.derivative[well];
-      if (!derData) continue;
-      peaks.set(well, Math.max(...derData));
+    if (!exp) return peaks;
+    for (const ch of visibleChannelList) {
+      const m = exp.meltByChannel[ch];
+      if (!m) continue;
+      for (const well of visibleWells) {
+        const derData = m.derivative[well];
+        if (!derData || derData.length === 0) continue;  // Math.max(...[]) === -Infinity
+        peaks.set(`${ch} ${well}`, Math.max(...derData));
+      }
     }
     return peaks;
-  }, [melt, visibleWells, hasDerivative]);
+  }, [exp, visibleChannelList, visibleWells]);
+
+  const dash6 = (d: string | undefined) => d as 'solid' | 'dash' | 'dot' | 'dashdot' | 'longdash' | 'longdashdot' | undefined;
 
   const traces = useMemo((): Data[] => {
     if (!melt) return [];
     const result: Data[] = [];
+    const emittedLegend = new Set<string>();
 
-    for (const well of visibleWells) {
-      const color = colorMap.get(well) ?? '#999';
-      const isSelected = selectedWells.size === 0 || selectedWells.has(well);
-      const isHovered = hoveredWell === well;
-      const isDragHighlighted = dragPreviewWells ? dragPreviewWells.has(well) : null;
-      const rfuData = meltRfu[well];
-      if (!rfuData) continue;
-      const li = legendInfo.get(well)!;
-      let lineWidth = isSelected ? style.lineWidth : style.lineWidth * 0.6;
-      let opacity = isSelected ? 1.0 : 0.25;
-      if (isDragHighlighted === true) { lineWidth = style.lineWidth * 1.4; opacity = 1.0; }
-      else if (isDragHighlighted === false) { opacity = 0.15; }
-      if (isHovered) { lineWidth = Math.max(lineWidth, style.lineWidth * 1.6); }
-      // Dim wells below melt threshold (also dims RFU trace)
-      if (meltThresholdEnabled && (wellPeakDeriv.get(well) ?? 0) < meltThresholdValue) {
-        opacity = Math.min(opacity, 0.25);
-        lineWidth = Math.min(lineWidth, style.lineWidth * 0.6);
-      }
-      result.push({
-        x: melt.temperatureC, y: rfuData,
-        type: 'scatter' as const, mode: 'lines' as const, name: li.name,
-        legendgroup: li.group,
-        legendrank: legendRanks.get(li.group) ?? 1000,
-        line: { color, width: lineWidth },
-        opacity,
-        hoverinfo: 'name' as const, yaxis: 'y', showlegend: li.isLegendRep,
-      });
-    }
-
-    if (hasDerivative) {
+    // RFU block (yaxis 'y')
+    for (let ci = 0; ci < visibleChannelList.length; ci++) {
+      const ch = visibleChannelList[ci];
+      const m = exp?.meltByChannel[ch];
+      const rfu = meltRfuByChannel.get(ch);
+      if (!m || !rfu) continue;
       for (const well of visibleWells) {
-        const color = colorMap.get(well) ?? '#999';
-        const isSelected = selectedWells.size === 0 || selectedWells.has(well);
+        if (wellChannelHidden.get(well)?.has(ch)) continue;
+        const rfuData = rfu[well];
+        if (!rfuData) continue;
+        const key = curveKey(well, ch);
+        const cw = resolveCurveColorWidth(well, ch, curveStyleOverrides, wellStyleOverrides);
+        const color = cw.color ?? channelColorMaps.get(ch)?.get(well) ?? colorMap.get(well) ?? '#999';
+        const isSelected = selectedCurves.size === 0 || selectedCurves.has(key);
         const isHovered = hoveredWell === well;
-        const isDragHighlighted = dragPreviewWells ? dragPreviewWells.has(well) : null;
-        const derData = melt.derivative[well];
-        if (!derData) continue;
-        let lineWidth = isSelected ? style.lineWidth : style.lineWidth * 0.6;
+        const isDragHighlighted = dragPreviewCurves ? dragPreviewCurves.has(key) : null;
+        const li = legendInfo.get(key)!;
+        let lineWidth = cw.width ?? (isSelected ? style.lineWidth : style.lineWidth * 0.6);
         let opacity = isSelected ? 1.0 : 0.25;
         if (isDragHighlighted === true) { lineWidth = style.lineWidth * 1.4; opacity = 1.0; }
         else if (isDragHighlighted === false) { opacity = 0.15; }
         if (isHovered) { lineWidth = Math.max(lineWidth, style.lineWidth * 1.6); }
-        // Dim derivative traces below melt threshold
-        if (meltThresholdEnabled && (wellPeakDeriv.get(well) ?? 0) < meltThresholdValue) {
+        if (meltThresholdEnabled && (wellPeakDeriv.get(`${ch} ${well}`) ?? 0) < meltThresholdValue) {
           opacity = Math.min(opacity, 0.25);
           lineWidth = Math.min(lineWidth, style.lineWidth * 0.6);
         }
-        const li = legendInfo.get(well)!;
+        const showLegMelt = li.isLegendRep && !emittedLegend.has(li.group);
+        if (showLegMelt) emittedLegend.add(li.group);
         result.push({
-          x: melt.temperatureC, y: derData,
+          x: m.temperatureC, y: rfuData,
           type: 'scatter' as const, mode: 'lines' as const, name: li.name,
           legendgroup: li.group,
           legendrank: legendRanks.get(li.group) ?? 1000,
-          line: { color, width: lineWidth },
+          line: { color, width: lineWidth, dash: dash6(resolveDash(well, ch, curveStyleOverrides, wellStyleOverrides, channelLineStyles)) },
           opacity,
-          hoverinfo: 'name' as const, xaxis: 'x2', yaxis: 'y2', showlegend: false,
+          hoverinfo: 'name' as const, yaxis: 'y',
+          showlegend: showLegMelt,
         });
       }
     }
+
+    // Derivative block (xaxis2/yaxis2) — same (well, channel) order.
+    if (hasDerivative) {
+      for (let ci = 0; ci < visibleChannelList.length; ci++) {
+        const ch = visibleChannelList[ci];
+        const m = exp?.meltByChannel[ch];
+        const rfu = meltRfuByChannel.get(ch);
+        if (!m || !rfu) continue;
+        for (const well of visibleWells) {
+          if (wellChannelHidden.get(well)?.has(ch)) continue;
+          if (!rfu[well]) continue;        // keep parallel with the RFU block
+          // Do NOT skip when the derivative is missing: the derivative block
+          // must stay index-parallel with renderedPairs (and the RFU block) so
+          // curveNumber → well resolution (resolveWell) stays correct. A well
+          // lacking a derivative renders an empty (invisible) trace, keeping
+          // its curveNumber slot rather than shifting every later curve.
+          const derData = m.derivative[well];
+          const key = curveKey(well, ch);
+          const cw = resolveCurveColorWidth(well, ch, curveStyleOverrides, wellStyleOverrides);
+          const color = cw.color ?? channelColorMaps.get(ch)?.get(well) ?? colorMap.get(well) ?? '#999';
+          const isSelected = selectedCurves.size === 0 || selectedCurves.has(key);
+          const isHovered = hoveredWell === well;
+          const isDragHighlighted = dragPreviewCurves ? dragPreviewCurves.has(key) : null;
+          let lineWidth = cw.width ?? (isSelected ? style.lineWidth : style.lineWidth * 0.6);
+          let opacity = isSelected ? 1.0 : 0.25;
+          if (isDragHighlighted === true) { lineWidth = style.lineWidth * 1.4; opacity = 1.0; }
+          else if (isDragHighlighted === false) { opacity = 0.15; }
+          if (isHovered) { lineWidth = Math.max(lineWidth, style.lineWidth * 1.6); }
+          if (meltThresholdEnabled && (wellPeakDeriv.get(`${ch} ${well}`) ?? 0) < meltThresholdValue) {
+            opacity = Math.min(opacity, 0.25);
+            lineWidth = Math.min(lineWidth, style.lineWidth * 0.6);
+          }
+          const li = legendInfo.get(key)!;
+          result.push({
+            x: derData ? m.temperatureC : [], y: derData ?? [],
+            type: 'scatter' as const, mode: 'lines' as const, name: li.name,
+            legendgroup: li.group,
+            legendrank: legendRanks.get(li.group) ?? 1000,
+            line: { color, width: lineWidth, dash: dash6(resolveDash(well, ch, curveStyleOverrides, wellStyleOverrides, channelLineStyles)) },
+            opacity,
+            hoverinfo: 'name' as const, xaxis: 'x2', yaxis: 'y2', showlegend: false,
+          });
+        }
+      }
+    }
+
+    // (Channels are keyed by the FAM/HEX toggles in the plot-tabs bar, so no
+    // separate per-channel legend block is added here.)
     return result;
-  }, [melt, meltRfu, visibleWells, selectedWells, style, hasDerivative, colorMap, hoveredWell, dragPreviewWells, meltThresholdEnabled, meltThresholdValue, wellPeakDeriv, legendInfo, legendRanks]);
+  }, [exp, melt, meltRfuByChannel, visibleWells, visibleChannelList, multiChannel, wellChannelHidden, channelLabels, channelColors, channelLineStyles, selectedCurves, style, hasDerivative, colorMap, channelColorMaps, wellStyleOverrides, curveStyleOverrides, hoveredWell, dragPreviewCurves, meltThresholdEnabled, meltThresholdValue, wellPeakDeriv, legendInfo, legendRanks, showLegendMelt, isDark]);
+
+  const [frozenRanges, setFrozenRanges] = useState<FrozenRanges | null>(null);
+  const frozen = !autoScale && frozenRanges != null;
+
+  // Bump only when melt data changes (RFU normalization or the experiment;
+  // derivative tracks the experiment). Styling/threshold stay a restyle.
+  const dataRevRef = useRef(0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const dataRevision = useMemo(() => ++dataRevRef.current, [exp, meltRfuByChannel]);
 
   const layout = useMemo((): Partial<Layout> => {
     const title = exp?.experimentId ? `${exp.experimentId} — Melt` : 'Melt Curve';
@@ -1338,62 +1808,76 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
         title: titleField(title, style),
         // Top subplot x-axis: anchored to yaxis (RFU), tick labels hidden
         // so they don't appear between the two subplots.
-        xaxis: { ...tickProps(style), showticklabels: false, ...grid, anchor: 'y' },
+        xaxis: { ...tickProps(style), showticklabels: false, ...grid, anchor: 'y', ...rangeProps(frozenRanges?.x, frozen) },
         // Bottom subplot x-axis: matches xaxis so zoom/pan stay in sync,
         // anchored to yaxis2 so the Temperature label + ticks sit at the bottom.
+        // (No explicit range — `matches:'x'` inherits the pinned x range.)
         xaxis2: { title: axisLabel('Temperature (°C)', style), ...tickProps(style), ...grid, matches: 'x', anchor: 'y2' },
-        yaxis: { title: axisLabel(rfuLabel, style), ...tickProps(style), domain: [0.55, 1], anchor: 'x', ...grid },
-        yaxis2: { title: axisLabel('-dF/dT', style), ...tickProps(style), domain: [0, 0.45], anchor: 'x2', ...grid },
+        yaxis: { title: axisLabel(rfuLabel, style), ...tickProps(style), domain: [0.55, 1], anchor: 'x', ...grid, ...rangeProps(frozenRanges?.y, frozen) },
+        yaxis2: { title: axisLabel('-dF/dT', style), ...tickProps(style), domain: [0, 0.45], anchor: 'x2', ...grid, ...rangeProps(frozenRanges?.y2, frozen) },
         shapes: shapes as Layout['shapes'],
         dragmode: false as Layout['dragmode'], autosize: true, margin: computeMargins(style),
         plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) }, ...legendLayout(style, showLegendMelt, traces, isDark),
-        datarevision: Date.now(),
-        uirevision: `melt-${exp?.experimentId ?? 'none'}`,
+        datarevision: dataRevision,
+        uirevision: autoScale
+          ? `melt-${exp?.experimentId ?? 'none'}-n${meltNormalizeEnabled ? 1 : 0}`
+          : `melt-${exp?.experimentId ?? 'none'}`,
       };
     }
     return {
       title: titleField(title, style),
-      xaxis: { title: axisLabel('Temperature (°C)', style), ...tickProps(style), ...grid },
-      yaxis: { title: axisLabel(rfuLabel, style), ...tickProps(style), ...grid },
+      xaxis: { title: axisLabel('Temperature (°C)', style), ...tickProps(style), ...grid, ...rangeProps(frozenRanges?.x, frozen) },
+      yaxis: { title: axisLabel(rfuLabel, style), ...tickProps(style), ...grid, ...rangeProps(frozenRanges?.y, frozen) },
       dragmode: false as Layout['dragmode'], autosize: true, margin: computeMargins(style),
       plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) }, ...legendLayout(style, showLegendMelt, traces, isDark),
-      datarevision: Date.now(),
-      uirevision: `melt-${exp?.experimentId ?? 'none'}`,
+      datarevision: dataRevision,
+      uirevision: autoScale
+        ? `melt-${exp?.experimentId ?? 'none'}-n${meltNormalizeEnabled ? 1 : 0}`
+        : `melt-${exp?.experimentId ?? 'none'}`,
     };
-  }, [exp, style, hasDerivative, traces, showLegendMelt, meltThresholdEnabled, meltThresholdValue, meltNormalizeEnabled, isDark, plotBg, textColor]);
+  }, [exp, style, hasDerivative, traces, showLegendMelt, meltThresholdEnabled, meltThresholdValue, meltNormalizeEnabled, autoScale, frozen, frozenRanges, isDark, plotBg, textColor, dataRevision]);
 
-  // Box select on melt plot (uses RFU y-axis for matching)
+  // Box select on melt plot (channel-aware; RFU on y, derivative on y2)
   const visibleWellsRef = useRef(visibleWells);
   visibleWellsRef.current = visibleWells;
-  const meltRef = useRef(melt);
-  meltRef.current = melt;
-  const meltRfuRef = useRef(meltRfu);
-  meltRfuRef.current = meltRfu;
+  const expRef = useRef(exp);
+  expRef.current = exp;
+  const visibleChannelListRef = useRef(visibleChannelList);
+  visibleChannelListRef.current = visibleChannelList;
+  const wellChannelHiddenRef = useRef(wellChannelHidden);
+  wellChannelHiddenRef.current = wellChannelHidden;
+  const meltRfuByChannelRef = useRef(meltRfuByChannel);
+  meltRfuByChannelRef.current = meltRfuByChannel;
+  const renderedPairsRef = useRef(renderedPairs);
+  renderedPairsRef.current = renderedPairs;
 
   const matchWellsInBox = useCallback((x0: number, x1: number, y0: number, y1: number, y2Bounds?: { y0: number; y1: number }): Set<string> => {
-    const m = meltRef.current;
-    if (!m) return new Set();
+    const currentExp = expRef.current;
+    if (!currentExp) return new Set();
     const matched = new Set<string>();
-    for (const well of visibleWellsRef.current) {
-      // Check RFU traces (yaxis) — match against the displayed (possibly
-      // normalized) curve so the box lines up with what's drawn.
-      const rfuData = meltRfuRef.current[well];
-      if (rfuData) {
-        for (let i = 0; i < m.temperatureC.length; i++) {
-          if (m.temperatureC[i] >= x0 && m.temperatureC[i] <= x1 && rfuData[i] >= y0 && rfuData[i] <= y1) {
-            matched.add(well);
-            break;
+    for (const ch of visibleChannelListRef.current) {
+      const m = currentExp.meltByChannel[ch];
+      const rfu = meltRfuByChannelRef.current.get(ch);
+      if (!m) continue;
+      for (const well of visibleWellsRef.current) {
+        if (wellChannelHiddenRef.current.get(well)?.has(ch)) continue;
+        const key = curveKey(well, ch);
+        if (matched.has(key)) continue;
+        const rfuData = rfu?.[well];
+        if (rfuData) {
+          for (let i = 0; i < m.temperatureC.length; i++) {
+            if (m.temperatureC[i] >= x0 && m.temperatureC[i] <= x1 && rfuData[i] >= y0 && rfuData[i] <= y1) {
+              matched.add(key); break;
+            }
           }
         }
-      }
-      // Check derivative traces (yaxis2)
-      if (!matched.has(well) && y2Bounds) {
-        const derData = m.derivative[well];
-        if (derData) {
-          for (let i = 0; i < m.temperatureC.length; i++) {
-            if (m.temperatureC[i] >= x0 && m.temperatureC[i] <= x1 && derData[i] >= y2Bounds.y0 && derData[i] <= y2Bounds.y1) {
-              matched.add(well);
-              break;
+        if (!matched.has(key) && y2Bounds) {
+          const derData = m.derivative[well];
+          if (derData) {
+            for (let i = 0; i < m.temperatureC.length; i++) {
+              if (m.temperatureC[i] >= x0 && m.temperatureC[i] <= x1 && derData[i] >= y2Bounds.y0 && derData[i] <= y2Bounds.y1) {
+                matched.add(key); break;
+              }
             }
           }
         }
@@ -1402,16 +1886,35 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
     return matched;
   }, []);
 
+  // curveNumber → well: RFU block then deriv block (parallel order), then
+  // channel-legend markers (resolve to null).
+  const resolveWell = useCallback((curveNumber: number): string | null => {
+    const pairs = renderedPairsRef.current;
+    const L = pairs.length;
+    if (curveNumber >= 0 && curveNumber < L) return pairs[curveNumber].well;
+    if (curveNumber >= L && curveNumber < 2 * L) return pairs[curveNumber - L].well;
+    return null;
+  }, []);
+
+  const resolveCurve = useCallback((curveNumber: number): string | null => {
+    const pairs = renderedPairsRef.current;
+    const L = pairs.length;
+    const p = (curveNumber >= 0 && curveNumber < L) ? pairs[curveNumber]
+      : (curveNumber >= L && curveNumber < 2 * L) ? pairs[curveNumber - L]
+      : null;
+    return p ? curveKey(p.well, p.channel) : null;
+  }, []);
+
   const handleBoxSelect = useCallback((x0: number, x1: number, y0: number, y1: number, y2Bounds?: { y0: number; y1: number }) => {
     const matched = matchWellsInBox(x0, x1, y0, y1, y2Bounds);
-    if (matched.size > 0) setSelectedWells(matched);
-  }, [setSelectedWells, matchWellsInBox]);
+    if (matched.size > 0) setSelectedCurves(matched);
+  }, [setSelectedCurves, matchWellsInBox]);
 
   const handleDragMove = useCallback((x0: number, x1: number, y0: number, y1: number, y2Bounds?: { y0: number; y1: number }) => {
-    setDragPreviewWells(matchWellsInBox(x0, x1, y0, y1, y2Bounds));
-  }, [matchWellsInBox]);
+    setDragPreviewCurves(matchWellsInBox(x0, x1, y0, y1, y2Bounds));
+  }, [matchWellsInBox, setDragPreviewCurves]);
 
-  const handleDragEnd = useCallback(() => setDragPreviewWells(null), []);
+  const handleDragEnd = useCallback(() => setDragPreviewCurves(null), [setDragPreviewCurves]);
 
   const { containerRef, overlayRef, resizeOverlayRef: meltResizeOverlayRef, traceClickedRef } = useBoxSelect({
     onSelect: handleBoxSelect,
@@ -1437,32 +1940,55 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
   });
 
   const handleClick = useCallback((event: Readonly<PlotMouseEvent>) => {
-    if (!event.points.length || !visibleWells.length) return;
+    if (!event.points.length) return;
     const browserEvent = event.event as MouseEvent | undefined;
     if (browserEvent && browserEvent.button !== 0) return;
     traceClickedRef.current = true;
-    const ci = event.points[0].curveNumber;
-    const wellIdx = ci < visibleWells.length ? ci : ci - visibleWells.length;
-    if (wellIdx < 0 || wellIdx >= visibleWells.length) return;
-    const well = visibleWells[wellIdx];
+    const key = resolveCurve(event.points[0].curveNumber);
+    if (!key) return;
     if (browserEvent && (browserEvent.ctrlKey || browserEvent.metaKey)) {
-      toggleWellSelection(well);
+      toggleCurves([key]);
     } else {
-      selectOnly(well);
+      selectCurvesOnly([key]);
     }
-  }, [visibleWells, selectOnly, toggleWellSelection, traceClickedRef]);
+  }, [resolveCurve, selectCurvesOnly, toggleCurves, traceClickedRef]);
 
   const handleHover = useCallback((event: Readonly<PlotMouseEvent>) => {
     if (!event.points.length) return;
-    const ci = event.points[0].curveNumber;
-    const wellIdx = ci < visibleWells.length ? ci : ci - visibleWells.length;
-    if (wellIdx >= 0 && wellIdx < visibleWells.length) setHoveredWell(visibleWells[wellIdx]);
-  }, [visibleWells, setHoveredWell]);
+    const well = resolveWell(event.points[0].curveNumber);
+    if (well) setHoveredWell(well);
+  }, [resolveWell, setHoveredWell]);
 
   const handleUnhover = useCallback(() => setHoveredWell(null), [setHoveredWell]);
 
   useMiddleMousePan(containerRef);
-  useLegendHover(containerRef, visibleWells, 0, setHoveredWell);
+  useLegendHover(containerRef, resolveWell, setHoveredWell);
+
+  // Auto-scale OFF freezes the axes (RFU on y, derivative on y2); ON releases
+  // and re-fits. Re-runs on experiment / x-axis change.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!autoScale) {
+      const id = requestAnimationFrame(() => setFrozenRanges(readPlotRanges(container)));
+      return () => cancelAnimationFrame(id);
+    }
+    setFrozenRanges(null);
+    const div = container?.querySelector('.js-plotly-plot') as HTMLElement | null;
+    if (div) Plotly.relayout(div, { 'xaxis.autorange': true, 'yaxis.autorange': true, 'yaxis2.autorange': true } as unknown as Partial<Layout>);
+  }, [autoScale, exp?.experimentId]);
+
+  // "Fit" button → re-fit axes (RFU on y, derivative on y2) to autorange.
+  // When frozen, adopt the fitted view as the new pin.
+  useEffect(() => {
+    if (autoScalePulse === 0) return;
+    const container = containerRef.current;
+    const div = container?.querySelector('.js-plotly-plot') as HTMLElement | null;
+    if (div) Plotly.relayout(div, { 'xaxis.autorange': true, 'yaxis.autorange': true, 'yaxis2.autorange': true } as unknown as Partial<Layout>);
+    if (!autoScale) {
+      const id = requestAnimationFrame(() => setFrozenRanges(readPlotRanges(container)));
+      return () => cancelAnimationFrame(id);
+    }
+  }, [autoScalePulse]);
 
   if (!melt) {
     return <div className="flex items-center justify-center h-full text-muted-foreground text-sm">No melt data available</div>;
@@ -1505,6 +2031,12 @@ function formatConc(value: number): string {
 function DilutionPlot() {
   const dilutionRef = useRef<HTMLDivElement>(null);
   useMiddleMousePan(dilutionRef);
+  const autoScalePulse = useAppState((s) => s._autoScalePulse);
+  useEffect(() => {
+    if (autoScalePulse === 0) return;
+    const div = dilutionRef.current?.querySelector('.js-plotly-plot') as HTMLElement | null;
+    if (div) Plotly.relayout(div, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+  }, [autoScalePulse]);
   const { plotBg, isDark, textColor } = usePlotTheme();
   const dilutionConfig = useAppState((s) => s.dilutionConfig);
   const setDilutionStepEnabled = useAppState((s) => s.setDilutionStepEnabled);
@@ -1568,6 +2100,10 @@ function DilutionPlot() {
     return out;
   }, [result, style.fontFamily, xLabel, unit]);
 
+  const dataRevRef = useRef(0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const dataRevision = useMemo(() => ++dataRevRef.current, [result]);
+
   const layout = useMemo((): Partial<Layout> => {
     const title = exp?.experimentId ? `${exp.experimentId} — Standard Curve` : 'Standard Curve';
     return {
@@ -1582,9 +2118,9 @@ function DilutionPlot() {
       },
       autosize: true, margin: computeMargins(style),
       plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) },
-      datarevision: Date.now(),
+      datarevision: dataRevision,
     };
-  }, [exp, xAxisMode, xLabel, style, unit]);
+  }, [exp, xAxisMode, xLabel, style, unit, dataRevision]);
 
   if (!result) {
     return (
@@ -1690,6 +2226,12 @@ function DilutionPlot() {
 function PerWellDoublingPlot() {
   const doublingRef = useRef<HTMLDivElement>(null);
   useMiddleMousePan(doublingRef);
+  const autoScalePulse = useAppState((s) => s._autoScalePulse);
+  useEffect(() => {
+    if (autoScalePulse === 0) return;
+    const div = doublingRef.current?.querySelector('.js-plotly-plot') as HTMLElement | null;
+    if (div) Plotly.relayout(div, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+  }, [autoScalePulse]);
   const { plotBg, isDark, textColor } = usePlotTheme();
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
@@ -1738,6 +2280,10 @@ function PerWellDoublingPlot() {
       marker: { color: data.colors, size: 8 }, hoverinfo: 'text' as const, showlegend: false }];
   }, [data, style.fontFamily]);
 
+  const dataRevRef = useRef(0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const dataRevision = useMemo(() => ++dataRevRef.current, [data]);
+
   const layout = useMemo((): Partial<Layout> => {
     const title = exp?.experimentId ? `${exp.experimentId} — Doubling Time` : 'Doubling Time';
     return {
@@ -1746,9 +2292,9 @@ function PerWellDoublingPlot() {
       yaxis: { title: axisLabel('Doubling Time', style), ...tickProps(style), ...gridStyle(style, isDark) },
       autosize: true, margin: computeMargins(style),
       plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) }, ...legendLayout(style, showLegendDoubling, traces, isDark),
-      datarevision: Date.now(),
+      datarevision: dataRevision,
     };
-  }, [exp, xAxisMode, xLabel, style, traces, showLegendDoubling]);
+  }, [exp, xAxisMode, xLabel, style, traces, showLegendDoubling, dataRevision]);
 
   if (data.wells.length === 0) {
     return <div className="flex items-center justify-center h-full text-muted-foreground text-sm">

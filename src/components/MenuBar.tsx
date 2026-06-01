@@ -138,8 +138,11 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
   const setPlotTab = useAppState((s) => s.setPlotTab);
   const plotTab = useAppState((s) => s.plotTab);
   const setShowExportWizard = useAppState((s) => s.setShowExportWizard);
+  const setShowFluorophoreWizard = useAppState((s) => s.setShowFluorophoreWizard);
   const logScale = useAppState((s) => s.logScale);
   const setLogScale = useAppState((s) => s.setLogScale);
+  const viewMode = useAppState((s) => s.viewMode);
+  const setViewMode = useAppState((s) => s.setViewMode);
   const hiddenWells = useAppState((s) => s.hiddenWells);
   const figureDpi = useAppState((s) => s.figureDpi);
   const analysisResults = useAnalysisResults();
@@ -328,11 +331,13 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
   const hideWells = useAppState((s) => s.hideWells);
   const showLegend = useAppState((s) => s.showLegend);
   const setShowLegend = useAppState((s) => s.setShowLegend);
-  const setWellGroup = useAppState((s) => s.setWellGroup);
-  const removeWellGroup = useAppState((s) => s.removeWellGroup);
+  const selectedCurves = useAppState((s) => s.selectedCurves);
+  const setCurveGroup = useAppState((s) => s.setCurveGroup);
+  const removeCurveGroup = useAppState((s) => s.removeCurveGroup);
   const autoGroupBySample = useAppState((s) => s.autoGroupBySample);
   const allWells = exp?.wellsUsed ?? [];
   const selArray = Array.from(selectedWells);
+  const selCurves = Array.from(selectedCurves);
 
   const handleToggleVisibility = useCallback(() => {
     if (selArray.length === 0) return;
@@ -342,15 +347,15 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
   }, [selArray, hiddenWells, showWells, hideWells]);
 
   const handleGroup = useCallback(() => {
-    if (selArray.length === 0) return;
+    if (selCurves.length === 0) return;
     const name = prompt('Group name:', 'Group 1');
-    if (name) setWellGroup(selArray, name);
-  }, [selArray, setWellGroup]);
+    if (name) setCurveGroup(selCurves, name);
+  }, [selCurves, setCurveGroup]);
 
   const handleUngroup = useCallback(() => {
-    if (selArray.length === 0) return;
-    removeWellGroup(selArray);
-  }, [selArray, removeWellGroup]);
+    if (selCurves.length === 0) return;
+    removeCurveGroup(selCurves);
+  }, [selCurves, removeCurveGroup]);
 
   const recentFiles = getRecentFiles();
 
@@ -398,6 +403,15 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
         { separator: true },
         { label: `${logScale ? '✓ ' : ''}Log Scale`, action: () => setLogScale(!logScale) },
         { separator: true },
+        {
+          label: 'Channel Display',
+          disabled: !hasData || (exp?.channels.length ?? 0) <= 1,
+          submenu: [
+            { label: `${viewMode === 'single' ? '● ' : '○ '}Single channel`, action: () => setViewMode('single') },
+            { label: `${viewMode === 'multi' ? '● ' : '○ '}Multichannel`, action: () => setViewMode('multi') },
+          ],
+        },
+        { separator: true },
         { label: 'Show All Wells', action: () => showWells(allWells), disabled: !hasData },
         { label: 'Hide All Wells', action: () => hideWells(allWells), disabled: !hasData },
         { separator: true },
@@ -412,6 +426,7 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
       label: 'Tools',
       items: [
         { label: 'Doubling Time Wizard...', action: () => onOpenWizard?.(), disabled: !hasData },
+        { label: 'Assign Fluorophores...', action: () => setShowFluorophoreWizard(true), disabled: !hasData || (exp?.channels.length ?? 0) <= 1 },
       ],
     },
     {

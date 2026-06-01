@@ -99,6 +99,78 @@ export function getPaletteColors(name: string, n: number): string[] {
   return TABLEAU_10;
 }
 
+/** Parse a `#rrggbb` / `#rgb` / `rgb(r,g,b)` color to [r,g,b]; fallback grey. */
+function parseColor(c: string): [number, number, number] {
+  const s = c.trim();
+  if (s.startsWith('#')) {
+    let hex = s.slice(1);
+    if (hex.length === 3) hex = hex.split('').map((ch) => ch + ch).join('');
+    if (hex.length >= 6) {
+      const r = parseInt(hex.slice(0, 2), 16);
+      const g = parseInt(hex.slice(2, 4), 16);
+      const b = parseInt(hex.slice(4, 6), 16);
+      if (!isNaN(r) && !isNaN(g) && !isNaN(b)) return [r, g, b];
+    }
+  }
+  const m = s.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (m) return [Number(m[1]), Number(m[2]), Number(m[3])];
+  return [136, 136, 136];
+}
+
+/** Monochrome continuous ramp in a single hue: N colors from a light tint
+ *  through the base color to a dark shade. Used per-channel in colour-separation
+ *  mode so each fluorophore's samples form a gradient in that channel's
+ *  representative colour (FAM → green ramp, HEX → olive ramp, …). */
+export function monochromeRamp(baseColor: string, n: number): string[] {
+  const base = parseColor(baseColor);
+  const [r, g, b] = base;
+  const tint: [number, number, number] = [
+    Math.round(r + (255 - r) * 0.65),
+    Math.round(g + (255 - g) * 0.65),
+    Math.round(b + (255 - b) * 0.65),
+  ];
+  const shade: [number, number, number] = [
+    Math.round(r * 0.45),
+    Math.round(g * 0.45),
+    Math.round(b * 0.45),
+  ];
+  return interpolateGradient([tint, base, shade], n);
+}
+
+// ── Fluorophore channels (multichannel) ────────────────────────────────
+
+/** Default display color per known fluorophore (by emission color family).
+ *  Used for channel swatches and as the default channel colour. */
+export const FLUOROPHORE_COLORS: Record<string, string> = {
+  FAM: '#2e9f3e',      // green
+  SYBR: '#2e9f3e',     // green
+  HEX: '#b5a72b',      // yellow-green
+  VIC: '#b5a72b',      // yellow-green
+  TET: '#1f9e89',      // teal
+  ROX: '#d1452b',      // red/orange
+  ABY: '#d1452b',      // red
+  TexasRed: '#c2362b', // red
+  'Texas Red': '#c2362b',
+  Cy5: '#7d2b8b',      // far-red / purple
+  JUN: '#7d2b8b',      // far-red
+  'Cy5.5': '#5a1f6e',  // deep red
+  Quasar705: '#5a1f6e',
+};
+
+/** Dropdown list of common dyes for the Assign Fluorophores wizard. */
+export const COMMON_FLUOROPHORES = [
+  'FAM', 'SYBR', 'HEX', 'VIC', 'TET', 'ROX', 'ABY', 'Texas Red', 'Cy5', 'JUN', 'Cy5.5',
+];
+
+/** Plotly dash style per channel index (well→hue, channel→dash). Index 0 =
+ *  solid so a single visible channel renders identically to before. */
+export const CHANNEL_DASH = ['solid', 'dot', 'dash', 'dashdot', 'longdash', 'longdashdot'] as const;
+
+/** Default display color for a channel, by its effective fluorophore label. */
+export function fluorophoreColor(label: string): string {
+  return FLUOROPHORE_COLORS[label] ?? FLUOROPHORE_COLORS[label.toUpperCase()] ?? '#888888';
+}
+
 // Well grid colors — using CSS vars for theme awareness where possible
 export const WELL_EMPTY_COLOR = 'var(--border)';
 export const WELL_HIDDEN_COLOR = '#c0c8d0';

@@ -3,7 +3,7 @@ import type {
   ExperimentData, AmplificationData, MeltData, WellInfo, ContentType,
 } from '../types/experiment';
 import { inferPlateDimensions, getInstrumentPlateLayout, DEFAULT_PLATE_ROW_COUNT, DEFAULT_PLATE_COL_COUNT } from './constants';
-import { computeMeltDerivative } from './parsers/utils';
+import { computeMeltDerivative, DEFAULT_CHANNEL } from './parsers/utils';
 
 /** Parse a wide-format CSV string into { headers, rows } */
 function parseCSV(text: string): { headers: string[]; rows: number[][] } {
@@ -222,6 +222,41 @@ export async function loadSharpFile(
     };
   }
 
+  // Per-channel data (format 1.2). metadata.channels lists the channel IDs in
+  // order; per-channel CSVs are index-keyed (`_ch{i}`). Falls back to the lone
+  // legacy `'default'` channel when absent (1.0/1.1 files).
+  const metaChannels = Array.isArray(metadata.channels) ? (metadata.channels as string[]) : null;
+  const channelFluorophore = (metadata.channel_fluorophore ?? undefined) as Record<string, string> | undefined;
+  let channels: string[];
+  let amplificationByChannel: Record<string, AmplificationData | null>;
+  let meltByChannel: Record<string, MeltData | null>;
+  let activeAmp = amplification;
+  let activeMelt = melt;
+
+  const hasPerChannelFiles = metaChannels && metaChannels.length > 1 && zip.file('amplification_ch0.csv');
+  if (metaChannels && metaChannels.length > 0 && hasPerChannelFiles) {
+    channels = metaChannels;
+    amplificationByChannel = {};
+    meltByChannel = {};
+    for (let i = 0; i < metaChannels.length; i++) {
+      const ch = metaChannels[i];
+      const ampF = zip.file(`amplification_ch${i}.csv`);
+      amplificationByChannel[ch] = ampF ? parseAmplification(await ampF.async('string')) : null;
+      const rfuF = zip.file(`melt_rfu_ch${i}.csv`);
+      const derF = zip.file(`melt_derivative_ch${i}.csv`);
+      meltByChannel[ch] = parseMelt(
+        rfuF ? await rfuF.async('string') : null,
+        derF ? await derF.async('string') : null,
+      );
+    }
+    activeAmp = amplificationByChannel[channels[0]] ?? amplification;
+    activeMelt = meltByChannel[channels[0]] ?? melt;
+  } else {
+    channels = [DEFAULT_CHANNEL];
+    amplificationByChannel = { [DEFAULT_CHANNEL]: amplification };
+    meltByChannel = { [DEFAULT_CHANNEL]: melt };
+  }
+
   // session.json (1.1+, .sharpx only) — working-session view state.
   const sessionFile = zip.file('session.json');
   const session = sessionFile
@@ -263,8 +298,12 @@ export async function loadSharpFile(
     experimentId,
     sourcePath: fileName,
     metadata,
-    amplification,
-    melt,
+    channels,
+    channelFluorophore,
+    amplificationByChannel,
+    meltByChannel,
+    amplification: activeAmp,
+    melt: activeMelt,
     wells,
     wellsUsed,
     plateRows,

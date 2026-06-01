@@ -2,6 +2,7 @@ import { useCallback, useRef, useState, useMemo } from 'react';
 import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { WELL_EMPTY_COLOR, WELL_SELECTED_BORDER, getPaletteColors, DEFAULT_PLATE_ROW_COUNT, DEFAULT_PLATE_COL_COUNT, getPlateRowLetters, getPlateColNumbers } from '@/lib/constants';
+import { curveKey } from '@/lib/curves';
 import { ContextMenu, useContextMenu } from './ContextMenu';
 
 // Cell size constants (must match render)
@@ -28,6 +29,8 @@ export function WellGrid() {
   const dragPreviewWells = useAppState((s) => s.dragPreviewWells);
   const setDragPreviewWells = useAppState((s) => s.setDragPreviewWells);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
+  const curveStyleOverrides = useAppState((s) => s.curveStyleOverrides);
+  const activeChannel = useAppState((s) => s.activeChannel);
   const exp = experiments[idx];
   const usedWells = exp ? exp.wellsUsed : [];
   const usedSet = new Set(usedWells);
@@ -76,13 +79,19 @@ export function WellGrid() {
       for (const well of units[i][1]) m.set(well, color);
     }
 
-    // Per-well overrides
+    // Per-well overrides, then the active channel's per-curve override (the
+    // coarse grid shows one colour per well — use the active channel's curve as
+    // the representative, so single-channel custom colours still appear here).
     for (const [well, ov] of wellStyleOverrides.entries()) {
       const override = ov as { color?: string } | undefined;
       if (override?.color) m.set(well, override.color);
     }
+    for (const well of usedWells) {
+      const c = curveStyleOverrides.get(curveKey(well, activeChannel))?.color;
+      if (c) m.set(well, c);
+    }
     return m;
-  }, [usedWells, palette, paletteReversed, wellGroups, wellStyleOverrides, analysisResults]);
+  }, [usedWells, palette, paletteReversed, wellGroups, wellStyleOverrides, curveStyleOverrides, activeChannel, analysisResults]);
 
   // ── Drag-to-select state ──
   const gridRef = useRef<HTMLDivElement>(null);

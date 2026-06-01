@@ -4,28 +4,49 @@ import { WellGrid } from '../WellGrid';
 import { WellList } from '../WellList';
 import { Button } from '@/components/ui/button';
 import { CollapsibleSection } from './CollapsibleSection';
+import { effectiveChannelLabel } from '@/lib/channels';
+import { curveKey } from '@/lib/curves';
 
 export function WellsTab() {
   const selectAll = useAppState((s) => s.selectAll);
   const selectByType = useAppState((s) => s.selectByType);
   const selectShown = useAppState((s) => s.selectShown);
   const selectHidden = useAppState((s) => s.selectHidden);
+  const selectByChannel = useAppState((s) => s.selectByChannel);
   const wellGroups = useAppState((s) => s.wellGroups);
-  const setSelectedWells = useAppState((s) => s.setSelectedWells);
+  const curveGroups = useAppState((s) => s.curveGroups);
+  const setSelectedCurves = useAppState((s) => s.setSelectedCurves);
+  const experiments = useAppState((s) => s.experiments);
+  const idx = useAppState((s) => s.activeExperimentIndex);
+  const channelLabels = useAppState((s) => s.channelLabels);
+  const viewMode = useAppState((s) => s.viewMode);
+  const exp = experiments[idx];
+  const channels = exp?.channels ?? [];
+  const showChannels = channels.length > 1 && viewMode === 'multi';
 
-  // Derive sorted group names and group→wells mapping
+  // Group names span both curve-level and well-level groups (a curve's
+  // effective group is `curveGroups[curveKey] ?? wellGroups[well]`).
   const groupNames = useMemo(() => {
     const names = new Set<string>();
     for (const g of wellGroups.values()) names.add(g);
+    for (const g of curveGroups.values()) names.add(g);
     return [...names].sort();
-  }, [wellGroups]);
+  }, [wellGroups, curveGroups]);
 
+  // Select every S-C pair whose effective group matches — so a group built from
+  // individual curves selects exactly those curves (and well-level groups still
+  // select all of the well's curves).
   const handleSelectGroup = (groupName: string) => {
-    const wells: string[] = [];
-    for (const [well, group] of wellGroups) {
-      if (group === groupName) wells.push(well);
+    if (!exp) return;
+    const keys: string[] = [];
+    for (const well of exp.wellsUsed) {
+      for (const ch of exp.channels) {
+        const key = curveKey(well, ch);
+        const g = curveGroups.get(key) ?? wellGroups.get(well);
+        if (g === groupName) keys.push(key);
+      }
     }
-    setSelectedWells(new Set(wells));
+    setSelectedCurves(new Set(keys));
   };
 
   return (
@@ -51,6 +72,19 @@ export function WellsTab() {
             <div className="flex gap-1">
               <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={selectShown}>Shown</Button>
               <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={selectHidden}>Hidden</Button>
+              {showChannels && (
+                <select
+                  value=""
+                  onChange={(e) => { if (e.target.value) selectByChannel(e.target.value); e.target.value = ''; }}
+                  className="flex-1 h-7 text-xs border rounded-md px-1 bg-background text-foreground"
+                  title="Select all S-C pairs for a fluorophore"
+                >
+                  <option value="" disabled>Fluor…</option>
+                  {channels.map((ch) => (
+                    <option key={ch} value={ch}>{effectiveChannelLabel(ch, channelLabels, exp?.channelFluorophore)}</option>
+                  ))}
+                </select>
+              )}
               <select
                 value=""
                 onChange={(e) => {
@@ -59,7 +93,7 @@ export function WellsTab() {
                 }}
                 disabled={groupNames.length === 0}
                 className="flex-1 h-7 text-xs border rounded-md px-1 bg-background text-foreground disabled:opacity-40"
-                title="Select all wells in a group"
+                title="Select all curves in a group"
               >
                 <option value="" disabled>Group…</option>
                 {groupNames.map((g) => (

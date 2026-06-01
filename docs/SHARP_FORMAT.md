@@ -1,7 +1,7 @@
 # .sharp File Format
 
-**Last Updated:** 2026-05-25 PST — Claude
-**Current version:** 1.1
+**Last Updated:** 2026-06-01 PST — Claude (v0.2.0 release prep; on-disk format unchanged (the README now notes format 1.2 for users) — batch 4 performance sweep — **file format unchanged** (the perf work is rendering/state-sharing only: see CLAUDE.md table #46). On-disk layout as of batch 3: no `metadata.json`/CSV change; the session-only `.sharpx` `session.json` carries curve-level fields — `selectedCurves` (Set), `curveStyleOverrides` / `curveGroups` (Maps) — beside the per-well selection/style/group, with a pre-curve session backfilling `selectedCurves` from `wells × channels` on open. See CLAUDE.md table #45/#46 / docs/RELEASE_v0.2.0.md §16)
+**Current version:** 1.2 (multichannel) / 1.1 (single-channel)
 
 A `.sharp` file is a ZIP archive (rename to `.zip` to open). It bundles one
 experiment: raw data, reconstructed timestamps, plate setup, sample
@@ -23,9 +23,31 @@ were in. Either extension opens through the same loader.
 | `melt_rfu.csv` | No | Wide format: `temperature_C, A1, B1, …`. |
 | `melt_derivative.csv` | No | Wide format: `temperature_C, A1, B1, …` (`-dF/dT`). |
 | `wells.csv` | 1.1+ | Flat well manifest — one row per populated well. Spreadsheet-friendly view of the per-well info that otherwise lives nested inside `metadata.json`. Columns: `well, sample, content, cq, end_rfu, melt_temp_c, melt_peak_height`. String cells (sample, content) follow standard CSV quoting — commas and embedded quotes are escaped with double-quoted fields. Empty numeric cells mean "not measured / not applicable". |
+| `amplification_ch{i}.csv` | 1.2 | **Multichannel only.** Per-channel amplification, one file per channel, index-keyed (`i`) to `metadata.channels`. Same wide layout as `amplification.csv`. |
+| `melt_rfu_ch{i}.csv` / `melt_derivative_ch{i}.csv` | 1.2 | **Multichannel only.** Per-channel melt RFU / `-dF/dT`, index-keyed to `metadata.channels`. |
 | `SUMMARY.txt` | 1.1+ | Plain-text human overview of the experiment. Lists which files are in the archive and their purpose. Not read back by the app — purely for someone browsing the ZIP by hand. Re-generated on every write from `metadata.json`. |
-| `session.json` | `.sharpx` only | Working-session state — selections, hidden / deactivated wells, baseline / normalization / drift settings, threshold, style, x-axis mode, active plot tab, groups, per-well style / baseline / normalize overrides, dilution wizard config. Sets serialised as arrays, Maps as `[key, value]` arrays. Written **only** by Save Session; never by plain Save as .sharp. Restored by the loader on open. |
+| `session.json` | `.sharpx` only | Working-session state — selections (per-well **and** per-`(well,channel)` curve via `selectedCurves`), hidden / deactivated wells, baseline / normalization / drift settings, threshold, style, x-axis mode, active plot tab, groups (well + curve), per-well **and** per-curve style overrides, per-well baseline / normalize overrides, dilution wizard config. Sets serialised as arrays, Maps as `[key, value]` arrays. Written **only** by Save Session; never by plain Save as .sharp. Restored on open (a pre-curve session backfills curve selection from its wells × channels). |
 | `parsing_log.json` | No | Append-only parse history. |
+
+### Multichannel (format 1.2)
+
+A multi-fluorophore experiment (BioRad multiplex, QuantStudio 4-plex, etc.) bumps
+`format_version` to `1.2` and adds:
+- `metadata.channels: string[]` — canonical channel IDs in display order (dye
+  names like `["FAM","VIC","ABY","JUN"]`, or `["default"]` / a single dye for
+  single-channel runs).
+- `metadata.channel_fluorophore: Record<channel, dye>` — parser-detected dye per
+  channel.
+- One trio of per-channel CSVs per channel, **index-keyed** to `channels` to
+  avoid filename ambiguity for dye names with spaces/dots:
+  `amplification_ch{i}.csv`, `melt_rfu_ch{i}.csv`, `melt_derivative_ch{i}.csv`.
+
+The legacy `amplification.csv` / `melt_*.csv` still carry the **first** channel,
+so 1.0/1.1 readers load that channel and ignore the rest. Single-channel files
+stay at `format_version` `1.1` with no per-channel files and no behavior change.
+On read, when `metadata.channels` has >1 entry and the per-channel files exist,
+the loader rebuilds `amplificationByChannel` / `meltByChannel`; otherwise it
+falls back to a single channel.
 
 ## `metadata.json` shape
 

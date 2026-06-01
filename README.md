@@ -46,6 +46,24 @@
 
 ---
 
+## What's New in v0.2.0 — Multichannel Support
+
+SHARP Processor 2 now reads **every fluorophore channel** in your experiment, not just one. Open a multi-dye run — FAM + HEX, SYBR + Cal Orange 560, or a full 4-plex — and work with each dye independently. Single-dye runs look and behave exactly as before.
+
+- **Automatic channel detection.** Every instrument format now extracts all of its optical channels. If a file has one dye, nothing changes; if it has several, the extra channels appear automatically.
+- **Show or hide each channel.** Toggle fluorophores on the plot — all wells at once, or per individual well.
+- **Assign Fluorophores** (**Tools → Assign Fluorophores…**). Give each channel a name and color; the labels flow through the legend, the wells table, and the results.
+- **Independent analysis per dye.** Baseline, threshold, normalization, and drift correction are set separately for each channel — pick the channel with **"Settings for: [channel]"** in the Analysis panel. Each dye remembers its own settings.
+- **Single-channel view for multi-dye files.** **View → Channel Display → Single** hides the channel controls and shows the familiar one-curve-per-well layout, so you can focus on a single dye. Switch back to **Multichannel** anytime.
+- **Per-channel results.** The results table shows **Tt**, **Tm**, and the positive/negative call for each (well, dye) combination, with collapsible per-sample rows and a **Fluorophore** column.
+- **Channel-aware selection.** Click a curve to select that one (well, dye); click a well on the grid to select all of its dyes. A new **"Fluor…"** button in the Wells tab selects every curve of a chosen dye at once.
+
+**Smoother, too.** Plots and interactions — hovering, selecting, dragging the threshold line, toggling channels — are noticeably more responsive in this version.
+
+**Backward compatible.** Single-channel `.sharp` and `.sharpx` files from any earlier version open unchanged.
+
+---
+
 ## Opening Your Data
 
 **Drag and drop** any supported file onto the app window, or go to **File → Open**.
@@ -188,7 +206,7 @@ Rename a `.sharp` file to `.zip` and any ZIP tool will open it. You'll see:
 | `melt_derivative.csv` | Per-temperature `-dF/dT` per well. Pre-smoothed using the BioRad CFX Maestro algorithm. |
 | `metadata.json` | **Authoritative** machine-readable metadata — instrument, protocol, run info, per-well analysis outputs, time reconstruction. |
 
-`wells.csv` and `SUMMARY.txt` were added in format version 1.1 (SHARP Processor 2 v0.1.11). Older `.sharp` files without them still load — the app falls back to `metadata.json`.
+`wells.csv` and `SUMMARY.txt` were added in format version 1.1 (SHARP Processor 2 v0.1.11); multichannel data was added in format version 1.2 (v0.2.0). Older `.sharp` files still load — the app falls back to `metadata.json`, and single-channel files are read exactly as before.
 
 ### How to create one
 
@@ -299,7 +317,7 @@ dist-release/
 ### Documentation
 
 - [`CLAUDE.md`](CLAUDE.md) — Developer guide, architecture, implementation notes
-- [`docs/SHARP_FORMAT.md`](docs/SHARP_FORMAT.md) — `.sharp` file format specification (current: v1.1)
+- [`docs/SHARP_FORMAT.md`](docs/SHARP_FORMAT.md) — `.sharp` file format specification (current: v1.2)
 - [`docs/ALGORITHMS.md`](docs/ALGORITHMS.md) — Active vs archived analysis algorithms
 - [v1 .pcrd Reverse Engineering](https://github.com/tomzzzhang/SHARP-processor/blob/main/PCRD_FORMAT.md)
 

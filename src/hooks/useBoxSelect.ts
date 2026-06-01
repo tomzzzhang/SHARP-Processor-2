@@ -76,6 +76,14 @@ export function useBoxSelect(options: BoxSelectOptions) {
   const rmbDragOccurred = useRef(false);
   const lastRmbUp = useRef<{ time: number; x: number; y: number; menuTimerId: number } | null>(null);
 
+  // rAF coalescer for high-frequency drag updates (threshold setters,
+  // box-select preview). Native mousemove fires ~100-200x/s; each of those
+  // updates triggers a Zustand set → analysis/plot re-render. Holding only the
+  // latest update and flushing it once per animation frame caps that at the
+  // display's refresh rate without changing the final result.
+  const rafId = useRef<number | null>(null);
+  const rafFn = useRef<(() => void) | null>(null);
+
   // Stable refs for callbacks
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
@@ -175,6 +183,32 @@ export function useBoxSelect(options: BoxSelectOptions) {
     const container = containerRef.current;
     if (!container) return;
 
+    // Schedule `fn` to run on the next animation frame, replacing any update
+    // still pending from this frame (only the latest drag position matters).
+    const scheduleRaf = (fn: () => void) => {
+      rafFn.current = fn;
+      if (rafId.current == null) {
+        rafId.current = requestAnimationFrame(() => {
+          rafId.current = null;
+          const pending = rafFn.current;
+          rafFn.current = null;
+          pending?.();
+        });
+      }
+    };
+    // Run any pending update now (on drag end, so the final value is exact).
+    const flushRaf = () => {
+      if (rafId.current != null) { cancelAnimationFrame(rafId.current); rafId.current = null; }
+      const pending = rafFn.current;
+      rafFn.current = null;
+      pending?.();
+    };
+    // Drop any pending update without running it (drag superseded by a commit).
+    const cancelRaf = () => {
+      if (rafId.current != null) { cancelAnimationFrame(rafId.current); rafId.current = null; }
+      rafFn.current = null;
+    };
+
     const onMouseDown = (e: MouseEvent) => {
       // RMB — handle independently of LMB. We take over RMB whenever resize OR
       // a custom context-menu callback is wired so we control menu timing.
@@ -248,7 +282,10 @@ export function useBoxSelect(options: BoxSelectOptions) {
       if (thresholdDragging.current) {
         e.preventDefault();
         const yVal = pixelToYValue(e.clientY);
-        if (yVal != null && yVal > 0) thresholdRef.current?.setRfu(Math.round(yVal * 10) / 10);
+        if (yVal != null && yVal > 0) {
+          const v = Math.round(yVal * 10) / 10;
+          scheduleRaf(() => thresholdRef.current?.setRfu(v));
+        }
         return;
       }
       // Melt threshold drag — read from the correct y-axis (y or y2)
@@ -256,7 +293,10 @@ export function useBoxSelect(options: BoxSelectOptions) {
         e.preventDefault();
         const onY2 = meltThresholdRef.current?.axis === 'y2';
         const yVal = onY2 ? pixelToY2Value(e.clientY) : pixelToYValue(e.clientY);
-        if (yVal != null && yVal > 0) meltThresholdRef.current?.setValue(Math.round(yVal));
+        if (yVal != null && yVal > 0) {
+          const v = Math.round(yVal);
+          scheduleRaf(() => meltThresholdRef.current?.setValue(v));
+        }
         return;
       }
       // Arrow drag overlay
@@ -315,7 +355,7 @@ export function useBoxSelect(options: BoxSelectOptions) {
           ov.style.width = `${Math.abs(x2 - x1)}px`;
           ov.style.height = `${Math.abs(y2 - y1)}px`;
 
-          // Live preview callback
+          // Live preview callback — rAF-coalesced since it sets store state.
           if (onDragMoveRef.current) {
             const dataX0 = pixelToXValue(Math.min(boxStartX.current, e.clientX));
             const dataX1 = pixelToXValue(Math.max(boxStartX.current, e.clientX));
@@ -325,7 +365,8 @@ export function useBoxSelect(options: BoxSelectOptions) {
               const y2lo = pixelToY2Value(Math.max(boxStartY.current, e.clientY));
               const y2hi = pixelToY2Value(Math.min(boxStartY.current, e.clientY));
               const y2Bounds = y2lo != null && y2hi != null ? { y0: y2lo, y1: y2hi } : undefined;
-              onDragMoveRef.current(dataX0, dataX1, dataY0, dataY1, y2Bounds);
+              const move = onDragMoveRef.current;
+              scheduleRaf(() => move(dataX0, dataX1, dataY0, dataY1, y2Bounds));
             }
           }
         }
@@ -382,12 +423,14 @@ export function useBoxSelect(options: BoxSelectOptions) {
         thresholdDragging.current = false;
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
+        flushRaf(); // land the exact final threshold value
         return;
       }
       if (meltThresholdDragging.current) {
         meltThresholdDragging.current = false;
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
+        flushRaf(); // land the exact final melt-threshold value
         return;
       }
       if (arrowDragging.current) {
@@ -412,6 +455,7 @@ export function useBoxSelect(options: BoxSelectOptions) {
         boxSelecting.current = false;
         document.body.style.userSelect = '';
         if (overlayRef.current) overlayRef.current.style.display = 'none';
+        cancelRaf(); // drop any pending preview so it can't fire after onDragEnd
         onDragEndRef.current?.();
 
         const dx = Math.abs(e.clientX - boxStartX.current);
@@ -461,6 +505,7 @@ export function useBoxSelect(options: BoxSelectOptions) {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
       container.removeEventListener('contextmenu', onContextMenu, true);
+      cancelRaf();
     };
   }, [isNearThreshold, isNearMeltThreshold, isInPlotArea, pixelToYValue, pixelToY2Value, pixelToXValue]);
 
