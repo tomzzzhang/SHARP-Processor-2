@@ -151,6 +151,7 @@ export interface ExperimentViewState {
   showTitle: boolean;
   showLabels: boolean;
   showTicks: boolean;
+  /** Legend shows only SELECTED curves/wells when on (UI label: "Selected wells only"). */
   legendVisibleOnly: boolean;
   showGrid: boolean;
   gridAlpha: number;
@@ -247,7 +248,7 @@ function defaultViewState(wellsUsed: string[] = [], channels: string[] = []): Ex
     showTitle: true,
     showLabels: true,
     showTicks: true,
-    legendVisibleOnly: true,
+    legendVisibleOnly: false,
     showGrid: true,
     gridAlpha: DEFAULT_GRID_ALPHA,
     plotBgColor: '',
@@ -1584,7 +1585,7 @@ export const useAppState = create<AppState>((set, get) => ({
   setShowTitle: (on) => { get().pushUndo('Toggle title'); set({ showTitle: on }); },
   setShowLabels: (on) => { get().pushUndo('Toggle labels'); set({ showLabels: on }); },
   setShowTicks: (on) => { get().pushUndo('Toggle ticks'); set({ showTicks: on }); },
-  setLegendVisibleOnly: (on) => { get().pushUndo('Toggle legend visible-only'); set({ legendVisibleOnly: on }); },
+  setLegendVisibleOnly: (on) => { get().pushUndo('Toggle legend selected-only'); set({ legendVisibleOnly: on }); },
   setPaletteReversed: (reversed) => { get().pushUndo('Reverse palette'); set({ paletteReversed: reversed }); },
   setPaletteGroupColors: (on) => { get().pushUndo('Toggle group colors'); set({ paletteGroupColors: on }); },
   setSelectionPaletteGroupColors: (on) => { get().pushUndo('Toggle selection group colors'); set({ selectionPaletteGroupColors: on }); },
@@ -1629,7 +1630,7 @@ export const useAppState = create<AppState>((set, get) => ({
       showTitle: true,
     showLabels: true,
     showTicks: true,
-      legendVisibleOnly: true,
+      legendVisibleOnly: false,
       showGrid: true,
       gridAlpha: DEFAULT_GRID_ALPHA,
       plotBgColor: '',

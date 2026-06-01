@@ -287,7 +287,7 @@ const sections: Section[] = [
               <tr><TD>Colours</TD><TD>Global palette selector</TD></tr>
               <tr><TD>Lines</TD><TD>Line width (0.3–5.0 pt)</TD></tr>
               <tr><TD>Typography</TD><TD>Font family, title/label/tick/legend sizes</TD></tr>
-              <tr><TD>Legend</TD><TD>Show/hide, content (sample name / well), position, visible-only filter</TD></tr>
+              <tr><TD>Legend</TD><TD>Show/hide, content (sample name / well), position, selected-only filter</TD></tr>
               <tr><TD>Grid</TD><TD>Show/hide, opacity slider</TD></tr>
               <tr><TD>Figure</TD><TD>Export DPI (72–600)</TD></tr>
               <tr><TD>Presets</TD><TD>Save / Load / Reset style presets</TD></tr>

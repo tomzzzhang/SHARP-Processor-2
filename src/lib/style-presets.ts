@@ -46,7 +46,7 @@ const BUILTIN_BASE: Omit<StyleSnapshot, 'palette' | 'paletteReversed' | 'palette
   showLegendDoubling: true,
   legendPosition: 'best',
   legendContent: 'sample',
-  legendVisibleOnly: true,
+  legendVisibleOnly: false,
   showTitle: true,
   showLabels: true,
   showTicks: true,

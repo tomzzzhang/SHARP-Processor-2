@@ -667,7 +667,7 @@ export function StyleTab() {
         </div>
         <label className="flex items-center gap-2 text-sm">
           <Checkbox checked={legendVisibleOnly} onCheckedChange={(v) => setLegendVisibleOnly(v === true)} />
-          Visible wells only
+          Selected wells only
         </label>
 
         {activeExp && legendEntries.length > 1 && (
