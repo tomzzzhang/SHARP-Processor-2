@@ -392,20 +392,21 @@ export function StyleTab() {
                 ))}
               </select>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="font-medium text-muted-foreground shrink-0">Separate by:</span>
               <Button
                 variant="outline" size="sm" className="flex-1 h-7 text-xs"
                 onClick={applySeparateByColor}
                 title="Reset to the standard per-channel colour ramps (clears manual colours)"
               >
-                Separate by color
+                Color
               </Button>
               <Button
                 variant="outline" size="sm" className="flex-1 h-7 text-xs"
                 onClick={applySeparateByLineStyle}
                 title="Give each channel a distinct line style (clears manual line styles)"
               >
-                Separate by line style
+                Line style
               </Button>
             </div>
             {styleScope !== 'all' && (
