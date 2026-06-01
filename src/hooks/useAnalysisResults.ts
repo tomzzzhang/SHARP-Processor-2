@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
-import { useAppState } from './useAppState';
+import { createContext, createElement, useContext, useMemo, type ReactNode } from 'react';
+import { useAppState, type ChannelAnalysisState } from './useAppState';
 import {
   analyzeWell, applyBaseline, computeDriftSlope, findFlatBaselineWindow,
   findFlatPlateauWindow, savitzkyGolaySmooth, type WellAnalysisResult,
 } from '@/lib/analysis';
+import type { AmplificationData, XAxisMode } from '@/types/experiment';
 
 /**
  * Estimate the active experiment's global instrument drift slope
@@ -58,180 +59,261 @@ interface NormScratch {
 const MIN_AMP_SNR = 50;
 
 /**
- * Reactively compute analysis results for all wells in the active experiment.
- * Results update automatically when analysis params or data change.
+ * Pure two-pass analysis of one channel's amplification data. Mirrors the
+ * previous single-channel hook body, parameterised by an explicit
+ * `ChannelAnalysisState` + precomputed drift slope so it can be reused for
+ * every channel.
  */
-export function useAnalysisResults(): Map<string, WellAnalysisResult> {
+export function computeChannelResults(
+  amp: AmplificationData | null,
+  wellsUsed: string[],
+  xAxisMode: XAxisMode,
+  cs: ChannelAnalysisState,
+  driftSlope: number,
+): Map<string, WellAnalysisResult> {
+  const results = new Map<string, WellAnalysisResult>();
+  if (!amp) return results;
+
+  const xData =
+    xAxisMode === 'cycle' ? amp.cycle :
+    xAxisMode === 'time_s' ? amp.timeS :
+    amp.timeMin;
+
+  const globalOptions = {
+    baselineEnabled: cs.baselineEnabled,
+    baselineMethod: cs.baselineMethod,
+    baselineStart: cs.baselineStart,
+    baselineEnd: cs.baselineEnd,
+    thresholdEnabled: cs.thresholdEnabled,
+    thresholdRfu: cs.thresholdRfu,
+    fittingEnabled: cs.fittingEnabled,
+    fitStartFraction: cs.fitStartFraction,
+    fitEndFraction: cs.fitEndFraction,
+  };
+
+  // First pass: baseline correction + threshold/fit analysis, plus the
+  // raw ingredients for normalization (resolved per-well below).
+  const normScratch = new Map<string, NormScratch>();
+
+  for (const well of wellsUsed) {
+    let rawRfu = amp.wells[well];
+    if (!rawRfu) continue;
+
+    if (cs.smoothingEnabled) {
+      rawRfu = savitzkyGolaySmooth(rawRfu, cs.smoothingWindow);
+    }
+
+    if (cs.driftCorrectionEnabled && driftSlope !== 0) {
+      const t0 = amp.timeMin[0] ?? 0;
+      rawRfu = rawRfu.map((v, i) => v - driftSlope * ((amp.timeMin[i] ?? t0) - t0));
+    }
+
+    const override = cs.wellBaselineOverrides.get(well);
+    const effectiveAuto = override?.auto ?? cs.baselineAuto;
+
+    let options = override
+      ? {
+          ...globalOptions,
+          baselineMethod: override.method ?? globalOptions.baselineMethod,
+          baselineStart: override.start ?? globalOptions.baselineStart,
+          baselineEnd: override.end ?? globalOptions.baselineEnd,
+        }
+      : globalOptions;
+
+    if (effectiveAuto && options.baselineEnabled) {
+      const flat = findFlatBaselineWindow(rawRfu);
+      if (flat) {
+        options = {
+          ...options,
+          baselineMethod: 'horizontal',
+          baselineStart: flat.start,
+          baselineEnd: flat.end,
+        };
+      }
+    }
+
+    const base = analyzeWell(rawRfu, xData, options);
+    // displayRfu defaults to corrected (if baseline on) else raw; normalized
+    // resolved in the second pass.
+    const displayRfu = (cs.baselineEnabled && base.correctedRfu) || rawRfu;
+    results.set(well, { ...base, normalizedRfu: null, plateauWindow: null, displayRfu });
+
+    if (cs.normalizeEnabled) {
+      const normOv = cs.wellNormalizeOverrides.get(well);
+      const wellNorm = normOv?.enabled ?? true;
+      if (wellNorm) {
+        const corrected = base.correctedRfu
+          ?? applyBaseline(rawRfu, xData, options.baselineMethod, options.baselineStart, options.baselineEnd).corrected;
+
+        const plateauAuto = normOv?.plateauAuto ?? true;
+        let plateauWindow: { start: number; end: number } | null;
+        if (!plateauAuto && normOv?.plateauStart != null && normOv?.plateauEnd != null) {
+          plateauWindow = { start: normOv.plateauStart, end: normOv.plateauEnd };
+        } else {
+          plateauWindow = findFlatPlateauWindow(corrected);
+        }
+
+        let plateauLevel = plateauWindow
+          ? windowMean(corrected, plateauWindow.start, plateauWindow.end)
+          : NaN;
+        if (!Number.isFinite(plateauLevel)) {
+          plateauLevel = corrected[corrected.length - 1] ?? 0;
+        }
+
+        const autoFlat = findFlatBaselineWindow(rawRfu);
+        const noiseWin = autoFlat ?? { start: 1, end: Math.min(corrected.length, 10) };
+        const blNoise = windowStd(corrected, noiseWin.start, noiseWin.end);
+        const noise = Number.isFinite(blNoise) ? Math.max(blNoise, 1e-6) : 1e-6;
+        const amplifies = plateauLevel > MIN_AMP_SNR * noise;
+
+        normScratch.set(well, { corrected, plateauWindow, plateauLevel, amplifies });
+      }
+    }
+  }
+
+  // Second pass: resolve normalized curves.
+  if (cs.normalizeEnabled && normScratch.size > 0) {
+    const ampLevels: number[] = [];
+    for (const s of normScratch.values()) if (s.amplifies) ampLevels.push(s.plateauLevel);
+    ampLevels.sort((a, b) => a - b);
+    const globalScale = ampLevels.length ? ampLevels[Math.floor(ampLevels.length / 2)] : NaN;
+
+    for (const [well, s] of normScratch) {
+      const divisor = s.amplifies ? s.plateauLevel : globalScale;
+      let normalizedRfu: number[] | null = null;
+      if (Number.isFinite(divisor) && Math.abs(divisor) > 1e-6) {
+        normalizedRfu = s.corrected.map((v) => v / divisor);
+      }
+      const prev = results.get(well);
+      if (prev) {
+        results.set(well, {
+          ...prev,
+          normalizedRfu,
+          plateauWindow: s.plateauWindow,
+          displayRfu: normalizedRfu ?? prev.displayRfu,
+        });
+      }
+    }
+  }
+
+  return results;
+}
+
+/** Assemble the active experiment's per-channel state: the active channel comes
+ *  from the live top-level (mirror) fields; the rest from `_channelSnapshots`. */
+function useChannelStates(): Map<string, ChannelAnalysisState> {
+  const experiments = useAppState((s) => s.experiments);
+  const idx = useAppState((s) => s.activeExperimentIndex);
+  const activeChannel = useAppState((s) => s.activeChannel);
+  const channelSnapshots = useAppState((s) => s._channelSnapshots);
+  // Pull every per-channel field so the active channel's live state is captured.
+  const live: ChannelAnalysisState = {
+    wellBaselineOverrides: useAppState((s) => s.wellBaselineOverrides),
+    wellNormalizeOverrides: useAppState((s) => s.wellNormalizeOverrides),
+    baselineEnabled: useAppState((s) => s.baselineEnabled),
+    baselineAuto: useAppState((s) => s.baselineAuto),
+    baselineMethod: useAppState((s) => s.baselineMethod),
+    baselineStart: useAppState((s) => s.baselineStart),
+    baselineEnd: useAppState((s) => s.baselineEnd),
+    driftCorrectionEnabled: useAppState((s) => s.driftCorrectionEnabled),
+    normalizeEnabled: useAppState((s) => s.normalizeEnabled),
+    meltNormalizeEnabled: useAppState((s) => s.meltNormalizeEnabled),
+    thresholdEnabled: useAppState((s) => s.thresholdEnabled),
+    thresholdRfu: useAppState((s) => s.thresholdRfu),
+    meltThresholdEnabled: useAppState((s) => s.meltThresholdEnabled),
+    meltThresholdValue: useAppState((s) => s.meltThresholdValue),
+    smoothingEnabled: useAppState((s) => s.smoothingEnabled),
+    smoothingWindow: useAppState((s) => s.smoothingWindow),
+    fittingEnabled: useAppState((s) => s.fittingEnabled),
+    fitStartFraction: useAppState((s) => s.fitStartFraction),
+    fitEndFraction: useAppState((s) => s.fitEndFraction),
+  };
+  const exp = experiments[idx];
+  return useMemo(() => {
+    const map = new Map<string, ChannelAnalysisState>();
+    const channels = exp?.channels ?? [];
+    const snap = channelSnapshots.get(idx);
+    for (const ch of channels) {
+      map.set(ch, ch === activeChannel ? live : (snap?.get(ch) ?? live));
+    }
+    if (channels.length === 0) map.set(activeChannel, live);
+    return map;
+    // `live` is rebuilt every render but its fields are the deps that matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exp, idx, activeChannel, channelSnapshots,
+      live.wellBaselineOverrides, live.wellNormalizeOverrides, live.baselineEnabled,
+      live.baselineAuto, live.baselineMethod, live.baselineStart, live.baselineEnd,
+      live.driftCorrectionEnabled, live.normalizeEnabled, live.thresholdEnabled,
+      live.thresholdRfu, live.smoothingEnabled, live.smoothingWindow, live.fittingEnabled,
+      live.fitStartFraction, live.fitEndFraction]);
+}
+
+/** Stable empties so context reads return a referentially-constant value when
+ *  there is no experiment (or the hook is used outside the provider). */
+const EMPTY_ALL_RESULTS: Map<string, Map<string, WellAnalysisResult>> = new Map();
+const EMPTY_RESULTS: Map<string, WellAnalysisResult> = new Map();
+
+/**
+ * The single per-channel analysis computation: for every channel of the active
+ * experiment, run the per-well pipeline with that channel's own
+ * `ChannelAnalysisState` and drift slope. This is INTERNAL — call it exactly
+ * once, in `AnalysisResultsProvider`, and read the result everywhere else via
+ * `useAllChannelResults` / `useAnalysisResults`. Running it per-consumer (it was
+ * called in ~8 always-mounted components) recomputed the whole plate N times on
+ * every analysis-setting change and every threshold-line drag.
+ */
+function useComputeAllChannelResults(): Map<string, Map<string, WellAnalysisResult>> {
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
   const xAxisMode = useAppState((s) => s.xAxisMode);
-  const baselineEnabled = useAppState((s) => s.baselineEnabled);
-  const baselineAuto = useAppState((s) => s.baselineAuto);
-  const baselineMethod = useAppState((s) => s.baselineMethod);
-  const baselineStart = useAppState((s) => s.baselineStart);
-  const baselineEnd = useAppState((s) => s.baselineEnd);
-  const thresholdEnabled = useAppState((s) => s.thresholdEnabled);
-  const thresholdRfu = useAppState((s) => s.thresholdRfu);
-  const fittingEnabled = useAppState((s) => s.fittingEnabled);
-  const fitStartFraction = useAppState((s) => s.fitStartFraction);
-  const fitEndFraction = useAppState((s) => s.fitEndFraction);
-  const wellBaselineOverrides = useAppState((s) => s.wellBaselineOverrides);
-  const smoothingEnabled = useAppState((s) => s.smoothingEnabled);
-  const smoothingWindow = useAppState((s) => s.smoothingWindow);
-  const normalizeEnabled = useAppState((s) => s.normalizeEnabled);
-  const wellNormalizeOverrides = useAppState((s) => s.wellNormalizeOverrides);
-  const driftCorrectionEnabled = useAppState((s) => s.driftCorrectionEnabled);
-  const { slope: driftSlope } = useGlobalDrift();
-
+  const channelStates = useChannelStates();
   const exp = experiments[idx];
 
   return useMemo(() => {
-    const results = new Map<string, WellAnalysisResult>();
-    if (!exp?.amplification) return results;
-
-    const amp = exp.amplification;
-    const xData =
-      xAxisMode === 'cycle' ? amp.cycle :
-      xAxisMode === 'time_s' ? amp.timeS :
-      amp.timeMin;
-
-    const globalOptions = {
-      baselineEnabled,
-      baselineMethod,
-      baselineStart,
-      baselineEnd,
-      thresholdEnabled,
-      thresholdRfu,
-      fittingEnabled,
-      fitStartFraction,
-      fitEndFraction,
-    };
-
-    // First pass: baseline correction + threshold/fit analysis, plus the
-    // raw ingredients for normalization (resolved per-well below).
-    const normScratch = new Map<string, NormScratch>();
-
-    for (const well of exp.wellsUsed) {
-      let rawRfu = amp.wells[well];
-      if (!rawRfu) continue;
-
-      // Apply smoothing to raw data before analysis
-      if (smoothingEnabled) {
-        rawRfu = savitzkyGolaySmooth(rawRfu, smoothingWindow);
-      }
-
-      // Global drift correction — remove the run-level slope before
-      // baseline correction. Per-well baseline offset is handled below.
-      if (driftCorrectionEnabled && driftSlope !== 0) {
-        const t0 = amp.timeMin[0] ?? 0;
-        rawRfu = rawRfu.map((v, i) => v - driftSlope * ((amp.timeMin[i] ?? t0) - t0));
-      }
-
-      // Merge per-well baseline overrides if present
-      const override = wellBaselineOverrides.get(well);
-      const effectiveAuto = override?.auto ?? baselineAuto;
-
-      let options = override
-        ? {
-            ...globalOptions,
-            baselineMethod: override.method ?? globalOptions.baselineMethod,
-            baselineStart: override.start ?? globalOptions.baselineStart,
-            baselineEnd: override.end ?? globalOptions.baselineEnd,
-          }
-        : globalOptions;
-
-      if (effectiveAuto && options.baselineEnabled) {
-        const flat = findFlatBaselineWindow(rawRfu);
-        if (flat) {
-          // Auto is horizontal-only: force method and override the window.
-          options = {
-            ...options,
-            baselineMethod: 'horizontal',
-            baselineStart: flat.start,
-            baselineEnd: flat.end,
-          };
-        }
-        // Null → quietly fall through to manual range (no warning for v1).
-      }
-
-      const base = analyzeWell(rawRfu, xData, options);
-      results.set(well, { ...base, normalizedRfu: null, plateauWindow: null });
-
-      // Stage normalization inputs for wells that are normalized.
-      if (normalizeEnabled) {
-        const normOv = wellNormalizeOverrides.get(well);
-        const wellNorm = normOv?.enabled ?? true;
-        if (wellNorm) {
-          // The corrected curve (≈0 in the baseline zone). Computed even
-          // when baseline correction is disabled so normalization keeps a
-          // zero anchor.
-          const corrected = base.correctedRfu
-            ?? applyBaseline(rawRfu, xData, options.baselineMethod, options.baselineStart, options.baselineEnd).corrected;
-
-          // Resolve the plateau window: explicit override, else auto-detect.
-          const plateauAuto = normOv?.plateauAuto ?? true;
-          let plateauWindow: { start: number; end: number } | null;
-          if (!plateauAuto && normOv?.plateauStart != null && normOv?.plateauEnd != null) {
-            plateauWindow = { start: normOv.plateauStart, end: normOv.plateauEnd };
-          } else {
-            plateauWindow = findFlatPlateauWindow(corrected);
-          }
-
-          // Upper anchor: mean over the plateau window, or the final value
-          // when no plateau exists.
-          let plateauLevel = plateauWindow
-            ? windowMean(corrected, plateauWindow.start, plateauWindow.end)
-            : NaN;
-          if (!Number.isFinite(plateauLevel)) {
-            plateauLevel = corrected[corrected.length - 1] ?? 0;
-          }
-
-          // A well genuinely amplified only if its plateau clears baseline
-          // noise by a wide margin. A flat / non-amplifying well (NTC) has
-          // no 0→1 span — dividing its noise by a near-zero plateau would
-          // produce garbage spikes.
-          //
-          // The noise estimate must be measured over a genuinely
-          // pre-amplification window — NOT the user's baseline zone. If
-          // that zone is set to overlap the amplification rise, its std
-          // measures the climb, not noise, and the well gets misclassified
-          // as non-amplifying. Use the auto-detected (onset-based) window,
-          // or a fixed early window as a fallback.
-          const autoFlat = findFlatBaselineWindow(rawRfu);
-          const noiseWin = autoFlat ?? { start: 1, end: Math.min(corrected.length, 10) };
-          const blNoise = windowStd(corrected, noiseWin.start, noiseWin.end);
-          const noise = Number.isFinite(blNoise) ? Math.max(blNoise, 1e-6) : 1e-6;
-          const amplifies = plateauLevel > MIN_AMP_SNR * noise;
-
-          normScratch.set(well, { corrected, plateauWindow, plateauLevel, amplifies });
-        }
-      }
+    const out = new Map<string, Map<string, WellAnalysisResult>>();
+    if (!exp) return out;
+    for (const ch of exp.channels) {
+      const amp = exp.amplificationByChannel[ch] ?? null;
+      const cs = channelStates.get(ch);
+      if (!cs) { out.set(ch, new Map()); continue; }
+      const drift = (amp && cs.driftCorrectionEnabled) ? computeDriftSlope(amp, exp.wellsUsed).slope : 0;
+      out.set(ch, computeChannelResults(amp, exp.wellsUsed, xAxisMode, cs, drift));
     }
+    return out;
+  }, [exp, xAxisMode, channelStates]);
+}
 
-    // Second pass: resolve normalized curves. Amplifying wells divide by
-    // their own plateau level (→ 0→1). Non-amplifying wells divide by the
-    // median amplifying level so they render as a small, flat curve near 0
-    // instead of blowing up the shared y-axis.
-    if (normalizeEnabled && normScratch.size > 0) {
-      const ampLevels: number[] = [];
-      for (const s of normScratch.values()) if (s.amplifies) ampLevels.push(s.plateauLevel);
-      ampLevels.sort((a, b) => a - b);
-      const globalScale = ampLevels.length ? ampLevels[Math.floor(ampLevels.length / 2)] : NaN;
+const AllChannelResultsContext =
+  createContext<Map<string, Map<string, WellAnalysisResult>> | null>(null);
 
-      for (const [well, s] of normScratch) {
-        const divisor = s.amplifies ? s.plateauLevel : globalScale;
-        let normalizedRfu: number[] | null = null;
-        if (Number.isFinite(divisor) && Math.abs(divisor) > 1e-6) {
-          normalizedRfu = s.corrected.map((v) => v / divisor);
-        }
-        const prev = results.get(well);
-        if (prev) results.set(well, { ...prev, normalizedRfu, plateauWindow: s.plateauWindow });
-      }
-    }
+/**
+ * Computes every channel's analysis ONCE and shares it through context. Wrap the
+ * app in this so the many components that read analysis results become cheap
+ * context reads instead of N independent recomputations of the same pipeline.
+ * `children` is passed through untouched, so a recompute here only re-renders
+ * the components that actually consume the context.
+ */
+export function AnalysisResultsProvider({ children }: { children: ReactNode }) {
+  const value = useComputeAllChannelResults();
+  return createElement(AllChannelResultsContext.Provider, { value }, children);
+}
 
-    return results;
-  }, [exp, xAxisMode, baselineEnabled, baselineAuto, baselineMethod, baselineStart, baselineEnd,
-      thresholdEnabled, thresholdRfu, fittingEnabled, fitStartFraction, fitEndFraction,
-      wellBaselineOverrides, smoothingEnabled, smoothingWindow, normalizeEnabled, wellNormalizeOverrides,
-      driftCorrectionEnabled, driftSlope]);
+/**
+ * Per-channel analysis results for the active experiment, keyed by channel ID.
+ * Reads the shared context value (see `AnalysisResultsProvider`).
+ */
+export function useAllChannelResults(): Map<string, Map<string, WellAnalysisResult>> {
+  return useContext(AllChannelResultsContext) ?? EMPTY_ALL_RESULTS;
+}
+
+/**
+ * Analysis results for the wells of the ACTIVE channel. Derived from the shared
+ * per-channel map (the active channel's entry is identical to what the old
+ * standalone computation produced). Drives the Analysis-tab readouts, threshold
+ * line, and the doubling/results views.
+ */
+export function useAnalysisResults(): Map<string, WellAnalysisResult> {
+  const all = useAllChannelResults();
+  const activeChannel = useAppState((s) => s.activeChannel);
+  return useMemo(() => all.get(activeChannel) ?? EMPTY_RESULTS, [all, activeChannel]);
 }

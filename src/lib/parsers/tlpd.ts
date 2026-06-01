@@ -20,6 +20,13 @@ import { getInstrumentPlateLayout } from '@/lib/constants';
 
 const TLPD_PASSWORD = new TextEncoder().encode('82218051');
 
+/** TianLong allocates a fixed 6 optical-channel slots in each AmpData/MeltData
+ *  cycle blob (multiplex-capable Gentier hardware). For a run using N dyes,
+ *  the first N slots carry data (in DyeInfo order); the rest are all-zero.
+ *  Well w of channel-slot c is at uint16 index `c*stride + w`, where
+ *  `stride = floor(uint16Count / 6)` (≈97 = 96 well slots + 1 trailer). */
+const TL_MAX_CHANNELS = 6;
+
 /** Map 0-based well index to well name (e.g., A1, B3) given plate column count */
 function wellNameFromIndex(index: number, cols: number): string {
   const row = Math.floor(index / cols);
@@ -117,14 +124,63 @@ export async function parseTlpd(buffer: ArrayBuffer, fileName: string): Promise<
     warnings: timeRecon.warnings,
   };
 
+  const protocolMeta = {
+    type: protocol.experimentType,
+    amp_cycle_count: protocol.ampCycles,
+    has_melt: protocol.hasMelt,
+    raw_definition: protocol.rawDefinition,
+  };
+
+  // Multichannel (multiplex) path — ≥2 enabled dyes in DyeInfo. Each dye maps
+  // to a channel slot in the AmpData/MeltData blobs (DyeInfo order = slot
+  // order). Single-dye files fall through to the single-channel path below,
+  // unchanged.
+  const dyes = parseDyeInfo(runMethod).filter((d) => d.enable);
+  if (dyes.length >= 2 && ampRaw) {
+    const nCh = dyes.length;
+    const ampMC = parseAmpDataChannels(expData, wellCount, plateCols, nCh);
+    if (ampMC) {
+      const meltMC = meltRaw ? parseMeltDataChannels(expData, stages, wellCount, plateCols, nCh) : null;
+      const timeS = timeRecon.cycleTimes.length === ampMC.cycles.length
+        ? timeRecon.cycleTimes : ampMC.cycles.map((_, i) => i * 23.0);
+      const timeMin = timeS.map((t) => t / 60);
+
+      const channels: string[] = [];
+      const channelFluorophore: Record<string, string> = {};
+      const amplificationByChannel: Record<string, AmplificationData | null> = {};
+      const meltByChannel: Record<string, MeltData | null> = {};
+      const seen = new Set<string>();
+      const filterCh = (rec: Record<string, number[]>) => {
+        const out: Record<string, number[]> = {};
+        for (const [w, v] of Object.entries(rec)) if (populatedWellNames.has(w)) out[w] = v;
+        return out;
+      };
+
+      for (let ch = 0; ch < nCh; ch++) {
+        let id = dyes[ch].name;
+        if (seen.has(id)) id = `${id} (ch${ch + 1})`;
+        seen.add(id);
+        channels.push(id);
+        channelFluorophore[id] = dyes[ch].name;
+        amplificationByChannel[id] = { cycle: ampMC.cycles, timeS, timeMin, wells: filterCh(ampMC.channelWells[ch]) };
+        if (meltMC) {
+          const mr = filterCh(meltMC.channelWells[ch]);
+          meltByChannel[id] = { temperatureC: meltMC.temperatures, rfu: mr, derivative: computeMeltDerivative(meltMC.temperatures, mr) };
+        } else {
+          meltByChannel[id] = null;
+        }
+      }
+
+      return buildExperimentData({
+        fileName, experimentId, instrument, runInfo, protocol: protocolMeta,
+        wells, wellsUsed, channels, channelFluorophore, amplificationByChannel, meltByChannel,
+        plateRows: layout.rows, plateCols: layout.cols, timeReconstruction,
+      });
+    }
+  }
+
   return buildExperimentData({
-    fileName, experimentId, instrument, runInfo,
-    protocol: {
-      type: protocol.experimentType,
-      amp_cycle_count: protocol.ampCycles,
-      has_melt: protocol.hasMelt,
-      raw_definition: protocol.rawDefinition,
-    },
+    fileName, experimentId, instrument, runInfo, protocol: protocolMeta,
     wells, wellsUsed, amplification, melt,
     plateRows: layout.rows, plateCols: layout.cols,
     timeReconstruction,
@@ -281,6 +337,26 @@ function inferExperimentType(stages: Map<number, StageInfo>): string {
 }
 
 // ---------------------------------------------------------------------------
+// DyeInfo (channels)
+// ---------------------------------------------------------------------------
+
+interface DyeChannel { name: string; enable: boolean; }
+
+/** Parse the `[DyeInfo]` section of run_method → enabled dyes in slot order.
+ *  Dye\1 maps to channel slot 0, Dye\2 to slot 1, etc. */
+function parseDyeInfo(runMethod: string): DyeChannel[] {
+  const di = readIniSection(runMethod, 'DyeInfo');
+  const size = parseInt(di['Dye\\size'] ?? '0');
+  const dyes: DyeChannel[] = [];
+  for (let i = 1; i <= size; i++) {
+    const name = (di[`Dye\\${i}\\Name`] ?? '').trim();
+    const enable = (di[`Dye\\${i}\\Enable`] ?? '1') !== '0';
+    dyes.push({ name: name || `Channel ${i}`, enable });
+  }
+  return dyes;
+}
+
+// ---------------------------------------------------------------------------
 // SampleSetup
 // ---------------------------------------------------------------------------
 
@@ -352,6 +428,82 @@ function parseAmpData(expData: string, wellCount: number, plateCols: number): { 
   }
 
   return cycles.length > 0 ? { cycles, wells } : null;
+}
+
+/** Per-channel amplification: reads `nChannels` channel slots from each cycle
+ *  blob (stride = floor(uint16Count / 6)). Returns null if the blob is too
+ *  small to be the multi-slot layout (→ caller uses the single-channel path). */
+function parseAmpDataChannels(
+  expData: string, wellCount: number, plateCols: number, nChannels: number,
+): { cycles: number[]; channelWells: Record<string, number[]>[] } | null {
+  const amp = readIniSection(expData, 'AmpData');
+  const cycleCount = parseInt(amp['Cycle\\size'] ?? '0');
+  if (cycleCount === 0) return null;
+
+  const cycles: number[] = [];
+  const channelWells: Record<string, number[]>[] = Array.from({ length: nChannels }, () => {
+    const o: Record<string, number[]> = {};
+    for (let w = 0; w < wellCount; w++) o[wellNameFromIndex(w, plateCols)] = [];
+    return o;
+  });
+
+  for (let c = 1; c <= cycleCount; c++) {
+    const hexVal = amp[`Cycle\\${c}\\Value`] ?? '';
+    if (!hexVal) continue;
+    const raw = hexToBytes(hexVal);
+    const stride = Math.floor((raw.length / 2) / TL_MAX_CHANNELS);
+    if (stride < wellCount) return null; // not the multi-slot layout
+    cycles.push(c);
+    for (let ch = 0; ch < nChannels; ch++) {
+      const base = ch * stride;
+      for (let w = 0; w < wellCount; w++) {
+        const offset = (base + w) * 2;
+        const val = offset + 2 <= raw.length
+          ? new DataView(raw.buffer, raw.byteOffset + offset, 2).getUint16(0, true) : 0;
+        channelWells[ch][wellNameFromIndex(w, plateCols)].push(val);
+      }
+    }
+  }
+  return cycles.length > 0 ? { cycles, channelWells } : null;
+}
+
+/** Per-channel melt RFU, same slot layout as `parseAmpDataChannels`. */
+function parseMeltDataChannels(
+  expData: string, stages: Map<number, StageInfo>, wellCount: number, plateCols: number, nChannels: number,
+): { temperatures: number[]; channelWells: Record<string, number[]>[] } | null {
+  const md = readIniSection(expData, 'MeltData');
+  const cycleCount = parseInt(md['Cycle\\size'] ?? '0');
+  if (cycleCount === 0) return null;
+
+  const meltTemps = getMeltTemperatures(stages);
+  const temperatures: number[] = [];
+  const channelWells: Record<string, number[]>[] = Array.from({ length: nChannels }, () => {
+    const o: Record<string, number[]> = {};
+    for (let w = 0; w < wellCount; w++) o[wellNameFromIndex(w, plateCols)] = [];
+    return o;
+  });
+
+  for (let c = 1; c <= cycleCount; c++) {
+    const hexVal = md[`Cycle\\${c}\\Value`] ?? '';
+    if (!hexVal) continue;
+    const raw = hexToBytes(hexVal);
+    const stride = Math.floor((raw.length / 2) / TL_MAX_CHANNELS);
+    if (stride < wellCount) return null;
+    const tempC = (c - 1) < meltTemps.length
+      ? meltTemps[c - 1]
+      : 65.0 + (c - 1) * (30.0 / Math.max(cycleCount - 1, 1));
+    temperatures.push(tempC);
+    for (let ch = 0; ch < nChannels; ch++) {
+      const base = ch * stride;
+      for (let w = 0; w < wellCount; w++) {
+        const offset = (base + w) * 2;
+        const val = offset + 2 <= raw.length
+          ? new DataView(raw.buffer, raw.byteOffset + offset, 2).getUint16(0, true) : 0;
+        channelWells[ch][wellNameFromIndex(w, plateCols)].push(val);
+      }
+    }
+  }
+  return temperatures.length > 0 ? { temperatures, channelWells } : null;
 }
 
 // ---------------------------------------------------------------------------

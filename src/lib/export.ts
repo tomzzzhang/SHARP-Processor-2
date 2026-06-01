@@ -473,10 +473,14 @@ async function buildSharpZip(
   const origRunInfo = (exp.metadata?.run_info ?? {}) as Record<string, unknown>;
   const origDataSummary = (exp.metadata?.data_summary ?? {}) as Record<string, unknown>;
 
+  const expChannels = exp.channels ?? [];
+  const multichannel = expChannels.length > 1;
   const metadata: Record<string, unknown> = {
     ...(exp.metadata ?? {}),
-    format_version: '1.1',
+    format_version: multichannel ? '1.2' : '1.1',
     experiment_id: exp.experimentId,
+    channels: expChannels,
+    channel_fluorophore: exp.channelFluorophore ?? {},
     protocol: {
       ...origProtocol,
       type: exp.protocolType || (origProtocol.type as string | undefined) || 'unknown',
@@ -539,8 +543,18 @@ async function buildSharpZip(
     zip.file('wells.csv', [headers.join(','), ...rows].join('\n'));
   }
 
-  if (exp.amplification) {
-    const amp = exp.amplification;
+  // Legacy single-channel CSVs (amplification.csv / melt_*.csv) carry the
+  // FIRST channel (channel 0), not the active one, so 1.0/1.1 readers and
+  // spreadsheet inspection always see channel 0 regardless of which channel is
+  // active in the UI. For a single-channel experiment channel 0 *is* the
+  // active channel, so legacyAmp/legacyMelt equal exp.amplification/exp.melt
+  // and this is a no-op. (Channel-aware 1.2 readers prefer the _ch{i} files.)
+  const firstCh = expChannels[0];
+  const legacyAmp = firstCh != null ? (exp.amplificationByChannel?.[firstCh] ?? exp.amplification) : exp.amplification;
+  const legacyMelt = firstCh != null ? (exp.meltByChannel?.[firstCh] ?? exp.melt) : exp.melt;
+
+  if (legacyAmp) {
+    const amp = legacyAmp;
     const ampHeaders = ['cycle', 'time_s', 'time_min', ...exp.wellsUsed];
     const ampRows = amp.cycle.map((_, i) => {
       const values = [
@@ -554,8 +568,8 @@ async function buildSharpZip(
     zip.file('amplification.csv', [ampHeaders.join(','), ...ampRows].join('\n'));
   }
 
-  if (exp.melt && Object.keys(exp.melt.rfu).length > 0) {
-    const melt = exp.melt;
+  if (legacyMelt && Object.keys(legacyMelt.rfu).length > 0) {
+    const melt = legacyMelt;
     const meltWells = exp.wellsUsed.filter((w) => w in melt.rfu);
     const rfuHeaders = ['temperature_C', ...meltWells];
     const rfuRows = melt.temperatureC.map((temp, i) => {
@@ -570,8 +584,8 @@ async function buildSharpZip(
   // derivative map is empty (some parsers don't populate it), compute it
   // here via the shared BioRad-port algorithm so round-tripped files don't
   // exercise the loader fallback at all.
-  if (exp.melt && Object.keys(exp.melt.rfu).length > 0) {
-    const melt = exp.melt;
+  if (legacyMelt && Object.keys(legacyMelt.rfu).length > 0) {
+    const melt = legacyMelt;
     const haveDeriv = Object.keys(melt.derivative).length > 0;
     const derivativeData = haveDeriv
       ? melt.derivative
@@ -586,6 +600,48 @@ async function buildSharpZip(
       });
       zip.file('melt_derivative.csv', [derivHeaders.join(','), ...derivRows].join('\n'));
     }
+  }
+
+  // Per-channel data CSVs (format 1.2, multichannel only). The legacy
+  // amplification.csv / melt_*.csv above carry the first channel so 1.0/1.1
+  // readers still load something; channel-aware readers prefer these. Files
+  // are index-keyed (`_ch{i}`) to metadata.channels to avoid name-sanitization
+  // ambiguity for dye names with spaces/dots.
+  if (multichannel) {
+    expChannels.forEach((ch, i) => {
+      const amp = exp.amplificationByChannel?.[ch];
+      if (amp) {
+        const headers = ['cycle', 'time_s', 'time_min', ...exp.wellsUsed];
+        const rows = amp.cycle.map((_, r) => {
+          const v = [String(amp.cycle[r] ?? ''), String(amp.timeS[r] ?? ''), String(amp.timeMin[r] ?? '')];
+          for (const w of exp.wellsUsed) v.push(String(amp.wells[w]?.[r] ?? ''));
+          return v.join(',');
+        });
+        zip.file(`amplification_ch${i}.csv`, [headers.join(','), ...rows].join('\n'));
+      }
+      const m = exp.meltByChannel?.[ch];
+      if (m && Object.keys(m.rfu).length > 0) {
+        const meltWells = exp.wellsUsed.filter((w) => w in m.rfu);
+        const rfuHeaders = ['temperature_C', ...meltWells];
+        const rfuRows = m.temperatureC.map((temp, r) => {
+          const v = [String(temp)];
+          for (const w of meltWells) v.push(String(m.rfu[w]?.[r] ?? ''));
+          return v.join(',');
+        });
+        zip.file(`melt_rfu_ch${i}.csv`, [rfuHeaders.join(','), ...rfuRows].join('\n'));
+        const deriv = Object.keys(m.derivative).length > 0 ? m.derivative : computeMeltDerivative(m.temperatureC, m.rfu);
+        const derivWells = exp.wellsUsed.filter((w) => w in deriv);
+        if (derivWells.length > 0) {
+          const dHeaders = ['temperature_C', ...derivWells];
+          const dRows = m.temperatureC.map((temp, r) => {
+            const v = [String(temp)];
+            for (const w of derivWells) v.push(String(deriv[w]?.[r] ?? ''));
+            return v.join(',');
+          });
+          zip.file(`melt_derivative_ch${i}.csv`, [dHeaders.join(','), ...dRows].join('\n'));
+        }
+      }
+    });
   }
 
   // SUMMARY.txt — human-readable overview. Not read back by the app;

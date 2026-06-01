@@ -10,9 +10,11 @@ import { QuickStylePanel } from './components/QuickStylePanel';
 import { ResultsTable } from './components/ResultsTable';
 import { DilutionWizard } from './components/DilutionWizard';
 import { ExportWizard } from './components/ExportWizard';
+import { FluorophoreWizard } from './components/FluorophoreWizard';
 import { UserManual } from './components/UserManual';
 import { PlotTabs } from './components/PlotTabs';
 import { useAppState } from './hooks/useAppState';
+import { AnalysisResultsProvider } from './hooks/useAnalysisResults';
 import { loadSharpFile } from './lib/sharp-loader';
 import { isInstrumentFile, isSupportedFile, loadInstrumentFile, loadBioradFolder } from './lib/instrument-loader';
 import { addRecentFile } from './lib/recent-files';
@@ -27,6 +29,8 @@ function App() {
   const setShowWizard = useAppState((s) => s.setShowDilutionWizard);
   const showExportWizard = useAppState((s) => s.showExportWizard);
   const setShowExportWizard = useAppState((s) => s.setShowExportWizard);
+  const showFluorophoreWizard = useAppState((s) => s.showFluorophoreWizard);
+  const setShowFluorophoreWizard = useAppState((s) => s.setShowFluorophoreWizard);
   const [showManual, setShowManual] = useState(false);
   const [updateBanner, setUpdateBanner] = useState<{ version: string; url: string } | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(280);
@@ -134,6 +138,7 @@ function App() {
   const removeExperiment = useAppState((s) => s.removeExperiment);
 
   return (
+    <AnalysisResultsProvider>
     <div className="flex flex-col h-screen select-none border-b border-border">
       {/* Menu bar */}
       <MenuBar onOpenWizard={() => setShowWizard(true)} onOpenManual={() => setShowManual(true)} />
@@ -293,8 +298,10 @@ function App() {
       {/* Dilution wizard floating panel */}
       {showWizard && <DilutionWizard onClose={() => setShowWizard(false)} />}
       {showExportWizard && <ExportWizard onClose={() => setShowExportWizard(false)} />}
+      {showFluorophoreWizard && <FluorophoreWizard onClose={() => setShowFluorophoreWizard(false)} />}
       {showManual && <UserManual onClose={() => setShowManual(false)} />}
     </div>
+    </AnalysisResultsProvider>
   );
 }
 

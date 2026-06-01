@@ -18,7 +18,7 @@
  *   Offset: 8 + channel*192 + well*2
  */
 
-import type { ExperimentData, WellInfo, AmplificationData } from '@/types/experiment';
+import type { ExperimentData, WellInfo, AmplificationData, MeltData } from '@/types/experiment';
 import { plateIndexToWell, sortWells, buildExperimentData } from './utils';
 
 const PACKET_SIZE = 1160;
@@ -66,22 +66,36 @@ export async function parseAmxd(buffer: ArrayBuffer, fileName: string): Promise<
   // ThermalProfile.xml → protocol
   const protocol = parseThermalProfile(xmlFiles);
 
-  // InstrumentData.xml → fluorescence
-  const { ampData, elapsedS, hotStartS } = parseInstrumentData(xmlFiles, channelNames, sampleMap);
+  // InstrumentData.xml → fluorescence for every populated optical channel.
+  const { channelData, elapsedS, hotStartS } = parseInstrumentData(xmlFiles, channelNames, sampleMap);
 
-  // Time reconstruction
-  const timeRecon = buildTimeReconstruction(runInfo, ampData, elapsedS, hotStartS);
+  // Cycles are shared across channels; use the first emitted channel for timing.
+  const cyclesRef = channelData.length > 0 ? channelData[0].cycles : [];
+  const timeRecon = buildTimeReconstruction(runInfo, cyclesRef.length > 0 ? { cycles: cyclesRef } : null, elapsedS, hotStartS);
 
-  // Build amplification
-  let amplification: AmplificationData | null = null;
-  if (ampData) {
-    amplification = {
-      cycle: ampData.cycles,
+  // One AmplificationData per channel through the channel funnel.
+  const channels: string[] = [];
+  const channelFluorophore: Record<string, string> = {};
+  const amplificationByChannel: Record<string, AmplificationData | null> = {};
+  const meltByChannel: Record<string, MeltData | null> = {};
+  const usedIds = new Set<string>();
+
+  for (const { name, cycles, wells: chWells } of channelData) {
+    let id = name;
+    if (usedIds.has(id)) id = `${name} (ch${usedIds.size + 1})`;
+    usedIds.add(id);
+    channels.push(id);
+    channelFluorophore[id] = name;
+    amplificationByChannel[id] = {
+      cycle: cycles,
       timeS: timeRecon.cycleTimes,
       timeMin: timeRecon.cycleTimes.map(t => t / 60),
-      wells: ampData.wells,
+      wells: chWells,
     };
+    meltByChannel[id] = null;
   }
+
+  const multichannel = channels.length > 0;
 
   // Build well info
   const wells: Record<string, WellInfo> = {};
@@ -92,7 +106,13 @@ export async function parseAmxd(buffer: ArrayBuffer, fileName: string): Promise<
     };
   }
 
-  const wellsUsed = sortWells(amplification ? Object.keys(amplification.wells) : Object.keys(wells));
+  // Wells used: union across channels (all channels share the plate layout).
+  const wellSet = new Set<string>();
+  for (const id of channels) {
+    const amp = amplificationByChannel[id];
+    if (amp) for (const w of Object.keys(amp.wells)) wellSet.add(w);
+  }
+  const wellsUsed = sortWells(wellSet.size > 0 ? [...wellSet] : Object.keys(wells));
 
   return buildExperimentData({
     fileName, experimentId, instrument,
@@ -104,7 +124,10 @@ export async function parseAmxd(buffer: ArrayBuffer, fileName: string): Promise<
       has_melt: protocol.hasMelt,
       raw_definition: protocol.rawDefinition,
     },
-    wells, wellsUsed, amplification, melt: null,
+    wells, wellsUsed,
+    ...(multichannel
+      ? { channels, channelFluorophore, amplificationByChannel, meltByChannel }
+      : { amplification: null, melt: null }),
     plateRows: 8, plateCols: 12,
     timeReconstruction: {
       source: 'estimated',
@@ -320,13 +343,20 @@ function parseThermalProfile(xmlFiles: Record<string, Uint8Array>) {
 // InstrumentData.xml → fluorescence
 // ---------------------------------------------------------------------------
 
+interface AmxChannelData {
+  /** Dye name (channel ID). */
+  name: string;
+  cycles: number[];
+  wells: Record<string, number[]>;
+}
+
 function parseInstrumentData(
   xmlFiles: Record<string, Uint8Array>,
   channelNames: string[],
   sampleMap: Record<string, { sample: string; content: string }>,
-) {
+): { channelData: AmxChannelData[]; elapsedS: number | null; hotStartS: number } {
   const raw = xmlFiles['InstrumentData.xml'];
-  if (!raw) return { ampData: null, elapsedS: null, hotStartS: 0 };
+  if (!raw) return { channelData: [], elapsedS: null, hotStartS: 0 };
 
   let xmlText = new TextDecoder('utf-8').decode(raw);
   if (xmlText.charCodeAt(0) === 0xFEFF) xmlText = xmlText.slice(1);
@@ -337,7 +367,7 @@ function parseInstrumentData(
   const elapsedS = elapsedEl?.textContent ? parseFloat(elapsedEl.textContent.trim()) || null : null;
 
   const dpc = doc.getElementsByTagName('DataPacketCollection')[0];
-  if (!dpc) return { ampData: null, elapsedS, hotStartS: 0 };
+  if (!dpc) return { channelData: [], elapsedS, hotStartS: 0 };
 
   // Collect all packets
   const allPackets = new Map<number, DataView>();
@@ -359,71 +389,59 @@ function parseInstrumentData(
     allPackets.set(cycleNum, view);
   }
 
-  if (allPackets.size === 0) return { ampData: null, elapsedS, hotStartS };
+  if (allPackets.size === 0) return { channelData: [], elapsedS, hotStartS };
 
-  // Auto-detect primary channel
-  const firstPacket = allPackets.values().next().value!;
-  const primaryCh = pickPrimaryChannel(firstPacket, channelNames);
-
-  // Build per-cycle per-well fluorescence
   const occupiedSet = new Set(Object.keys(sampleMap));
-  const cycles: number[] = [];
-  const wells: Record<string, number[]> = {};
+  const sortedCycles = [...allPackets.keys()].sort((a, b) => a - b);
+  const nChannels = Math.min(N_CHANNELS, channelNames.length || N_CHANNELS);
 
-  // Find all wells with non-zero signal
-  const allActive = new Set<string>();
-  for (const view of allPackets.values()) {
-    for (let wi = 0; wi < N_WELLS; wi++) {
-      const offset = 8 + primaryCh * CHANNEL_DATA_BYTES + wi * 2;
-      if (view.getUint16(offset, true) > 0) {
-        allActive.add(plateIndexToWell(wi));
+  // Identify the passive-reference channel (ROX) so it can be excluded when
+  // real reporter channels are present (it carries signal in every well but is
+  // not a target read — mirrors the BioRad dye-reference handling).
+  const roxChannels = new Set(
+    channelNames.map((n, i) => n.toUpperCase().includes('ROX') ? i : -1).filter(i => i >= 0)
+  );
+
+  // Determine which channels carry real signal in any occupied well.
+  const channelActive: { ch: number; activeWells: string[] }[] = [];
+  for (let ch = 0; ch < nChannels; ch++) {
+    const active = new Set<string>();
+    for (const view of allPackets.values()) {
+      for (let wi = 0; wi < N_WELLS; wi++) {
+        const offset = 8 + ch * CHANNEL_DATA_BYTES + wi * 2;
+        if (offset + 2 <= view.byteLength && view.getUint16(offset, true) > 0) {
+          active.add(plateIndexToWell(wi));
+        }
       }
     }
+    const occupied = sortWells([...active].filter(w => occupiedSet.size === 0 || occupiedSet.has(w)));
+    if (occupied.length > 0) channelActive.push({ ch, activeWells: occupied });
   }
 
-  const occupied = sortWells(
-    [...allActive].filter(w => occupiedSet.size === 0 || occupiedSet.has(w))
-  );
-  if (occupied.length === 0) return { ampData: null, elapsedS, hotStartS };
+  if (channelActive.length === 0) return { channelData: [], elapsedS, hotStartS };
 
-  for (const w of occupied) wells[w] = [];
+  // Emit every populated channel except the passive reference. If ROX is the
+  // only populated channel, keep it (never emit zero channels).
+  const reporters = channelActive.filter(c => !roxChannels.has(c.ch));
+  const emit = reporters.length > 0 ? reporters : channelActive;
 
-  for (const c of [...allPackets.keys()].sort((a, b) => a - b)) {
-    cycles.push(c);
-    const view = allPackets.get(c)!;
-    for (const w of occupied) {
-      const wi = wellNameToIndex(w);
-      const offset = 8 + primaryCh * CHANNEL_DATA_BYTES + wi * 2;
-      wells[w].push(view.getUint16(offset, true));
+  const channelData: AmxChannelData[] = [];
+  for (const { ch, activeWells } of emit) {
+    const wells: Record<string, number[]> = {};
+    for (const w of activeWells) wells[w] = [];
+    for (const c of sortedCycles) {
+      const view = allPackets.get(c)!;
+      for (const w of activeWells) {
+        const wi = wellNameToIndex(w);
+        const offset = 8 + ch * CHANNEL_DATA_BYTES + wi * 2;
+        wells[w].push(view.getUint16(offset, true));
+      }
     }
+    const name = (channelNames[ch] ?? '').trim() || `Channel ${ch + 1}`;
+    channelData.push({ name, cycles: [...sortedCycles], wells });
   }
 
-  return { ampData: { cycles, wells }, elapsedS, hotStartS };
-}
-
-function pickPrimaryChannel(view: DataView, channelNames: string[]): number {
-  const roxIndices = new Set(channelNames.map((n, i) => n.toUpperCase().includes('ROX') ? i : -1).filter(i => i >= 0));
-
-  let bestCh = -1;
-  let bestCount = -1;
-  for (let ch = 0; ch < Math.min(N_CHANNELS, channelNames.length); ch++) {
-    if (roxIndices.has(ch)) continue;
-    let count = 0;
-    for (let wi = 0; wi < N_WELLS; wi++) {
-      const offset = 8 + ch * CHANNEL_DATA_BYTES + wi * 2;
-      if (offset + 2 <= view.byteLength && view.getUint16(offset, true) > 0) count++;
-    }
-    if (count > bestCount) { bestCount = count; bestCh = ch; }
-  }
-
-  if (bestCh >= 0 && bestCount > 0) return bestCh;
-
-  // Fallback: prefer FAM/SYBR by name
-  for (let i = 0; i < channelNames.length; i++) {
-    const name = channelNames[i].toUpperCase();
-    if (name === 'FAM' || name === 'SYBR') return i;
-  }
-  return Math.min(3, Math.max(0, channelNames.length - 1));
+  return { channelData, elapsedS, hotStartS };
 }
 
 // ---------------------------------------------------------------------------
@@ -432,7 +450,7 @@ function pickPrimaryChannel(view: DataView, channelNames: string[]): number {
 
 function buildTimeReconstruction(
   runInfo: { startedUtc: string; endedUtc: string },
-  ampData: { cycles: number[]; wells: Record<string, number[]> } | null,
+  ampData: { cycles: number[] } | null,
   elapsedS: number | null,
   hotStartS: number,
 ): { cycleTimes: number[]; meanS: number | null; warnings: string[] } {

@@ -6,6 +6,7 @@ import { cycleToXValue, xValueToCycle, X_AXIS_UNIT_LABEL } from '@/lib/analysis'
 import type { AmplificationData, XAxisMode } from '@/types/experiment';
 import { Checkbox } from '@/components/ui/checkbox';
 import { CollapsibleSection } from './CollapsibleSection';
+import { effectiveChannelLabel } from '@/lib/channels';
 
 /**
  * Number input for a baseline / plateau zone boundary. Stored internally
@@ -102,6 +103,11 @@ export function AnalysisTab() {
   const setHoveredWell = useAppState((s) => s.setHoveredWell);
   const driftCorrectionEnabled = useAppState((s) => s.driftCorrectionEnabled);
   const setDriftCorrectionEnabled = useAppState((s) => s.setDriftCorrectionEnabled);
+  const activeChannel = useAppState((s) => s.activeChannel);
+  const setActiveChannel = useAppState((s) => s.setActiveChannel);
+  const analysisScopeAll = useAppState((s) => s.analysisScopeAll);
+  const setAnalysisScopeAll = useAppState((s) => s.setAnalysisScopeAll);
+  const channelLabels = useAppState((s) => s.channelLabels);
   const analysisResults = useAnalysisResults();
   const { slope: driftSlope, nWells: driftWells } = useGlobalDrift();
 
@@ -140,8 +146,34 @@ export function AnalysisTab() {
     return anyOn ? 'on' : 'off';
   }, [selectedArr, wellBaselineOverrides, baselineAuto]);
 
+  const channels = exp?.channels ?? [];
+  const viewMode = useAppState((s) => s.viewMode);
+
   return (
     <div className="space-y-3">
+      {channels.length > 1 && viewMode === 'multi' && (
+        <div className="flex items-center gap-2 text-sm border-b pb-2">
+          <span className="font-medium text-muted-foreground">Settings for:</span>
+          <select
+            value={analysisScopeAll ? '__all__' : activeChannel}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === '__all__') setAnalysisScopeAll(true);
+              else { setAnalysisScopeAll(false); setActiveChannel(v); }
+            }}
+            className="flex-1 h-7 border rounded px-1 text-sm bg-background"
+            title="Choose a channel to edit, or All channels to apply settings to every channel at once"
+          >
+            <option value="__all__">All channels</option>
+            {channels.map((ch) => (
+              <option key={ch} value={ch}>
+                {effectiveChannelLabel(ch, channelLabels, exp?.channelFluorophore)}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <CollapsibleSection title="Drift Correction" defaultOpen={false}>
         <label className="flex items-center gap-2 text-sm">
           <Checkbox

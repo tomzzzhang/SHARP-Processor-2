@@ -4,9 +4,22 @@ import { useDragSelect } from '@/hooks/useDragSelect';
 import { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { CONTENT_DISPLAY, getPaletteColors } from '@/lib/constants';
+import { effectiveChannelLabel, effectiveChannelColor } from '@/lib/channels';
+import { curveKey, parseCurveKey } from '@/lib/curves';
 import type { ContentType } from '@/types/experiment';
 
 const CONTENT_TYPES: ContentType[] = ['Unkn', 'Neg Ctrl', 'Pos Ctrl', 'Std', 'NPC', 'Neg', ''];
+
+type SortKey = 'visible' | 'well' | 'sample' | 'type' | 'channel' | 'group';
+type SortDir = 'asc' | 'desc';
+
+/** Natural well order: row letter then column number. */
+function naturalWell(a: string, b: string): number {
+  const am = a.match(/^([A-Z])(\d+)$/);
+  const bm = b.match(/^([A-Z])(\d+)$/);
+  if (am && bm) return am[1].localeCompare(bm[1]) || (Number(am[2]) - Number(bm[2]));
+  return a.localeCompare(b);
+}
 
 function InlineEdit({ value, onCommit }: { value: string; onCommit: (v: string) => void }) {
   const [text, setText] = useState(value);
@@ -32,22 +45,17 @@ function InlineEdit({ value, onCommit }: { value: string; onCommit: (v: string) 
       }}
       className="w-full h-5 px-0.5 text-xs border border-primary rounded-sm bg-background outline-none"
       onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
     />
   );
 }
 
 /**
  * Content-type picker — a custom dropdown menu rather than a native
- * `<select>`. The native select's popup is unreliable in the desktop
- * WebView (it often won't open from a freshly-mounted element), so we
- * render our own floating list, portalled to <body> and fixed-positioned
- * at the clicked cell. Dismisses on outside pointer-down or Escape.
+ * `<select>` (the native popup is unreliable in the desktop WebView).
  */
 function ContentTypeMenu({
-  anchor,
-  value,
-  onPick,
-  onClose,
+  anchor, value, onPick, onClose,
 }: {
   anchor: DOMRect;
   value: ContentType;
@@ -95,31 +103,65 @@ function ContentTypeMenu({
   );
 }
 
+interface SCRow {
+  key: string;        // curveKey(well, channel)
+  well: string;
+  channel: string;
+  sample: string;
+  content: ContentType;
+  displayType: string;
+  fluor: string;
+  group: string;      // effective curve group ('' = none)
+  color: string;
+}
+
 export function WellList() {
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
+  const selectedCurves = useAppState((s) => s.selectedCurves);
   const selectedWells = useAppState((s) => s.selectedWells);
   const hiddenWells = useAppState((s) => s.hiddenWells);
-  const selectOnly = useAppState((s) => s.selectOnly);
-  const toggleWellSelection = useAppState((s) => s.toggleWellSelection);
+  const visibleChannels = useAppState((s) => s.visibleChannels);
+  const wellChannelHidden = useAppState((s) => s.wellChannelHidden);
   const toggleWellHidden = useAppState((s) => s.toggleWellHidden);
-  const setSelectedWells = useAppState((s) => s.setSelectedWells);
+  const toggleWellChannel = useAppState((s) => s.toggleWellChannel);
+  const selectCurvesOnly = useAppState((s) => s.selectCurvesOnly);
+  const toggleCurves = useAppState((s) => s.toggleCurves);
+  const setSelectedCurves = useAppState((s) => s.setSelectedCurves);
   const palette = useAppState((s) => s.palette);
   const wellGroups = useAppState((s) => s.wellGroups);
+  const curveGroups = useAppState((s) => s.curveGroups);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
+  const curveStyleOverrides = useAppState((s) => s.curveStyleOverrides);
   const setWellSampleName = useAppState((s) => s.setWellSampleName);
   const setWellSampleNameBatch = useAppState((s) => s.setWellSampleNameBatch);
   const setWellContentType = useAppState((s) => s.setWellContentType);
   const hoveredWell = useAppState((s) => s.hoveredWell);
   const setHoveredWell = useAppState((s) => s.setHoveredWell);
+  const channelLabels = useAppState((s) => s.channelLabels);
+  const channelColors = useAppState((s) => s.channelColors);
+  const activeChannel = useAppState((s) => s.activeChannel);
+  const viewMode = useAppState((s) => s.viewMode);
   const exp = experiments[idx];
+  const channels = exp?.channels ?? [];
+  const multiChannel = channels.length > 1 && viewMode === 'multi';
 
-  const [editingWell, setEditingWell] = useState<string | null>(null);
-  const [typeEditWell, setTypeEditWell] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>('well');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const handleSort = useCallback((key: SortKey) => {
+    setSortKey((prevKey) => {
+      if (prevKey === key) { setSortDir((d) => (d === 'asc' ? 'desc' : 'asc')); return prevKey; }
+      setSortDir('asc');
+      return key;
+    });
+  }, []);
+
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [typeEditKey, setTypeEditKey] = useState<string | null>(null);
   const [typeAnchor, setTypeAnchor] = useState<DOMRect | null>(null);
 
-  // Build color map respecting groups (same logic as plots)
-  const colorMap = useMemo(() => {
+  // Base well→palette colour (group-aware), overlaid per-row by curve/well overrides.
+  const wellColorMap = useMemo(() => {
     const m = new Map<string, string>();
     if (!exp) return m;
     const seenGroups = new Set<string>();
@@ -135,45 +177,120 @@ export function WellList() {
     const nUnits = seenGroups.size + ungrouped.length;
     const colors = getPaletteColors(palette, nUnits);
     let ci = 0;
-    for (const [, members] of groupMembers) {
-      const c = colors[ci % colors.length]; for (const w of members) m.set(w, c); ci++;
-    }
+    for (const [, members] of groupMembers) { const c = colors[ci % colors.length]; for (const w of members) m.set(w, c); ci++; }
     for (const w of ungrouped) { m.set(w, colors[ci % colors.length]); ci++; }
-    for (const [well, ov] of wellStyleOverrides.entries()) {
-      const override = ov as { color?: string } | undefined;
-      if (override?.color) m.set(well, override.color);
-    }
     return m;
-  }, [exp, palette, wellGroups, wellStyleOverrides]);
+  }, [exp, palette, wellGroups]);
 
-  const { onRowMouseDown, onRowMouseEnter } = useDragSelect(exp?.wellsUsed ?? [], {
-    selectOnly, toggleWellSelection, setSelectedWells, selectedWells,
+  // Channels shown as rows: all channels in multichannel multi-view; otherwise
+  // just the active (single) channel — so single-channel / single-view shows one
+  // row per well exactly like v0.1.x.
+  const rowChannels = useMemo(() => (
+    multiChannel ? channels : (channels.includes(activeChannel) ? [activeChannel] : channels.slice(0, 1))
+  ), [multiChannel, channels, activeChannel]);
+
+  const rowVisible = useCallback((well: string, ch: string) => {
+    if (hiddenWells.has(well)) return false;
+    if (!multiChannel) return true;
+    return visibleChannels.has(ch) && !(wellChannelHidden.get(well)?.has(ch));
+  }, [hiddenWells, multiChannel, visibleChannels, wellChannelHidden]);
+
+  const toggleRowVisible = useCallback((well: string, ch: string) => {
+    if (!multiChannel) toggleWellHidden(well);   // single-channel / single-view: hide the well
+    else toggleWellChannel([well], ch);          // multichannel: hide just that curve
+  }, [multiChannel, toggleWellHidden, toggleWellChannel]);
+
+  // Build + sort the flat list of S-C pairs.
+  const rows = useMemo((): SCRow[] => {
+    if (!exp) return [];
+    const out: SCRow[] = [];
+    for (const well of exp.wellsUsed) {
+      const info = exp.wells[well];
+      for (const ch of rowChannels) {
+        const key = curveKey(well, ch);
+        const color = (curveStyleOverrides.get(key)?.color)
+          ?? (wellStyleOverrides.get(well)?.color)
+          ?? wellColorMap.get(well) ?? '#999';
+        out.push({
+          key, well, channel: ch,
+          sample: info?.sample ?? '',
+          content: info?.content ?? '',
+          displayType: CONTENT_DISPLAY[info?.content ?? ''] ?? info?.content ?? '',
+          fluor: effectiveChannelLabel(ch, channelLabels, exp.channelFluorophore),
+          group: curveGroups.get(key) ?? wellGroups.get(well) ?? '',
+          color,
+        });
+      }
+    }
+    const chIndex = (c: string) => { const i = channels.indexOf(c); return i < 0 ? 1e9 : i; };
+    const primary = (a: SCRow, b: SCRow): number => {
+      switch (sortKey) {
+        case 'visible': return (rowVisible(a.well, a.channel) ? 0 : 1) - (rowVisible(b.well, b.channel) ? 0 : 1);
+        case 'well': return naturalWell(a.well, b.well);
+        case 'sample': return a.sample.localeCompare(b.sample);
+        case 'type': return a.displayType.localeCompare(b.displayType);
+        case 'channel': return chIndex(a.channel) - chIndex(b.channel);
+        case 'group': return (a.group || '~~~').localeCompare(b.group || '~~~'); // ungrouped last
+      }
+    };
+    out.sort((a, b) => {
+      let c = primary(a, b);
+      if (sortDir === 'desc') c = -c;
+      if (c === 0) {
+        // Stable tiebreak (always ascending): channel sort → by well; else by channel then well.
+        if (sortKey === 'channel') c = naturalWell(a.well, b.well);
+        else if (sortKey === 'well') c = chIndex(a.channel) - chIndex(b.channel);
+        else { c = naturalWell(a.well, b.well); if (c === 0) c = chIndex(a.channel) - chIndex(b.channel); }
+      }
+      return c;
+    });
+    return out;
+  }, [exp, rowChannels, channels, wellColorMap, curveStyleOverrides, wellStyleOverrides, curveGroups, wellGroups, channelLabels, sortKey, sortDir, rowVisible]);
+
+  const orderedKeys = useMemo(() => rows.map((r) => r.key), [rows]);
+  const { onRowMouseDown, onRowMouseEnter } = useDragSelect(orderedKeys, {
+    selectOnly: (k) => selectCurvesOnly([k]),
+    toggleWellSelection: (k) => toggleCurves([k]),
+    setSelectedWells: (set) => setSelectedCurves(set),
+    selectedWells: selectedCurves,
   });
 
   if (!exp) {
     return <div className="p-3 text-sm text-muted-foreground">No data loaded</div>;
   }
 
+  const arrow = (k: SortKey) => (sortKey === k ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '');
+  const thHeader = (k: SortKey, label: string, className = '') => (
+    <th
+      key={k}
+      className={`px-1 py-1 text-left cursor-pointer select-none hover:text-foreground ${sortKey === k ? 'text-[var(--brand-red-dark)]' : ''} ${className}`}
+      onClick={() => handleSort(k)}
+    >
+      {label}{arrow(k)}
+    </th>
+  );
+
   return (
     <div className="text-xs">
       <table className="w-full">
         <thead className="sticky top-0 bg-background border-b">
           <tr className="text-muted-foreground">
-            <th className="w-7 px-1 py-1 text-center">L</th>
-            <th className="w-10 px-1 py-1 text-left">Well</th>
-            <th className="px-1 py-1 text-left">Sample</th>
-            <th className="w-10 px-1 py-1 text-left">Type</th>
-            <th className="px-1 py-1 text-left">Group</th>
+            {thHeader('visible', 'L', 'w-7 text-center')}
+            {thHeader('well', 'Well', 'w-10')}
+            {thHeader('sample', 'Sample')}
+            {thHeader('type', 'Type', 'w-10')}
+            {multiChannel && thHeader('channel', 'Fluor')}
+            {thHeader('group', 'Group')}
           </tr>
         </thead>
         <tbody>
-          {exp.wellsUsed.map((well) => {
-            const info = exp.wells[well];
-            const isSelected = selectedWells.has(well);
-            const isHidden = hiddenWells.has(well);
-            const isHovered = hoveredWell === well;
-            const color = colorMap.get(well) ?? '#999';
-            const displayType = CONTENT_DISPLAY[info?.content ?? ''] ?? info?.content ?? '';
+          {rows.map((row) => {
+            const isSelected = selectedCurves.has(row.key);
+            const isHidden = !rowVisible(row.well, row.channel);
+            const isHovered = hoveredWell === row.well;
+            const cColor = multiChannel
+              ? effectiveChannelColor(row.channel, channelColors, channelLabels, exp.channelFluorophore)
+              : undefined;
 
             const shadowParts: string[] = [];
             if (isSelected) shadowParts.push('inset 3px 0 0 var(--brand-red)');
@@ -182,91 +299,97 @@ export function WellList() {
 
             return (
               <tr
-                key={well}
+                key={row.key}
                 className={`cursor-pointer ${isSelected ? 'bg-primary/10 font-medium' : 'hover:bg-accent'}`}
-                style={{
-                  height: 22,
-                  opacity: isHidden ? 0.4 : 1,
-                  boxShadow,
-                }}
-                onMouseDown={(e) => onRowMouseDown(e, well)}
-                onMouseEnter={() => { onRowMouseEnter(well); setHoveredWell(well); }}
-                onMouseLeave={() => { if (hoveredWell === well) setHoveredWell(null); }}
+                style={{ height: 22, opacity: isHidden ? 0.4 : 1, boxShadow }}
+                onMouseDown={(e) => onRowMouseDown(e, row.key)}
+                onMouseEnter={() => { onRowMouseEnter(row.key); setHoveredWell(row.well); }}
+                onMouseLeave={() => { if (hoveredWell === row.well) setHoveredWell(null); }}
               >
-                <td className="px-1 py-0 text-center" onClick={(e) => e.stopPropagation()}>
+                <td className="px-1 py-0 text-center" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
                   <Checkbox
                     checked={!isHidden}
-                    onCheckedChange={() => toggleWellHidden(well)}
+                    onCheckedChange={() => toggleRowVisible(row.well, row.channel)}
                     className="h-3.5 w-3.5"
                   />
                 </td>
-                <td className="px-1 py-0 font-medium" style={{ color }}>
-                  {well}
+                <td className="px-1 py-0 font-medium" style={{ color: row.color }}>
+                  {row.well}
                 </td>
                 <td
                   className="px-1 py-0 truncate max-w-[120px] cursor-text hover:border-b hover:border-dashed hover:border-muted-foreground/50 transition-all duration-100"
-                  onClick={(e) => { e.stopPropagation(); setEditingWell(well); }}
+                  onClick={(e) => { e.stopPropagation(); setEditingKey(row.key); }}
+                  onMouseDown={(e) => e.stopPropagation()}
                   title="Click to edit"
                 >
-                  {editingWell === well ? (
+                  {editingKey === row.key ? (
                     <InlineEdit
-                      value={info?.sample ?? ''}
+                      value={row.sample}
                       onCommit={(v) => {
-                        if (v !== (info?.sample ?? '')) {
-                          if (selectedWells.has(well) && selectedWells.size > 1) {
+                        if (v !== row.sample) {
+                          if (selectedWells.has(row.well) && selectedWells.size > 1) {
                             setWellSampleNameBatch(Array.from(selectedWells), v);
                           } else {
-                            setWellSampleName(well, v);
+                            setWellSampleName(row.well, v);
                           }
                         }
-                        setEditingWell(null);
+                        setEditingKey(null);
                       }}
                     />
                   ) : (
-                    info?.sample ?? ''
+                    row.sample
                   )}
                 </td>
                 <td
-                  className={`px-1 py-0 cursor-pointer hover:bg-accent/60 rounded-sm group/type ${typeEditWell === well ? 'bg-accent' : ''}`}
+                  className={`px-1 py-0 cursor-pointer hover:bg-accent/60 rounded-sm group/type ${typeEditKey === row.key ? 'bg-accent' : ''}`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (typeEditWell === well) {
-                      setTypeEditWell(null);
+                    if (typeEditKey === row.key) {
+                      setTypeEditKey(null);
                     } else {
                       setTypeAnchor(e.currentTarget.getBoundingClientRect());
-                      setTypeEditWell(well);
+                      setTypeEditKey(row.key);
                     }
                   }}
+                  onMouseDown={(e) => e.stopPropagation()}
                   title="Click to change type"
                 >
                   <span className="flex items-center gap-0.5">
-                    {displayType}
+                    {row.displayType}
                     <svg className="w-2.5 h-2.5 opacity-0 group-hover/type:opacity-40 shrink-0" viewBox="0 0 10 6" fill="currentColor">
                       <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
                   </span>
                 </td>
+                {multiChannel && (
+                  <td className="px-1 py-0 truncate max-w-[90px] font-medium" style={{ color: cColor }}>
+                    {row.fluor}
+                  </td>
+                )}
                 <td className="px-1 py-0 truncate max-w-[80px] text-muted-foreground">
-                  {wellGroups.get(well) ?? ''}
+                  {row.group}
                 </td>
               </tr>
             );
           })}
         </tbody>
       </table>
-      {typeEditWell && typeAnchor && exp.wells[typeEditWell] && (
-        <ContentTypeMenu
-          anchor={typeAnchor}
-          value={exp.wells[typeEditWell]?.content ?? ''}
-          onPick={(t) => setWellContentType(
-            selectedWells.has(typeEditWell) && selectedWells.size > 1
-              ? Array.from(selectedWells)
-              : [typeEditWell],
-            t,
-          )}
-          onClose={() => setTypeEditWell(null)}
-        />
-      )}
+      {typeEditKey && typeAnchor && (() => {
+        const w = parseCurveKey(typeEditKey).well;
+        const info = exp.wells[w];
+        if (!info) return null;
+        return (
+          <ContentTypeMenu
+            anchor={typeAnchor}
+            value={info.content}
+            onPick={(t) => setWellContentType(
+              selectedWells.has(w) && selectedWells.size > 1 ? Array.from(selectedWells) : [w],
+              t,
+            )}
+            onClose={() => setTypeEditKey(null)}
+          />
+        );
+      })()}
     </div>
   );
 }

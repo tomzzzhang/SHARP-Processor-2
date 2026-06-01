@@ -537,6 +537,11 @@ export interface WellAnalysisResult {
   normalizedRfu: number[] | null;
   /** Effective plateau window (1-indexed cycles), or null when no plateau detected. */
   plateauWindow: { start: number; end: number } | null;
+  /** The y-series to plot for this well, with the channel's display settings
+   *  already resolved: normalized if normalization is on, else baseline-corrected
+   *  if baseline is on, else raw. Lets multi-channel rendering pick the right
+   *  curve per channel without re-deriving the per-channel settings. */
+  displayRfu: number[];
 }
 
 export function analyzeWell(
@@ -585,7 +590,12 @@ export function analyzeWell(
     ? { start: options.baselineStart, end: options.baselineEnd }
     : null;
 
-  return { correctedRfu, tt, dt, call, endRfu, baselineWindow, normalizedRfu: null, plateauWindow: null };
+  return {
+    correctedRfu, tt, dt, call, endRfu, baselineWindow, normalizedRfu: null, plateauWindow: null,
+    // Default display series; callers (computeChannelResults) refine this once
+    // the channel's normalize/baseline settings are known.
+    displayRfu: correctedRfu ?? rawRfu,
+  };
 }
 
 // ── Dilution Series (Standard Curve) ──────────────────────────────────

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { MAIN_PALETTE_NAMES, GRADIENT_PALETTE_NAMES, getPaletteColors } from '@/lib/constants';
+import { parseCurveKey } from '@/lib/curves';
 import { InlineColorPicker } from '@/components/ui/color-picker';
 import type { ContentType } from '@/types/experiment';
 
@@ -59,16 +60,18 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [submenu, setSubmenu] = useState<string | null>(null);
   const selectedWells = useAppState((s) => s.selectedWells);
+  const selectedCurves = useAppState((s) => s.selectedCurves);
   const showWells = useAppState((s) => s.showWells);
   const hideWells = useAppState((s) => s.hideWells);
   const deselectAll = useAppState((s) => s.deselectAll);
   const setWellContentType = useAppState((s) => s.setWellContentType);
-  const setWellStyleOverride = useAppState((s) => s.setWellStyleOverride);
-  const clearWellStyleOverrides = useAppState((s) => s.clearWellStyleOverrides);
-  const setWellGroup = useAppState((s) => s.setWellGroup);
-  const removeWellGroup = useAppState((s) => s.removeWellGroup);
+  const setCurveStyleOverride = useAppState((s) => s.setCurveStyleOverride);
+  const clearCurveStyleOverrides = useAppState((s) => s.clearCurveStyleOverrides);
+  const setCurveGroup = useAppState((s) => s.setCurveGroup);
+  const removeCurveGroup = useAppState((s) => s.removeCurveGroup);
   const autoGroupBySample = useAppState((s) => s.autoGroupBySample);
-  const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
+  const curveStyleOverrides = useAppState((s) => s.curveStyleOverrides);
+  const curveGroups = useAppState((s) => s.curveGroups);
   const wellBaselineOverrides = useAppState((s) => s.wellBaselineOverrides);
   const baselineAuto = useAppState((s) => s.baselineAuto);
   const setWellBaselineOverride = useAppState((s) => s.setWellBaselineOverride);
@@ -80,8 +83,11 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
   const addToLegend = useAppState((s) => s.addToLegend);
   const removeFromLegend = useAppState((s) => s.removeFromLegend);
 
+  // Style / group / clear / palette act on the selected CURVES (S-C pairs);
+  // visibility / sample-type / baseline / legend stay well-level (derived wells).
   const wells = [...selectedWells];
-  const n = wells.length;
+  const curves = [...selectedCurves];
+  const n = curves.length;
 
   // Tri-state for per-well auto baseline across current selection.
   // Uses the same resolution rule as AnalysisTab: override.auto ?? baselineAuto.
@@ -140,62 +146,60 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
   const handleGroupPrompt = useCallback(() => {
     const name = prompt('Group name:');
     if (name) {
-      setWellGroup(wells, name);
+      setCurveGroup(curves, name);
       onClose();
     }
-  }, [wells, setWellGroup, onClose]);
+  }, [curves, setCurveGroup, onClose]);
 
   const applyPaletteToSelection = useCallback((paletteName: string) => {
-    if (wells.length === 0) return;
+    if (curves.length === 0) return;
+    const ttOf = (key: string) => analysisResults.get(parseCurveKey(key).well)?.tt;
     const units: [number, string[]][] = [];
     if (selectionPaletteGroupColors) {
       const groupMembers = new Map<string, string[]>();
       const ungrouped: string[] = [];
       const seenGroups = new Set<string>();
-      for (const well of wells) {
-        const group = wellGroups.get(well);
+      for (const key of curves) {
+        const group = curveGroups.get(key) ?? wellGroups.get(parseCurveKey(key).well);
         if (group) {
           if (!seenGroups.has(group)) { seenGroups.add(group); groupMembers.set(group, []); }
-          groupMembers.get(group)!.push(well);
+          groupMembers.get(group)!.push(key);
         } else {
-          ungrouped.push(well);
+          ungrouped.push(key);
         }
       }
       for (const [, members] of groupMembers) {
         let sum = 0, count = 0;
-        for (const w of members) { const tt = analysisResults.get(w)?.tt; if (tt != null) { sum += tt; count++; } }
+        for (const k of members) { const tt = ttOf(k); if (tt != null) { sum += tt; count++; } }
         units.push([count > 0 ? sum / count : Infinity, members]);
       }
-      for (const well of ungrouped) { units.push([analysisResults.get(well)?.tt ?? Infinity, [well]]); }
+      for (const key of ungrouped) { units.push([ttOf(key) ?? Infinity, [key]]); }
     } else {
-      for (const well of wells) { units.push([analysisResults.get(well)?.tt ?? Infinity, [well]]); }
+      for (const key of curves) { units.push([ttOf(key) ?? Infinity, [key]]); }
     }
     units.sort((a, b) => a[0] - b[0]);
     const colors = getPaletteColors(paletteName, units.length);
     for (let i = 0; i < units.length; i++) {
       const color = colors[i % colors.length];
-      for (const well of units[i][1]) setWellStyleOverride([well], { color });
+      for (const key of units[i][1]) setCurveStyleOverride([key], { color });
     }
-  }, [wells, wellGroups, analysisResults, selectionPaletteGroupColors, setWellStyleOverride]);
+  }, [curves, curveGroups, wellGroups, analysisResults, selectionPaletteGroupColors, setCurveStyleOverride]);
 
   const reverseSelectionColors = useCallback(() => {
-    if (wells.length === 0) return;
-    // Collect current colors, reverse, and re-apply
-    const currentColors = wells.map((w) => {
-      const ov = wellStyleOverrides.get(w) as { color?: string } | undefined;
-      return ov?.color;
-    });
+    if (curves.length === 0) return;
+    // Collect current per-curve colors, reverse, and re-apply.
+    const currentColors = curves.map((k) => (curveStyleOverrides.get(k) as { color?: string } | undefined)?.color);
     const reversed = [...currentColors].reverse();
-    for (let i = 0; i < wells.length; i++) {
-      if (reversed[i]) setWellStyleOverride([wells[i]], { color: reversed[i] });
+    for (let i = 0; i < curves.length; i++) {
+      if (reversed[i]) setCurveStyleOverride([curves[i]], { color: reversed[i]! });
     }
-  }, [wells, wellStyleOverrides, setWellStyleOverride]);
+  }, [curves, curveStyleOverrides, setCurveStyleOverride]);
 
   return (
     <div ref={ref} style={style} className="bg-background border rounded-md shadow-lg py-1 min-w-[200px]">
       {/* Header */}
       <div className="px-3 py-1 text-xs text-muted-foreground font-medium border-b mb-0.5">
-        {n > 0 ? `${n} well${n > 1 ? 's' : ''} selected` : 'No wells selected'}
+        {n > 0 ? `${n} curve${n > 1 ? 's' : ''} selected` : 'No curves selected'}
       </div>
 
       {/* Visibility */}
@@ -230,7 +234,7 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
 
       {/* Grouping — plain items clear submenu on hover */}
       {itemWithHover('Group...', handleGroupPrompt, n === 0)}
-      {itemWithHover('Remove from Group', () => removeWellGroup(wells), n === 0)}
+      {itemWithHover('Remove from Group', () => removeCurveGroup(curves), n === 0)}
       {itemWithHover('Auto-Group by Sample', () => { autoGroupBySample(); onClose(); })}
       {sep('s4')}
 
@@ -245,7 +249,7 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
         {submenu === 'color' && n > 0 && (
           <SubMenu className="min-w-[220px]">
             <InlineColorPicker
-              onChange={(c) => { setWellStyleOverride(wells, { color: c }); onClose(); }}
+              onChange={(c) => { setCurveStyleOverride(curves, { color: c }); onClose(); }}
             />
           </SubMenu>
         )}
@@ -263,7 +267,7 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
               <button
                 key={value}
                 className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent"
-                onClick={() => { setWellStyleOverride(wells, { lineStyle: value }); onClose(); }}
+                onClick={() => { setCurveStyleOverride(curves, { lineStyle: value }); onClose(); }}
               >
                 {label}
               </button>
@@ -271,7 +275,7 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
           </SubMenu>
         )}
       </div>
-      {itemWithHover('Clear Style Overrides', () => clearWellStyleOverrides(wells), n === 0)}
+      {itemWithHover('Clear Style Overrides', () => clearCurveStyleOverrides(curves), n === 0)}
       {sep('s5')}
 
       {/* Palette submenu */}

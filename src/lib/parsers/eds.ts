@@ -77,10 +77,8 @@ function parseModern(
     endTimeMs = (runSummary.endTime as number) ?? null;
   }
 
-  let runName = '';
   let instrumentType = '';
   if (summary) {
-    runName = (summary.name as string) ?? '';
     instrumentType = (summary.instrumentType as string) ?? '';
   }
 
@@ -116,69 +114,101 @@ function parseModern(
     }
   }
 
-  // Analysis results → amplification
+  // Analysis results → amplification, one channel per reaction (dye/target).
+  // A multiplex well carries several `reactionResults`, each with its own dye.
   const analysis = readJson(contents, 'primary/analysis_result.json') as Record<string, unknown> | null;
-  let amplification: AmplificationData | null = null;
+
+  // Per-channel raw rn series: channelId → { well → rn[] }.
+  const ampByChannelRaw: Record<string, Record<string, number[]>> = {};
+  const channelOrder: string[] = [];
   let cycleCount = 0;
 
   if (analysis) {
-    const ampData: Record<string, number[]> = {};
     for (const wr of (analysis.wellResults as Array<Record<string, unknown>>) ?? []) {
       const idx = (wr.wellIndex as number) ?? -1;
       if (idx < 0) continue;
       const reactions = (wr.reactionResults as Array<Record<string, unknown>>) ?? [];
       if (reactions.length === 0) continue;
 
-      const rx = reactions[0];
-      const ampResult = (rx.amplificationResult as Record<string, unknown>) ?? {};
-      const rn = (ampResult.rn as number[]) ?? [];
-      if (rn.length === 0) continue;
-
       const wellName = plateIndexToWell(idx, nCols);
-      ampData[wellName] = rn;
-      cycleCount = Math.max(cycleCount, rn.length);
+      let firstCq: number | undefined;
 
-      const cqRaw = (ampResult.cq as number) ?? -1;
-      const cq = cqRaw !== -1 && cqRaw !== null ? cqRaw : undefined;
+      for (const rx of reactions) {
+        const ampResult = (rx.amplificationResult as Record<string, unknown>) ?? {};
+        const rn = (ampResult.rn as number[]) ?? [];
+        if (rn.length === 0) continue;
+
+        let channelId = modernReactionChannel(rx);
+        // Two reactions in the same well that resolve to the same channel ID
+        // (e.g. both fall back to 'Channel 1' when dye metadata is absent)
+        // would otherwise overwrite each other — silent loss of one
+        // fluorophore's curve. Give the collider a distinct ID so every
+        // reaction keeps its own curve. Properly-tagged multiplex files have a
+        // distinct dye per reaction and never hit this path.
+        if (ampByChannelRaw[channelId]?.[wellName] !== undefined) {
+          let n = 2;
+          while (ampByChannelRaw[`${channelId} (${n})`]?.[wellName] !== undefined) n++;
+          channelId = `${channelId} (${n})`;
+        }
+        if (!(channelId in ampByChannelRaw)) {
+          ampByChannelRaw[channelId] = {};
+          channelOrder.push(channelId);
+        }
+        ampByChannelRaw[channelId][wellName] = rn;
+        cycleCount = Math.max(cycleCount, rn.length);
+
+        const cqRaw = (ampResult.cq as number) ?? -1;
+        const cq = cqRaw !== -1 && cqRaw !== null ? cqRaw : undefined;
+        if (firstCq === undefined && cq !== undefined) firstCq = cq;
+      }
 
       if (sampleMap[wellName]) {
-        sampleMap[wellName].cq = cq;
+        if (firstCq !== undefined) sampleMap[wellName].cq = firstCq;
       } else {
         sampleMap[wellName] = {
           sample: (wr.sampleName as string) ?? '',
           content: 'Unkn',
-          cq,
+          cq: firstCq,
         };
       }
     }
-
-    if (Object.keys(ampData).length > 0) {
-      const cycles: number[] = [];
-      const wells: Record<string, number[]> = {};
-      for (let c = 0; c < cycleCount; c++) {
-        cycles.push(c + 1);
-      }
-      for (const [wn, rn] of Object.entries(ampData)) {
-        wells[wn] = Array.from({ length: cycleCount }, (_, c) => c < rn.length ? rn[c] : NaN);
-      }
-
-      // Timing
-      const timing = buildTiming(contents, startTimeMs, cycleCount,
-        startTimeMs ? new Date(startTimeMs) : null,
-        endTimeMs ? new Date(endTimeMs) : null);
-
-      amplification = {
-        cycle: cycles,
-        timeS: timing.cycleTimes,
-        timeMin: timing.cycleTimes.map(t => t / 60),
-        wells,
-      };
-    }
   }
+
+  // Timing (shared across channels).
+  const timing = buildTiming(contents, startTimeMs, cycleCount,
+    startTimeMs ? new Date(startTimeMs) : null,
+    endTimeMs ? new Date(endTimeMs) : null);
+  const cycles: number[] = Array.from({ length: cycleCount }, (_, c) => c + 1);
+
+  // Build one AmplificationData per channel.
+  const channels: string[] = [];
+  const channelFluorophore: Record<string, string> = {};
+  const amplificationByChannel: Record<string, AmplificationData | null> = {};
+  const meltByChannel: Record<string, MeltData | null> = {};
+  for (const channelId of channelOrder) {
+    const raw = ampByChannelRaw[channelId];
+    if (Object.keys(raw).length === 0) continue;
+    const wells: Record<string, number[]> = {};
+    for (const [wn, rn] of Object.entries(raw)) {
+      wells[wn] = Array.from({ length: cycleCount }, (_, c) => c < rn.length ? rn[c] : NaN);
+    }
+    channels.push(channelId);
+    channelFluorophore[channelId] = channelId;
+    amplificationByChannel[channelId] = {
+      cycle: cycles,
+      timeS: timing.cycleTimes,
+      timeMin: timing.cycleTimes.map(t => t / 60),
+      wells,
+    };
+    meltByChannel[channelId] = null;
+  }
+
+  const multichannel = channels.length > 0;
+  const activeAmp = multichannel ? amplificationByChannel[channels[0]] : null;
 
   // Protocol
   const runMethodJson = readJson(contents, 'setup/run_method.json') as Record<string, unknown> | null;
-  const protocol = parseRunMethodJson(runMethodJson, runName);
+  const protocol = parseRunMethodJson(runMethodJson);
 
   // Build well info
   const wells: Record<string, WellInfo> = {};
@@ -189,9 +219,9 @@ function parseModern(
     };
   }
 
-  const wellsUsed = sortWells(amplification ? Object.keys(amplification.wells) : Object.keys(wells));
+  const wellsUsed = sortWells(activeAmp ? Object.keys(activeAmp.wells) : Object.keys(wells));
 
-  const stats = amplification ? computeTimeStats(amplification.timeS) : { mean: null, median: null, stdev: null };
+  const stats = activeAmp ? computeTimeStats(activeAmp.timeS) : { mean: null, median: null, stdev: null };
 
   return buildExperimentData({
     fileName, experimentId, instrument, runInfo,
@@ -202,15 +232,31 @@ function parseModern(
       has_melt: protocol.hasMelt,
       raw_definition: protocol.rawDefinition,
     },
-    wells, wellsUsed, amplification, melt: null,
+    wells, wellsUsed,
+    ...(multichannel
+      ? { channels, channelFluorophore, amplificationByChannel, meltByChannel }
+      : { amplification: null, melt: null }),
     plateRows: nCols === 24 ? 16 : 8,
     plateCols: nCols,
     timeReconstruction: {
       source: 'thermofisher_quant',
-      cycle_times_s: amplification?.timeS ?? [],
+      cycle_times_s: activeAmp?.timeS ?? [],
       mean_cycle_duration_s: stats.mean,
     },
   });
+}
+
+/** Channel ID for a modern-format reaction. Prefers the reporter dye, then the
+ *  target/assay name, else a generic label. */
+function modernReactionChannel(rx: Record<string, unknown>): string {
+  const candidates = [
+    rx.dye, rx.reporter, rx.reporterDye, rx.dyeName,
+    rx.target, rx.targetName, rx.assayName, rx.detector,
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) return c.trim();
+  }
+  return 'Channel 1';
 }
 
 // ---------------------------------------------------------------------------
@@ -249,36 +295,93 @@ function parseLegacy(
   const typeId = findText('Id').toUpperCase();
   const isMeltOnly = typeId === 'MC';
 
-  let amplification: AmplificationData | null = null;
-  let melt: MeltData | null = null;
+  // Decide which optical filters (channels) to emit and how to name them. Each
+  // matched filter pair _M{i}_X{i}_ in the .quant filenames is one dye's primary
+  // read; the dye→filter assignment comes from the instrument's pure-dye
+  // calibration (puredye.ini) and the plate's dye list (plate_setup.ini). The
+  // passive-reference dye (e.g. ROX / MUSTANG PURPLE) is excluded.
+  const filters = resolveLegacyFilters(contents);
 
-  if (isMeltOnly) {
-    const meltRaw = parseQuantMelt(contents);
+  const amplificationByChannel: Record<string, AmplificationData | null> = {};
+  const meltByChannel: Record<string, MeltData | null> = {};
+  const channelFluorophore: Record<string, string> = {};
+  const channels: string[] = [];
+  const usedIds = new Set<string>();
+
+  for (const { filter, dye } of filters) {
+    let amp: AmplificationData | null = null;
+    let melt: MeltData | null = null;
+
+    if (!isMeltOnly) {
+      const ampRaw = parseQuantFluorescence(contents, filter);
+      if (ampRaw) {
+        const timing = buildTiming(contents, startTimeMs, ampRaw.cycles.length,
+          startTimeMs ? new Date(startTimeMs) : null, null, filter);
+        amp = {
+          cycle: ampRaw.cycles,
+          timeS: timing.cycleTimes,
+          timeMin: timing.cycleTimes.map(t => t / 60),
+          wells: ampRaw.wells,
+        };
+      }
+    }
+    const meltRaw = parseQuantMelt(contents, filter);
     if (meltRaw) {
       const derivative = computeMeltDerivative(meltRaw.temperatures, meltRaw.wells);
       melt = { temperatureC: meltRaw.temperatures, rfu: meltRaw.wells, derivative };
     }
-  } else {
-    const ampRaw = parseQuantFluorescence(contents);
-    if (ampRaw) {
-      const timing = buildTiming(contents, startTimeMs, ampRaw.cycles.length,
-        startTimeMs ? new Date(startTimeMs) : null, null);
-      amplification = {
-        cycle: ampRaw.cycles,
-        timeS: timing.cycleTimes,
-        timeMin: timing.cycleTimes.map(t => t / 60),
-        wells: ampRaw.wells,
-      };
-    }
-    const meltRaw = parseQuantMelt(contents);
-    if (meltRaw) {
-      const derivative = computeMeltDerivative(meltRaw.temperatures, meltRaw.wells);
-      melt = { temperatureC: meltRaw.temperatures, rfu: meltRaw.wells, derivative };
-    }
+
+    // Drop filters that yielded no data at all (e.g. a melt-only file's amp).
+    if (!amp && !melt) continue;
+
+    let id = dye;
+    if (usedIds.has(id)) id = `${dye} (M${filter})`;
+    usedIds.add(id);
+    channels.push(id);
+    channelFluorophore[id] = dye;
+    amplificationByChannel[id] = amp;
+    meltByChannel[id] = melt;
   }
 
-  // Sample map from XML
-  const dataWells = amplification ? Object.keys(amplification.wells) : (melt ? Object.keys(melt.rfu) : []);
+  // Fallback: never emit zero channels. If filter resolution found nothing,
+  // parse the whole quant set as a single channel (legacy behaviour).
+  if (channels.length === 0) {
+    let amp: AmplificationData | null = null;
+    let melt: MeltData | null = null;
+    if (!isMeltOnly) {
+      const ampRaw = parseQuantFluorescence(contents, null);
+      if (ampRaw) {
+        const timing = buildTiming(contents, startTimeMs, ampRaw.cycles.length,
+          startTimeMs ? new Date(startTimeMs) : null, null, null);
+        amp = {
+          cycle: ampRaw.cycles, timeS: timing.cycleTimes,
+          timeMin: timing.cycleTimes.map(t => t / 60), wells: ampRaw.wells,
+        };
+      }
+    }
+    const meltRaw = parseQuantMelt(contents, null);
+    if (meltRaw) {
+      const derivative = computeMeltDerivative(meltRaw.temperatures, meltRaw.wells);
+      melt = { temperatureC: meltRaw.temperatures, rfu: meltRaw.wells, derivative };
+    }
+    const id = 'SYBR';
+    channels.push(id);
+    channelFluorophore[id] = id;
+    amplificationByChannel[id] = amp;
+    meltByChannel[id] = melt;
+  }
+
+  const activeMelt = meltByChannel[channels[0]] ?? null;
+
+  // Sample map from XML — keyed on the union of wells across channels.
+  const wellSet = new Set<string>();
+  for (const id of channels) {
+    const amp = amplificationByChannel[id];
+    const m = meltByChannel[id];
+    if (amp) for (const w of Object.keys(amp.wells)) wellSet.add(w);
+    if (m) for (const w of Object.keys(m.rfu)) wellSet.add(w);
+  }
+  const dataWells = [...wellSet];
   const sampleMap = parseLegacySampleMap(doc, dataWells);
 
   const wells: Record<string, WellInfo> = {};
@@ -295,18 +398,132 @@ function parseLegacy(
     fileName, experimentId, instrument, runInfo,
     protocol: {
       type: 'standard_pcr',
-      has_melt: melt !== null,
+      has_melt: activeMelt !== null,
     },
-    wells, wellsUsed, amplification, melt,
+    wells, wellsUsed,
+    channels, channelFluorophore, amplificationByChannel, meltByChannel,
     plateRows: 8, plateCols: 12,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Legacy optical-filter / dye resolution
+// ---------------------------------------------------------------------------
+
+interface LegacyFilter {
+  /** Matched-filter index N (the i in _M{i}_X{i}_). */
+  filter: number;
+  /** Reporter dye name used as the channel ID. */
+  dye: string;
+}
+
+/**
+ * Resolve which matched optical filters to emit as channels, and the dye name
+ * for each. The .quant files are keyed by an excitation/emission filter pair
+ * `_M{e}_X{x}_`; each dye's *primary* read uses its matched pair (e === x).
+ *
+ * Mapping chain:
+ *   1. plate_setup.ini [dye] → ordered dye list + passive-reference dye.
+ *   2. calibrations/puredye.ini → per-dye strongest matched filter (x{i}-m{i}),
+ *      giving dye → filter index N.
+ *   3. Emit one channel per non-reference dye whose filter N actually has data
+ *      in the .quant set. Channels are ordered by filter index.
+ *
+ * Falls back to generic `m{i}-x{i}` channel names (excluding the reference's
+ * filter when known) when the calibration mapping is unavailable.
+ */
+function resolveLegacyFilters(contents: Record<string, Uint8Array>): LegacyFilter[] {
+  // Matched filters that actually carry .quant data.
+  const dataFilters = new Set<number>();
+  for (const key of Object.keys(contents)) {
+    if (!key.startsWith('apldbio/sds/quant/') || !key.endsWith('.quant')) continue;
+    const m = key.match(/_M(\d+)_X(\d+)_/);
+    if (m && m[1] === m[2]) dataFilters.add(parseInt(m[1]));
+  }
+  if (dataFilters.size === 0) return [];
+
+  // Plate dye list + reference.
+  const plateSetup = readText(contents, 'apldbio/sds/plate_setup.ini') ?? '';
+  const dyesMatch = plateSetup.match(/\[dye\][\s\S]*?dyes\s*=\s*([^\n]+)/i);
+  const refMatch = plateSetup.match(/\[dye\][\s\S]*?reference\s*=\s*([^\n]+)/i);
+  const dyes = dyesMatch ? dyesMatch[1].trim().split(',').map(s => s.trim()).filter(Boolean) : [];
+  const reference = refMatch ? refMatch[1].trim().toUpperCase() : '';
+
+  // Per-dye matched filter from the pure-dye calibration.
+  const calib = readText(contents, 'apldbio/sds/calibrations/puredye.ini') ?? '';
+  const dyeToFilter = parseDyeMatchedFilters(calib);
+
+  const out: LegacyFilter[] = [];
+  const claimed = new Set<number>();
+  if (dyes.length > 0 && dyeToFilter.size > 0) {
+    for (const dye of dyes) {
+      if (dye.toUpperCase() === reference) continue;
+      const filter = dyeToFilter.get(dye.toUpperCase());
+      if (filter === undefined || !dataFilters.has(filter) || claimed.has(filter)) continue;
+      claimed.add(filter);
+      out.push({ filter, dye });
+    }
+  }
+
+  if (out.length > 0) {
+    out.sort((a, b) => a.filter - b.filter);
+    return out;
+  }
+
+  // Fallback: no usable dye→filter mapping. Emit generic channels for every
+  // matched data filter, dropping the reference's filter when we can identify it.
+  const refFilter = reference ? dyeToFilter.get(reference) : undefined;
+  for (const filter of [...dataFilters].sort((a, b) => a - b)) {
+    if (refFilter !== undefined && filter === refFilter && dataFilters.size > 1) continue;
+    out.push({ filter, dye: `m${filter}-x${filter}` });
+  }
+  return out;
+}
+
+/**
+ * From puredye.ini, return DYE(upper) → strongest matched filter index. The
+ * file lists `filtersets` (e.g. `x1-m1,x1-m2,...`) and, per dye section, a
+ * `QCSignal` row aligned to those filtersets; the dye's matched filter is the
+ * `x{i}-m{i}` entry with the largest QCSignal.
+ */
+function parseDyeMatchedFilters(calib: string): Map<string, number> {
+  const map = new Map<string, number>();
+  if (!calib) return map;
+
+  const fsMatch = calib.match(/filtersets\s*=\s*([^\n]+)/i);
+  if (!fsMatch) return map;
+  const filtersets = fsMatch[1].trim().split(',').map(s => s.trim());
+  // Index of each matched filterset within the QCSignal row.
+  const matchedIdx: { idx: number; n: number }[] = [];
+  filtersets.forEach((f, i) => {
+    const mm = f.match(/x(\d+)-m(\d+)/i);
+    if (mm && mm[1] === mm[2]) matchedIdx.push({ idx: i, n: parseInt(mm[1]) });
+  });
+  if (matchedIdx.length === 0) return map;
+
+  const dyeListMatch = calib.match(/\[puredyes\][\s\S]*?dyes\s*=\s*([^\n]+)/i);
+  const dyes = dyeListMatch ? dyeListMatch[1].trim().split(',').map(s => s.trim()).filter(Boolean) : [];
+  for (const dye of dyes) {
+    const escaped = dye.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const sigMatch = calib.match(new RegExp(`\\[${escaped}\\][\\s\\S]*?QCSignal\\s*=\\s*([^\\n]+)`, 'i'));
+    if (!sigMatch) continue;
+    const sig = sigMatch[1].split(',').map(s => parseFloat(s.trim()));
+    let bestN = -1;
+    let bestVal = -Infinity;
+    for (const { idx, n } of matchedIdx) {
+      const v = sig[idx];
+      if (!isNaN(v) && v > bestVal) { bestVal = v; bestN = n; }
+    }
+    if (bestN > 0) map.set(dye.toUpperCase(), bestN);
+  }
+  return map;
 }
 
 // ---------------------------------------------------------------------------
 // Protocol parsing
 // ---------------------------------------------------------------------------
 
-function parseRunMethodJson(runMethod: Record<string, unknown> | null, _name: string) {
+function parseRunMethodJson(runMethod: Record<string, unknown> | null) {
   if (!runMethod) return { experimentType: 'standard_pcr', reactionTemp: null, ampCycles: null, hasMelt: false, rawDefinition: '' };
 
   const stages = (runMethod.stages as Array<Record<string, unknown>>) ?? [];
@@ -349,6 +566,7 @@ function buildTiming(
   cycleCount: number,
   startDt: Date | null,
   endDt: Date | null,
+  filter: number | null = null,
 ): { cycleTimes: number[] } {
   const quantKeys = Object.keys(contents)
     .filter(k => k.startsWith('apldbio/sds/quant/') && k.endsWith('.quant'))
@@ -356,8 +574,8 @@ function buildTiming(
 
   if (quantKeys.length === 0) return estimateTiming(cycleCount, startDt, endDt);
 
-  const m1Keys = quantKeys.filter(k => k.includes('_M1_'));
-  const useKeys = m1Keys.length > 0 ? m1Keys : quantKeys;
+  const filterKeys = filterQuantKeys(quantKeys, filter);
+  const useKeys = filterKeys.length > 0 ? filterKeys : quantKeys;
 
   const cyclePattern = /_C(\d+)_/;
   const cycleTimes = new Map<number, number>();
@@ -409,13 +627,13 @@ function estimateTiming(cycleCount: number, startDt: Date | null, endDt: Date | 
 // Legacy quant fluorescence
 // ---------------------------------------------------------------------------
 
-function parseQuantFluorescence(contents: Record<string, Uint8Array>) {
+function parseQuantFluorescence(contents: Record<string, Uint8Array>, filter: number | null) {
   const quantKeys = Object.keys(contents)
     .filter(k => k.startsWith('apldbio/sds/quant/') && k.endsWith('.quant'))
     .sort();
 
-  const m1Keys = quantKeys.filter(k => k.includes('_M1_'));
-  const useKeys = m1Keys.length > 0 ? m1Keys : quantKeys;
+  const filterKeys = filterQuantKeys(quantKeys, filter);
+  const useKeys = filterKeys.length > 0 ? filterKeys : quantKeys;
 
   const cyclePattern = /_C(\d+)_/;
   const cycleData = new Map<number, Record<string, number>>();
@@ -488,10 +706,14 @@ function parseLegacyWellLabel(label: string): string | null {
 // Legacy melt data
 // ---------------------------------------------------------------------------
 
-function parseQuantMelt(contents: Record<string, Uint8Array>) {
-  const quantKeys = Object.keys(contents)
+function parseQuantMelt(contents: Record<string, Uint8Array>, filter: number | null) {
+  const allQuantKeys = Object.keys(contents)
     .filter(k => k.startsWith('apldbio/sds/quant/') && k.endsWith('.quant'))
     .sort();
+
+  // Restrict to this channel's matched optical filter first.
+  const filterKeys = filterQuantKeys(allQuantKeys, filter);
+  const quantKeys = filterKeys.length > 0 ? filterKeys : allQuantKeys;
 
   const e1Keys = quantKeys.filter(k => k.endsWith('_E1.quant'));
   const useKeys = e1Keys.length > 0 ? e1Keys : quantKeys;
@@ -595,6 +817,14 @@ function parseLegacySampleMap(doc: Document, dataWells: string[]): Record<string
 // ---------------------------------------------------------------------------
 // Utility
 // ---------------------------------------------------------------------------
+
+/** Keep only the .quant files for one matched optical filter pair _M{n}_X{n}_.
+ *  Returns all keys unchanged when `filter` is null. */
+function filterQuantKeys(quantKeys: string[], filter: number | null): string[] {
+  if (filter === null) return quantKeys;
+  const token = `_M${filter}_X${filter}_`;
+  return quantKeys.filter(k => k.includes(token));
+}
 
 function mapTask(task: string): string {
   const t = task.toUpperCase();

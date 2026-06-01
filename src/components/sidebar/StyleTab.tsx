@@ -2,9 +2,21 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useAppState } from '@/hooks/useAppState';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
-import { FONT_FAMILIES, LEGEND_POSITIONS, MAIN_PALETTE_NAMES, GRADIENT_PALETTE_NAMES } from '@/lib/constants';
+import { FONT_FAMILIES, LEGEND_POSITIONS, MAIN_PALETTE_NAMES, GRADIENT_PALETTE_NAMES, getPaletteColors } from '@/lib/constants';
+import { effectiveChannelLabel, effectiveChannelColor } from '@/lib/channels';
+import { curveKey } from '@/lib/curves';
+import { useAllChannelResults } from '@/hooks/useAnalysisResults';
 import { CollapsibleSection } from './CollapsibleSection';
 import { ColorPicker } from '@/components/ui/color-picker';
+
+/** Line-style options for the per-channel picker (Plotly dash names). */
+const CHANNEL_LINE_STYLES: { value: string; label: string }[] = [
+  { value: 'solid', label: 'Solid' },
+  { value: 'dash', label: 'Dashed' },
+  { value: 'dot', label: 'Dotted' },
+  { value: 'dashdot', label: 'Dash-dot' },
+  { value: 'longdash', label: 'Long dash' },
+];
 import {
   listStylePresets, getStylePreset, saveStylePreset, deleteStylePreset,
   isBuiltinPreset,
@@ -42,32 +54,57 @@ export function StyleTab() {
   const hiddenWells = useAppState((s) => s.hiddenWells);
   const wellGroups = useAppState((s) => s.wellGroups);
   const activeExp = experiments[activeIdx];
+  // Channel-display state — needed for the legend reorder list (which must mirror
+  // PlotArea's per-S-C-pair legend keys in multichannel) and the channel styling
+  // controls below.
+  const viewMode = useAppState((s) => s.viewMode);
+  const activeChannel = useAppState((s) => s.activeChannel);
+  const channelLabels = useAppState((s) => s.channelLabels);
+  const visibleChannels = useAppState((s) => s.visibleChannels);
+  const wellChannelHidden = useAppState((s) => s.wellChannelHidden);
+  const curveGroups = useAppState((s) => s.curveGroups);
+  const setCurveColorsBatch = useAppState((s) => s.setCurveColorsBatch);
+  const allChannelResults = useAllChannelResults();
 
-  /** Current legend entries in their effective display order. Each
-   *  entry has a stable `key` matching what PlotArea uses for
-   *  `legendgroup`, so reordering here matches what Plotly renders. */
+  /** Current legend entries in their effective display order. Each entry has a
+   *  stable `key` matching what PlotArea uses for `legendgroup`, so reordering
+   *  here matches what Plotly renders. Mirrors `computeCurveLegendInfo`: per
+   *  S-C pair in multichannel (`<name> · <fluor>`), per well in single channel;
+   *  curve groups only collapse in group mode. */
   const legendEntries = useMemo(() => {
     if (!activeExp) return [] as { key: string; label: string }[];
-    const visible = activeExp.wellsUsed.filter((w) => !hiddenWells.has(w));
+    const chans = activeExp.channels;
+    const visList = viewMode === 'single'
+      ? (chans.includes(activeChannel) ? [activeChannel] : chans.slice(0, 1))
+      : chans.filter((c) => visibleChannels.has(c));
+    const multi = visList.length > 1;
+    const visibleWells = activeExp.wellsUsed.filter((w) => !hiddenWells.has(w));
     const seen = new Set<string>();
     const raw: { key: string; label: string }[] = [];
-    for (const well of visible) {
-      let key: string, label: string;
-      if (legendContent === 'group') {
-        const g = wellGroups.get(well);
-        if (g) { key = `grp:${g}`; label = g; }
-        else { key = `well:${well}`; label = activeExp.wells[well]?.sample ?? well; }
-      } else if (legendContent === 'sample') {
-        key = `well:${well}`; label = activeExp.wells[well]?.sample ?? well;
-      } else {
-        key = `well:${well}`; label = well;
+    for (const ch of visList) {
+      const fluor = effectiveChannelLabel(ch, channelLabels, activeExp.channelFluorophore);
+      for (const well of visibleWells) {
+        if (wellChannelHidden.get(well)?.has(ch)) continue;
+        const ckey = curveKey(well, ch);
+        const sample = activeExp.wells[well]?.sample ?? well;
+        let key: string, label: string;
+        if (legendContent === 'group') {
+          const g = curveGroups.get(ckey) ?? wellGroups.get(well);
+          if (g) { key = `grp:${g}`; label = g; }
+          else if (multi) { key = `curve:${ckey}`; label = `${sample} · ${fluor}`; }
+          else { key = `well:${well}`; label = sample; }
+        } else {
+          const base = legendContent === 'well' ? well : sample;
+          if (multi) { key = `curve:${ckey}`; label = `${base} · ${fluor}`; }
+          else { key = `well:${well}`; label = base; }
+        }
+        if (seen.has(key)) continue;
+        seen.add(key);
+        raw.push({ key, label });
       }
-      if (seen.has(key)) continue;
-      seen.add(key);
-      raw.push({ key, label });
     }
-    // Sort by legendOrder rank (entries in the order array first, in
-    // that order; everything else follows in natural order).
+    // Sort by legendOrder rank (entries in the order array first, in that order;
+    // everything else follows in natural order).
     const rank = new Map<string, number>();
     legendOrder.forEach((k, i) => rank.set(k, i));
     raw.sort((a, b) => {
@@ -79,7 +116,7 @@ export function StyleTab() {
       return 0;
     });
     return raw;
-  }, [activeExp, hiddenWells, wellGroups, legendContent, legendOrder]);
+  }, [activeExp, hiddenWells, wellGroups, curveGroups, legendContent, legendOrder, viewMode, activeChannel, visibleChannels, wellChannelHidden, channelLabels]);
 
   // Pointer-event reorder (HTML5 drag is intercepted by the Tauri
   // webview as a file drop, so we handle mousedown/move/up manually).
@@ -145,11 +182,18 @@ export function StyleTab() {
   const paletteArrowMode = useAppState((s) => s.paletteArrowMode);
   const setPaletteArrowMode = useAppState((s) => s.setPaletteArrowMode);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
+  const curveStyleOverrides = useAppState((s) => s.curveStyleOverrides);
   const clearAllColorOverrides = useAppState((s) => s.clearAllColorOverrides);
   const hasCustomColor = useMemo(() => {
     for (const ov of wellStyleOverrides.values()) if (ov.color) return true;
+    for (const ov of curveStyleOverrides.values()) if (ov.color) return true;
     return false;
-  }, [wellStyleOverrides]);
+  }, [wellStyleOverrides, curveStyleOverrides]);
+  const hasCustomStyle = useMemo(() => {
+    for (const ov of wellStyleOverrides.values()) if (ov.color || ov.lineWidth != null || ov.lineStyle) return true;
+    for (const ov of curveStyleOverrides.values()) if (ov.color || ov.lineWidth != null || ov.lineStyle) return true;
+    return false;
+  }, [wellStyleOverrides, curveStyleOverrides]);
   const showGrid = useAppState((s) => s.showGrid);
   const gridAlpha = useAppState((s) => s.gridAlpha);
   const plotBgColor = useAppState((s) => s.plotBgColor);
@@ -179,6 +223,80 @@ export function StyleTab() {
   const setFigureDpi = useAppState((s) => s.setFigureDpi);
   const resetStyle = useAppState((s) => s.resetStyle);
   const applyStyleSnapshot = useAppState((s) => s.applyStyleSnapshot);
+
+  // Channel styling
+  const applySeparateByColor = useAppState((s) => s.applySeparateByColor);
+  const applySeparateByLineStyle = useAppState((s) => s.applySeparateByLineStyle);
+  const clearAllWellStyleOverrides = useAppState((s) => s.clearAllWellStyleOverrides);
+  const channelColors = useAppState((s) => s.channelColors);
+  const channelLineStyles = useAppState((s) => s.channelLineStyles);
+  const setChannelColor = useAppState((s) => s.setChannelColor);
+  const setChannelLineStyle = useAppState((s) => s.setChannelLineStyle);
+  const setAllChannelLineStyles = useAppState((s) => s.setAllChannelLineStyles);
+  const channels = activeExp?.channels ?? [];
+  // Channel styling controls only in the multichannel view of a >1-channel exp.
+  const multiChannel = channels.length > 1 && viewMode === 'multi';
+  // Which channel the colour / line-style edits target ('all' or a channel id).
+  const [styleScope, setStyleScope] = useState<string>('all');
+  // The effective line style shown for the current scope ('' = mixed/unset).
+  const scopeLineStyle = styleScope === 'all'
+    ? (channels.every((c) => channelLineStyles.get(c) === channelLineStyles.get(channels[0])) ? (channelLineStyles.get(channels[0]) ?? 'solid') : '')
+    : (channelLineStyles.get(styleScope) ?? 'solid');
+  const applyLineStyle = useCallback((style: string) => {
+    if (styleScope === 'all') setAllChannelLineStyles(style);
+    else setChannelLineStyle(styleScope, style);
+  }, [styleScope, setAllChannelLineStyles, setChannelLineStyle]);
+  // StyleTab stays mounted across experiment-tab switches, so a per-channel
+  // styleScope can outlive its experiment. Clamp back to 'all' when it no
+  // longer names a channel here, else the colour / line-style controls would
+  // edit a channel absent from the current experiment.
+  useEffect(() => {
+    if (styleScope !== 'all' && !channels.includes(styleScope)) setStyleScope('all');
+  }, [channels, styleScope]);
+
+  // Apply the palette to ONE channel's S-C pairs by that channel's Tt order
+  // (group-aware, reversed-aware) — the single-channel palette logic scoped to a
+  // channel. Writes per-curve colour overrides + syncs the global palette in one
+  // undoable step. (In multichannel the global palette is otherwise inert because
+  // the plot colours by per-channel ramps.)
+  const applyPaletteToChannel = useCallback((channel: string, paletteName: string) => {
+    if (!activeExp) { setPalette(paletteName); return; }
+    const results = allChannelResults.get(channel);
+    const ttOf = (well: string) => results?.get(well)?.tt;
+    const wells = activeExp.wellsUsed.filter((w) =>
+      !hiddenWells.has(w) && visibleChannels.has(channel) && !(wellChannelHidden.get(w)?.has(channel)));
+    if (wells.length === 0) { setPalette(paletteName); return; }
+    const units: Array<{ t: number; keys: string[] }> = [];
+    if (paletteGroupColors) {
+      const byGroup = new Map<string, { sum: number; n: number; keys: string[] }>();
+      for (const w of wells) {
+        const key = curveKey(w, channel);
+        const g = curveGroups.get(key) ?? wellGroups.get(w);
+        const tt = ttOf(w);
+        if (g) {
+          let u = byGroup.get(g);
+          if (!u) { u = { sum: 0, n: 0, keys: [] }; byGroup.set(g, u); }
+          u.keys.push(key);
+          if (tt != null) { u.sum += tt; u.n++; }
+        } else {
+          units.push({ t: tt ?? Infinity, keys: [key] });
+        }
+      }
+      for (const u of byGroup.values()) units.push({ t: u.n > 0 ? u.sum / u.n : Infinity, keys: u.keys });
+    } else {
+      for (const w of wells) units.push({ t: ttOf(w) ?? Infinity, keys: [curveKey(w, channel)] });
+    }
+    units.sort((a, b) => a.t - b.t);
+    let colors = getPaletteColors(paletteName, units.length);
+    if (paletteReversed) colors = [...colors].reverse();
+    const entries: [string, string][] = [];
+    for (let i = 0; i < units.length; i++) {
+      const color = colors[i % colors.length];
+      for (const key of units[i].keys) entries.push([key, color]);
+    }
+    setCurveColorsBatch(entries, paletteName);
+  }, [activeExp, allChannelResults, hiddenWells, visibleChannels, wellChannelHidden, paletteGroupColors, curveGroups, wellGroups, paletteReversed, setCurveColorsBatch, setPalette]);
+
 
   // Preset management
   const [presetNames, setPresetNames] = useState<string[]>(() => listStylePresets());
@@ -256,6 +374,61 @@ export function StyleTab() {
   return (
     <div className="space-y-3">
       <CollapsibleSection title="Colors & Lines">
+        {multiChannel && (
+          <div className="space-y-2 border-b pb-2 mb-1">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="font-medium text-muted-foreground">Settings for:</span>
+              <select
+                value={styleScope}
+                onChange={(e) => setStyleScope(e.target.value)}
+                className="flex-1 h-7 border rounded px-1 text-sm bg-background"
+                title="Channel that the colour / line-style controls below apply to"
+              >
+                <option value="all">All channels</option>
+                {channels.map((ch) => (
+                  <option key={ch} value={ch}>
+                    {effectiveChannelLabel(ch, channelLabels, activeExp?.channelFluorophore)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="font-medium text-muted-foreground shrink-0">Separate by:</span>
+              <Button
+                variant="outline" size="sm" className="flex-1 h-7 text-xs"
+                onClick={applySeparateByColor}
+                title="Reset to the standard per-channel colour ramps (clears manual colours)"
+              >
+                Color
+              </Button>
+              <Button
+                variant="outline" size="sm" className="flex-1 h-7 text-xs"
+                onClick={applySeparateByLineStyle}
+                title="Give each channel a distinct line style (clears manual line styles)"
+              >
+                Line style
+              </Button>
+            </div>
+            {styleScope !== 'all' && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">Channel color:</span>
+                <ColorPicker
+                  value={effectiveChannelColor(styleScope, channelColors, channelLabels, activeExp?.channelFluorophore)}
+                  onChange={(c) => setChannelColor(styleScope, c)}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 text-xs px-2"
+                  onClick={() => setChannelColor(styleScope, '')}
+                  title="Reset to the dye's default colour"
+                >
+                  Default
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
         <div className="flex items-center gap-2 text-sm">
           <span className="text-muted-foreground">Palette:</span>
           <select
@@ -272,7 +445,21 @@ export function StyleTab() {
               ))}
             </optgroup>
           </select>
+          {multiChannel && styleScope !== 'all' && (
+            <Button
+              variant="outline" size="sm" className="h-7 text-xs px-2 shrink-0"
+              onClick={() => applyPaletteToChannel(styleScope, palette)}
+              title={`Re-apply ${palette} to ${effectiveChannelLabel(styleScope, channelLabels, activeExp?.channelFluorophore)} (by Tt order)`}
+            >
+              Apply
+            </Button>
+          )}
         </div>
+        {multiChannel && styleScope !== 'all' && (
+          <p className="text-[11px] text-muted-foreground">
+            Click <span className="font-medium">Apply</span> to colour <span className="font-medium">{effectiveChannelLabel(styleScope, channelLabels, activeExp?.channelFluorophore)}</span> curves by Tt order; other channels keep their colours.
+          </p>
+        )}
         <label className="flex items-center gap-2 text-sm">
           <Checkbox checked={paletteReversed} onCheckedChange={() => reversePalette()} />
           Reversed
@@ -285,7 +472,10 @@ export function StyleTab() {
           variant={paletteArrowMode ? 'default' : 'outline'}
           size="sm"
           className="w-full h-7 text-xs"
-          onClick={() => setPaletteArrowMode(!paletteArrowMode)}
+          onClick={() => setPaletteArrowMode(!paletteArrowMode, multiChannel && styleScope !== 'all' ? styleScope : null)}
+          title={multiChannel && styleScope !== 'all'
+            ? `Draw an arrow to colour ${effectiveChannelLabel(styleScope, channelLabels, activeExp?.channelFluorophore)} curves only`
+            : 'Draw an arrow across curves to assign the palette in crossing order'}
         >
           {paletteArrowMode ? 'Draw arrow on plot...' : 'Assign palette by arrow'}
         </Button>
@@ -298,6 +488,16 @@ export function StyleTab() {
           title="Remove every per-well color override and revert to the palette."
         >
           Clear custom colors
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full h-7 text-xs"
+          onClick={clearAllWellStyleOverrides}
+          disabled={!hasCustomStyle}
+          title="Remove all per-curve style overrides (color, line width, line style)."
+        >
+          Clear individual styles
         </Button>
 
         <div className="border-t pt-2 mt-1">
@@ -314,6 +514,29 @@ export function StyleTab() {
             />
             <span className="text-muted-foreground">pt</span>
           </div>
+        </div>
+
+        <div className="border-t pt-2 mt-1">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">
+              Line style{multiChannel && styleScope !== 'all'
+                ? ` (${effectiveChannelLabel(styleScope, channelLabels, activeExp?.channelFluorophore)})`
+                : ''}:
+            </span>
+            <select
+              value={scopeLineStyle}
+              onChange={(e) => applyLineStyle(e.target.value)}
+              className="flex-1 h-7 border rounded px-1 text-sm bg-background"
+            >
+              {scopeLineStyle === '' && <option value="" disabled>(mixed)</option>}
+              {CHANNEL_LINE_STYLES.map(({ value, label }) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1">
+            Per-curve styles from the right-click menu override this.
+          </p>
         </div>
 
         <div className="border-t pt-2 mt-1">

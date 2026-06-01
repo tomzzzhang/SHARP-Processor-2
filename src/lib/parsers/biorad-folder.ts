@@ -37,14 +37,28 @@ interface FilePatterns {
   xml_log: RegExp;
 }
 
+// Per-fluorophore export types use a `_<Fluor>` suffix before `.csv`
+// (e.g. `Quantification Amplification Results_SYBR.csv`,
+// `…_FAM.csv`). CFX multi-fluor exports emit one set per fluorophore. The
+// fluor token is captured so each becomes its own channel.
+const FLUOR_PATTERNS = {
+  amplification: /Quantification Amplification Results_(.+?)\.csv$/i,
+  melt_rfu: /Melt Curve RFU Results_(.+?)\.csv$/i,
+  melt_deriv: /Melt Curve Derivative Results_(.+?)\.csv$/i,
+  end_point: /End Point Results_(.+?)\.csv$/i,
+} as const;
+
+// Shared (channel-independent) export types.
 const FILE_PATTERNS: FilePatterns = {
-  amplification: /Quantification Amplification Results.*SYBR\.csv$/i,
-  melt_rfu: /Melt Curve RFU Results.*SYBR\.csv$/i,
-  melt_deriv: /Melt Curve Derivative Results.*SYBR\.csv$/i,
+  amplification: /Quantification Amplification Results_(.+?)\.csv$/i,
+  melt_rfu: /Melt Curve RFU Results_(.+?)\.csv$/i,
+  melt_deriv: /Melt Curve Derivative Results_(.+?)\.csv$/i,
   run_info: /Run Information\.csv$/i,
-  cq_results: /Quantification Cq Results\.csv$/i,
-  end_point: /End Point Results.*SYBR\.csv$/i,
-  melt_peaks: /Melt Curve Peak Results\.csv$/i,
+  // Cq and Melt-Peak exports carry a non-fluor suffix in real CFX output
+  // (e.g. `Quantification Cq Results_0.csv`), so tolerate an optional `_<x>`.
+  cq_results: /Quantification Cq Results(?:_.+?)?\.csv$/i,
+  end_point: /End Point Results_(.+?)\.csv$/i,
+  melt_peaks: /Melt Curve Peak Results(?:_.+?)?\.csv$/i,
   xml_log: /PCREventLogXMLFile\.xml$/i,
 };
 
@@ -52,7 +66,23 @@ type FileKey = keyof FilePatterns;
 
 const REQUIRED_FILES: FileKey[] = ['amplification', 'run_info', 'cq_results'];
 
-async function discoverFiles(dirPath: string): Promise<Record<string, string>> {
+/** Per-fluorophore export file paths for one channel. */
+interface ChannelFiles {
+  fluor: string;
+  amplification: string;
+  melt_rfu?: string;
+  melt_deriv?: string;
+  end_point?: string;
+}
+
+interface DiscoveredFiles {
+  /** Channel-independent files, keyed by FileKey. */
+  shared: Record<string, string>;
+  /** One entry per fluorophore (channel), in discovery order. */
+  channels: ChannelFiles[];
+}
+
+async function discoverFiles(dirPath: string): Promise<DiscoveredFiles> {
   const entries = await readDir(dirPath);
   const files = entries.filter((e) => e.isFile !== false && !e.isDirectory).map((e) => e.name);
 
@@ -60,17 +90,51 @@ async function discoverFiles(dirPath: string): Promise<Record<string, string>> {
   const join = (name: string) =>
     dirPath.endsWith(sep) ? `${dirPath}${name}` : `${dirPath}${sep}${name}`;
 
-  const found: Record<string, string> = {};
-  for (const [key, pattern] of Object.entries(FILE_PATTERNS)) {
-    const matches = files.filter((n) => pattern.test(n));
-    if (matches.length >= 1) {
-      // If multiple, take the first (v1 picks most recent by mtime; we don't
-      // have mtime via readDir without extra calls — first match is fine for
-      // typical single-export folders).
-      found[key] = join(matches[0]);
+  // Shared files (run info, Cq, melt peaks, event log).
+  const shared: Record<string, string> = {};
+  for (const key of ['run_info', 'cq_results', 'melt_peaks', 'xml_log'] as const) {
+    const matches = files.filter((n) => FILE_PATTERNS[key].test(n));
+    if (matches.length >= 1) shared[key] = join(matches[0]);
+  }
+
+  // Per-fluorophore amplification files define the channels.
+  const fluorOrder: string[] = [];
+  const byFluor = new Map<string, ChannelFiles>();
+  const ensure = (fluor: string): ChannelFiles => {
+    const existing = byFluor.get(fluor.toUpperCase());
+    if (existing) return existing;
+    const rec: ChannelFiles = { fluor, amplification: '' };
+    byFluor.set(fluor.toUpperCase(), rec);
+    fluorOrder.push(fluor.toUpperCase());
+    return rec;
+  };
+
+  for (const name of files) {
+    for (const [type, re] of Object.entries(FLUOR_PATTERNS)) {
+      const m = name.match(re);
+      if (!m) continue;
+      const fluor = m[1].trim();
+      // Skip generic non-fluor suffixes that share the "Results_<x>" shape but
+      // are not optical channels (e.g. the "Standard Curve" self-suffix).
+      if (/^standard curve/i.test(fluor)) continue;
+      const rec = ensure(fluor);
+      const path = join(name);
+      if (type === 'amplification') { if (!rec.amplification) rec.amplification = path; }
+      else if (type === 'melt_rfu') { rec.melt_rfu ??= path; }
+      else if (type === 'melt_deriv') { rec.melt_deriv ??= path; }
+      else if (type === 'end_point') { rec.end_point ??= path; }
+      break;
     }
   }
-  return found;
+
+  // Keep only channels that actually have an amplification CSV, preserving order.
+  const channels: ChannelFiles[] = [];
+  for (const key of fluorOrder) {
+    const rec = byFluor.get(key)!;
+    if (rec.amplification) channels.push(rec);
+  }
+
+  return { shared, channels };
 }
 
 // ---------------------------------------------------------------------------
@@ -367,10 +431,13 @@ function parseEventLogXml(text: string): { cycleTimesS: number[]; runDefinition:
 // ---------------------------------------------------------------------------
 
 export async function parseBioradFolder(dirPath: string): Promise<ExperimentData> {
-  const found = await discoverFiles(dirPath);
+  const { shared, channels: channelFiles } = await discoverFiles(dirPath);
 
   // Check required files
-  const missing = REQUIRED_FILES.filter((k) => !(k in found));
+  const missing = REQUIRED_FILES.filter((k) => {
+    if (k === 'amplification') return channelFiles.length === 0;
+    return !(k in shared);
+  });
   if (missing.length > 0) {
     throw new Error(
       `BioRad folder is missing required files: ${missing.join(', ')}. ` +
@@ -380,7 +447,7 @@ export async function parseBioradFolder(dirPath: string): Promise<ExperimentData
   }
 
   // --- Run Information ---
-  const runInfoText = await readTextFile(found.run_info);
+  const runInfoText = await readTextFile(shared.run_info);
   const runInfo = parseRunInformation(runInfoText);
 
   // Experiment ID: prefer folder name over "File Name" field so tab label
@@ -388,37 +455,15 @@ export async function parseBioradFolder(dirPath: string): Promise<ExperimentData
   const folderName = dirPath.split(/[\\/]/).filter(Boolean).pop() ?? 'experiment';
   const experimentId = folderName;
 
-  // --- Amplification ---
-  const ampText = await readTextFile(found.amplification);
-  const ampTable = parseWideCsv(ampText, 'cycle');
-  if (ampTable.xValues.length === 0) {
-    throw new Error('Amplification CSV has no data rows.');
-  }
-
   // --- Cq Results → sample map ---
-  const cqText = await readTextFile(found.cq_results);
+  const cqText = await readTextFile(shared.cq_results);
   const cqRows = parseCqResults(cqText);
 
-  // --- Optional: End Point (End RFU) ---
-  const endRfu: Record<string, number | null> = {};
-  if (found.end_point) {
-    try {
-      const epText = await readTextFile(found.end_point);
-      const { rows } = parseBioradCsv(epText);
-      for (const r of rows) {
-        const w = normalizeWell(r['Well'] ?? '');
-        if (w) endRfu[w] = safeFloat(r['End RFU']);
-      }
-    } catch {
-      // optional — ignore parse errors
-    }
-  }
-
-  // --- Optional: Melt Peaks (Tm, peak height) ---
+  // --- Optional: Melt Peaks (Tm, peak height) — shared across channels ---
   const meltPeaks: Record<string, { tm: number | null; peakH: number | null }> = {};
-  if (found.melt_peaks) {
+  if (shared.melt_peaks) {
     try {
-      const mpText = await readTextFile(found.melt_peaks);
+      const mpText = await readTextFile(shared.melt_peaks);
       const { rows } = parseBioradCsv(mpText);
       for (const r of rows) {
         const w = normalizeWell(r['Well'] ?? '');
@@ -433,54 +478,80 @@ export async function parseBioradFolder(dirPath: string): Promise<ExperimentData
     }
   }
 
-  // --- Optional: Melt RFU + Derivative ---
-  let melt: MeltData | null = null;
-  if (found.melt_rfu) {
-    try {
-      const mrfuText = await readTextFile(found.melt_rfu);
-      const mrfuTable = parseWideCsv(mrfuText, 'temperature');
-      if (mrfuTable.xValues.length > 0) {
-        let derivative: Record<string, number[]> | null = null;
-        if (found.melt_deriv) {
-          try {
-            const mdText = await readTextFile(found.melt_deriv);
-            const mdTable = parseWideCsv(mdText, 'temperature');
-            if (mdTable.xValues.length === mrfuTable.xValues.length) {
-              derivative = mdTable.wells;
-            }
-          } catch {
-            // optional
-          }
+  // --- Per-channel amplification + melt + end-point ---
+  const channelAmpTables = new Map<string, WideTable>();
+  const channelMelt = new Map<string, MeltData | null>();
+  const channelEndRfu = new Map<string, Record<string, number | null>>();
+
+  for (const cf of channelFiles) {
+    const ampText = await readTextFile(cf.amplification);
+    const ampTable = parseWideCsv(ampText, 'cycle');
+    channelAmpTables.set(cf.fluor, ampTable);
+
+    // End point (End RFU) for this channel.
+    const endRfu: Record<string, number | null> = {};
+    if (cf.end_point) {
+      try {
+        const epText = await readTextFile(cf.end_point);
+        const { rows } = parseBioradCsv(epText);
+        for (const r of rows) {
+          const w = normalizeWell(r['Well'] ?? '');
+          if (w) endRfu[w] = safeFloat(r['End RFU']);
         }
-        if (!derivative) {
-          derivative = computeMeltDerivative(mrfuTable.xValues, mrfuTable.wells);
-        }
-        melt = {
-          temperatureC: mrfuTable.xValues,
-          rfu: mrfuTable.wells,
-          derivative,
-        };
-      }
-    } catch {
-      // optional
+      } catch { /* optional */ }
     }
+    channelEndRfu.set(cf.fluor, endRfu);
+
+    // Melt RFU + derivative for this channel.
+    let melt: MeltData | null = null;
+    if (cf.melt_rfu) {
+      try {
+        const mrfuText = await readTextFile(cf.melt_rfu);
+        const mrfuTable = parseWideCsv(mrfuText, 'temperature');
+        if (mrfuTable.xValues.length > 0) {
+          let derivative: Record<string, number[]> | null = null;
+          if (cf.melt_deriv) {
+            try {
+              const mdText = await readTextFile(cf.melt_deriv);
+              const mdTable = parseWideCsv(mdText, 'temperature');
+              if (mdTable.xValues.length === mrfuTable.xValues.length) {
+                derivative = mdTable.wells;
+              }
+            } catch { /* optional */ }
+          }
+          if (!derivative) {
+            derivative = computeMeltDerivative(mrfuTable.xValues, mrfuTable.wells);
+          }
+          melt = { temperatureC: mrfuTable.xValues, rfu: mrfuTable.wells, derivative };
+        }
+      } catch { /* optional */ }
+    }
+    channelMelt.set(cf.fluor, melt);
   }
+
+  // The first channel drives well identity / x-axis / timing.
+  const primaryFluor = channelFiles[0].fluor;
+  const primaryAmp = channelAmpTables.get(primaryFluor)!;
+  if (primaryAmp.xValues.length === 0) {
+    throw new Error('Amplification CSV has no data rows.');
+  }
+  const primaryEndRfu = channelEndRfu.get(primaryFluor)!;
 
   // --- Optional: Event log XML → cycle timestamps ---
   let cycleTimesS: number[] = [];
   let runDefinition: string | null = null;
-  if (found.xml_log) {
+  if (shared.xml_log) {
     try {
-      const xmlText = await readTextFile(found.xml_log);
+      const xmlText = await readTextFile(shared.xml_log);
       const parsed = parseEventLogXml(xmlText);
       runDefinition = parsed.runDefinition;
-      if (parsed.cycleTimesS.length === ampTable.xValues.length) {
+      if (parsed.cycleTimesS.length === primaryAmp.xValues.length) {
         cycleTimesS = parsed.cycleTimesS;
       } else if (parsed.cycleTimesS.length > 0) {
         // Length mismatch — derive mean interval and synthesize
         const stats = computeTimeStats(parsed.cycleTimesS);
         const mean = stats.mean ?? 23.0;
-        cycleTimesS = ampTable.xValues.map((_, i) => i * mean);
+        cycleTimesS = primaryAmp.xValues.map((_, i) => i * mean);
       }
     } catch {
       // optional
@@ -488,10 +559,11 @@ export async function parseBioradFolder(dirPath: string): Promise<ExperimentData
   }
   if (cycleTimesS.length === 0) {
     // Fallback: estimate 23s per cycle (v1 empirical default)
-    cycleTimesS = ampTable.xValues.map((_, i) => i * 23.0);
+    cycleTimesS = primaryAmp.xValues.map((_, i) => i * 23.0);
   }
 
   // --- Build WellInfo records (sample map drives which wells are "populated") ---
+  // Well-level outputs (Cq, End RFU, melt peak) come from the primary channel.
   const wells: Record<string, WellInfo> = {};
   const contentMap: Record<string, WellInfo['content']> = {
     '': '',
@@ -509,55 +581,69 @@ export async function parseBioradFolder(dirPath: string): Promise<ExperimentData
       sample: r.sample || r.well,
       content: contentMap[r.content.trim()] ?? 'Unkn',
       cq: r.cq,
-      endRfu: endRfu[r.well] ?? null,
+      endRfu: primaryEndRfu[r.well] ?? null,
       meltTempC: meltPeaks[r.well]?.tm ?? null,
       meltPeakHeight: meltPeaks[r.well]?.peakH ?? null,
       call: 'unset',
     };
   }
 
-  // Wells present in amp data but not in Cq results → still include them
-  for (const w of Object.keys(ampTable.wells)) {
-    if (!wells[w]) {
-      wells[w] = {
-        well: w,
-        sample: w,
-        content: 'Unkn',
-        cq: null,
-        endRfu: endRfu[w] ?? null,
-        meltTempC: meltPeaks[w]?.tm ?? null,
-        meltPeakHeight: meltPeaks[w]?.peakH ?? null,
-        call: 'unset',
-      };
+  // Wells present in amp data (any channel) but not in Cq results → include them.
+  for (const ampTable of channelAmpTables.values()) {
+    for (const w of Object.keys(ampTable.wells)) {
+      if (!wells[w]) {
+        wells[w] = {
+          well: w,
+          sample: w,
+          content: 'Unkn',
+          cq: null,
+          endRfu: primaryEndRfu[w] ?? null,
+          meltTempC: meltPeaks[w]?.tm ?? null,
+          meltPeakHeight: meltPeaks[w]?.peakH ?? null,
+          call: 'unset',
+        };
+      }
     }
   }
 
-  // Filter amp data to wells we know about
-  const filteredAmpWells: Record<string, number[]> = {};
-  for (const [w, vals] of Object.entries(ampTable.wells)) {
-    if (wells[w]) filteredAmpWells[w] = vals;
-  }
-  const amplification: AmplificationData = {
-    cycle: ampTable.xValues,
-    timeS: cycleTimesS,
-    timeMin: cycleTimesS.map((t) => t / 60),
-    wells: filteredAmpWells,
-  };
+  // --- Build per-channel AmplificationData / MeltData through the funnel ---
+  const channels: string[] = [];
+  const channelFluorophore: Record<string, string> = {};
+  const amplificationByChannel: Record<string, AmplificationData | null> = {};
+  const meltByChannel: Record<string, MeltData | null> = {};
+  const usedIds = new Set<string>();
 
-  // Filter melt data the same way
-  if (melt) {
-    const filteredRfu: Record<string, number[]> = {};
-    const filteredDeriv: Record<string, number[]> = {};
-    for (const [w, v] of Object.entries(melt.rfu)) {
-      if (wells[w]) filteredRfu[w] = v;
+  for (const cf of channelFiles) {
+    const ampTable = channelAmpTables.get(cf.fluor)!;
+    const filteredAmpWells: Record<string, number[]> = {};
+    for (const [w, vals] of Object.entries(ampTable.wells)) {
+      if (wells[w]) filteredAmpWells[w] = vals;
     }
-    for (const [w, v] of Object.entries(melt.derivative)) {
-      if (wells[w]) filteredDeriv[w] = v;
+
+    let melt = channelMelt.get(cf.fluor) ?? null;
+    if (melt) {
+      const filteredRfu: Record<string, number[]> = {};
+      const filteredDeriv: Record<string, number[]> = {};
+      for (const [w, v] of Object.entries(melt.rfu)) if (wells[w]) filteredRfu[w] = v;
+      for (const [w, v] of Object.entries(melt.derivative)) if (wells[w]) filteredDeriv[w] = v;
+      melt = { temperatureC: melt.temperatureC, rfu: filteredRfu, derivative: filteredDeriv };
     }
-    melt = { temperatureC: melt.temperatureC, rfu: filteredRfu, derivative: filteredDeriv };
+
+    let id = cf.fluor;
+    if (usedIds.has(id.toUpperCase())) id = `${cf.fluor} (${channels.length + 1})`;
+    usedIds.add(id.toUpperCase());
+    channels.push(id);
+    channelFluorophore[id] = cf.fluor;
+    amplificationByChannel[id] = {
+      cycle: ampTable.xValues,
+      timeS: cycleTimesS,
+      timeMin: cycleTimesS.map((t) => t / 60),
+      wells: filteredAmpWells,
+    };
+    meltByChannel[id] = melt;
   }
 
-  const wellsUsed = sortWells(Object.keys(filteredAmpWells));
+  const wellsUsed = sortWells(Object.keys(amplificationByChannel[channels[0]]!.wells));
 
   // Infer reaction temp from Cq Set Point (most common value)
   let reactionTemp: number | null = null;
@@ -583,12 +669,14 @@ export async function parseBioradFolder(dirPath: string): Promise<ExperimentData
   // Build metadata
   const stats = computeTimeStats(cycleTimesS);
   const timeReconstruction = {
-    source: found.xml_log ? 'biorad-folder-eventlog' : 'biorad-folder-estimated',
+    source: shared.xml_log ? 'biorad-folder-eventlog' : 'biorad-folder-estimated',
     cycle_times_s: cycleTimesS,
     mean_cycle_duration_s: stats.mean,
     median_cycle_duration_s: stats.median,
     stdev_cycle_duration_s: stats.stdev,
   };
+
+  const hasMelt = channels.some((id) => meltByChannel[id] !== null);
 
   return buildExperimentData({
     fileName: dirPath,
@@ -609,14 +697,16 @@ export async function parseBioradFolder(dirPath: string): Promise<ExperimentData
     protocol: {
       type: experimentType,
       reaction_temp_c: reactionTemp,
-      amp_cycle_count: ampTable.xValues.length,
-      has_melt: melt !== null,
+      amp_cycle_count: primaryAmp.xValues.length,
+      has_melt: hasMelt,
       raw_definition: runDefinition ?? '',
     },
     wells,
     wellsUsed,
-    amplification,
-    melt,
+    channels,
+    channelFluorophore,
+    amplificationByChannel,
+    meltByChannel,
     plateRows: 8,
     plateCols: 12,
     timeReconstruction,

@@ -32,6 +32,8 @@ const sections: Section[] = [
         SHARP Processor 2 is a desktop application for analysing real-time amplification (qPCR / isothermal) data.
         It reads data from multiple instrument formats, displays amplification and melt curves, and provides
         baseline correction, threshold detection, doubling-time analysis, and flexible export options.
+        Experiments with multiple fluorophores are fully supported — each dye is detected and analysed
+        independently (see <strong>Multiple Fluorophores (Channels)</strong>).
       </p>
     ),
   },
@@ -355,6 +357,66 @@ const sections: Section[] = [
           <h4 className="font-semibold text-xs mb-1">Quick-Action Panel</h4>
           <p>Click the <strong>MENU</strong> tab on the right edge to expand a panel that mirrors every context menu action as clickable buttons. Keyboard shortcut hints are shown next to actions that have them.</p>
         </div>
+      </div>
+    ),
+  },
+  {
+    id: 'channels',
+    title: 'Multiple Fluorophores (Channels)',
+    content: (
+      <div className="space-y-3">
+        <p>
+          When an experiment contains more than one dye (for example FAM + HEX, or a 4-plex),
+          SHARP Processor detects every fluorophore channel and lets you analyse each one
+          independently. A single-dye experiment hides all of these controls and behaves exactly
+          like earlier versions.
+        </p>
+
+        <h4 className="font-semibold text-xs">Showing &amp; hiding channels</h4>
+        <ul className="list-disc pl-5 space-y-1">
+          <li>The plot-tabs bar gains a <strong>channel toggle</strong> for each dye — turn a fluorophore on or off for all wells at once.</li>
+          <li>In the <strong>Wells</strong> tab, the <strong>L</strong> (visible) checkbox hides a single dye for one well.</li>
+          <li><strong>View &gt; Channel Display</strong> switches between <strong>Multichannel</strong> (all dyes overlaid) and <strong>Single</strong> (one dye, classic layout). In single view a small <strong>Channel</strong> dropdown in the plot-tabs bar picks which dye you're viewing.</li>
+        </ul>
+
+        <h4 className="font-semibold text-xs">Naming &amp; colouring dyes</h4>
+        <p>
+          <strong>Tools &gt; Assign Fluorophores…</strong> opens a dialog where you can rename each
+          channel and choose its colour. Names and colours flow through to the legend, the Wells
+          table, and the results table. In multichannel view each dye's wells are drawn as a
+          light-to-dark ramp of that dye's colour; you can also separate dyes by line style from
+          the <strong>Style</strong> tab.
+        </p>
+
+        <h4 className="font-semibold text-xs">Analysing each dye separately</h4>
+        <p>
+          Baseline correction, threshold, normalization, and drift correction are stored
+          <strong> per channel</strong>. In the <strong>Analysis</strong> tab, the{' '}
+          <strong>"Settings for: [channel]"</strong> selector chooses which dye you're configuring;
+          each dye keeps its own settings. Choose <strong>All channels</strong> to apply a global
+          toggle to every dye at once.
+        </p>
+
+        <h4 className="font-semibold text-xs">Selecting by dye</h4>
+        <ul className="list-disc pl-5 space-y-1">
+          <li><strong>Click a curve</strong> on the plot to select that single (well, dye) pair.</li>
+          <li><strong>Click a well</strong> on the plate grid to select all of that well's dyes.</li>
+          <li>The Wells-tab <strong>Select</strong> panel has a <strong>Fluor…</strong> button to select every curve of one dye.</li>
+          <li>Right-click any selection to colour, group, style, or hide those specific curves.</li>
+        </ul>
+
+        <h4 className="font-semibold text-xs">Results per dye</h4>
+        <p>
+          In multichannel view the results table shows one row per <strong>(well, dye)</strong> pair,
+          with a <strong>Fluorophore</strong> column and per-dye <strong>Tt</strong>, <strong>Tm</strong>,
+          call, and end-RFU. Rows are grouped under a collapsible parent row per sample — click a
+          parent to select all of that well's dyes, or a child to select just one.
+        </p>
+
+        <p className="text-muted-foreground">
+          Multichannel data is saved inside <strong>.sharp</strong> / <strong>.sharpx</strong> files
+          (format 1.2). Older single-channel files open unchanged.
+        </p>
       </div>
     ),
   },
