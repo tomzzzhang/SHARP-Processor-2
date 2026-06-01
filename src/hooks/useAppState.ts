@@ -1104,13 +1104,24 @@ export const useAppState = create<AppState>((set, get) => ({
   applySeparateByColor: () => {
     get().pushUndo('Separate by colour');
     set((state) => {
-      const next = new Map<string, WellStyleOverride>();
-      for (const [w, ov] of state.wellStyleOverrides) {
-        const { color: _drop, ...rest } = ov;
-        void _drop;
-        if (rest.lineWidth != null || rest.lineStyle != null) next.set(w, rest);
-      }
-      return { wellStyleOverrides: next, channelColors: new Map() };
+      // Drop the colour field from a style-override map (keep width/line-style),
+      // discarding now-empty entries. Applied to BOTH the per-well and per-curve
+      // override maps so a manually-set curve colour can't survive and win over
+      // the per-channel ramp (resolution is curve → well → ramp).
+      const stripColor = (m: Map<string, WellStyleOverride>) => {
+        const next = new Map<string, WellStyleOverride>();
+        for (const [k, ov] of m) {
+          const { color: _drop, ...rest } = ov;
+          void _drop;
+          if (rest.lineWidth != null || rest.lineStyle != null) next.set(k, rest);
+        }
+        return next;
+      };
+      return {
+        wellStyleOverrides: stripColor(state.wellStyleOverrides),
+        curveStyleOverrides: stripColor(state.curveStyleOverrides),
+        channelColors: new Map(),
+      };
     });
   },
   /** "Separate by line style": clear any manual per-well line-style overrides and
@@ -1120,15 +1131,25 @@ export const useAppState = create<AppState>((set, get) => ({
     if (!exp) return;
     get().pushUndo('Separate by line style');
     set((state) => {
-      const styles = new Map<string, WellStyleOverride>();
-      for (const [w, ov] of state.wellStyleOverrides) {
-        const { lineStyle: _drop, ...rest } = ov;
-        void _drop;
-        if (rest.color != null || rest.lineWidth != null) styles.set(w, rest);
-      }
+      // Drop the line-style field from both override maps so a manual per-curve
+      // or per-well line style can't override the per-channel dash ladder
+      // (resolution is curve → well → channel).
+      const stripLineStyle = (m: Map<string, WellStyleOverride>) => {
+        const next = new Map<string, WellStyleOverride>();
+        for (const [k, ov] of m) {
+          const { lineStyle: _drop, ...rest } = ov;
+          void _drop;
+          if (rest.color != null || rest.lineWidth != null) next.set(k, rest);
+        }
+        return next;
+      };
       const dashes = new Map(state.channelLineStyles);
       exp.channels.forEach((ch, i) => dashes.set(ch, CHANNEL_DASH[i % CHANNEL_DASH.length]));
-      return { wellStyleOverrides: styles, channelLineStyles: dashes };
+      return {
+        wellStyleOverrides: stripLineStyle(state.wellStyleOverrides),
+        curveStyleOverrides: stripLineStyle(state.curveStyleOverrides),
+        channelLineStyles: dashes,
+      };
     });
   },
   setChannelLineStyle: (channel, style) => {
