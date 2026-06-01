@@ -1,6 +1,6 @@
 # .sharp File Format
 
-**Last Updated:** 2026-06-01 PST — Claude (v0.2.0 release prep; on-disk format unchanged (the README now notes format 1.2 for users) — batch 4 performance sweep — **file format unchanged** (the perf work is rendering/state-sharing only: see CLAUDE.md table #46). On-disk layout as of batch 3: no `metadata.json`/CSV change; the session-only `.sharpx` `session.json` carries curve-level fields — `selectedCurves` (Set), `curveStyleOverrides` / `curveGroups` (Maps) — beside the per-well selection/style/group, with a pre-curve session backfilling `selectedCurves` from `wells × channels` on open. See CLAUDE.md table #45/#46 / docs/RELEASE_v0.2.0.md §16)
+**Last Updated:** 2026-06-01 PST — Claude (v0.2.0 shipped as a GitHub pre-release; post-release beta fixes (CLAUDE.md #47) touched UI/docs only — on-disk format unchanged (the README now notes format 1.2 for users) — batch 4 performance sweep — **file format unchanged** (the perf work is rendering/state-sharing only: see CLAUDE.md table #46). On-disk layout as of batch 3: no `metadata.json`/CSV change; the session-only `.sharpx` `session.json` carries curve-level fields — `selectedCurves` (Set), `curveStyleOverrides` / `curveGroups` (Maps) — beside the per-well selection/style/group, with a pre-curve session backfilling `selectedCurves` from `wells × channels` on open. See CLAUDE.md table #45/#46 / docs/RELEASE_v0.2.0.md §16)
 **Current version:** 1.2 (multichannel) / 1.1 (single-channel)
 
 A `.sharp` file is a ZIP archive (rename to `.zip` to open). It bundles one

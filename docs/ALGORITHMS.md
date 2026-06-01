@@ -1,6 +1,6 @@
 # Algorithms — Active vs Archived
 
-**Last Updated:** 2026-06-01 PST — Claude (v0.2.0 release prep; analysis still unchanged — batch 4 performance sweep — **analysis algorithms unchanged** (no change to baseline / threshold / normalize / drift / melt math; the perf work is rendering + state-sharing only — memoization, a shared analysis-results context, rAF-coalesced drags. The per-channel `computeChannelResults` pipeline is identical; it is simply run **once app-wide** now instead of per-component). See CLAUDE.md table #46 — prior batch 3 selection/presentation refactor #45 / docs/RELEASE_v0.2.0.md §16)
+**Last Updated:** 2026-06-01 PST — Claude (v0.2.0 shipped as a GitHub pre-release; post-release beta fixes (CLAUDE.md #47) touched UI/docs only — analysis still unchanged — batch 4 performance sweep — **analysis algorithms unchanged** (no change to baseline / threshold / normalize / drift / melt math; the perf work is rendering + state-sharing only — memoization, a shared analysis-results context, rAF-coalesced drags. The per-channel `computeChannelResults` pipeline is identical; it is simply run **once app-wide** now instead of per-component). See CLAUDE.md table #46 — prior batch 3 selection/presentation refactor #45 / docs/RELEASE_v0.2.0.md §16)
 
 A single source of truth for which algorithm the app is currently using for
 each analysis step, and which earlier implementations have been retired.
