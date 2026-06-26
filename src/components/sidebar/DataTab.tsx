@@ -4,9 +4,10 @@ import { open as dialogOpen } from '@tauri-apps/plugin-dialog';
 import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { Button } from '@/components/ui/button';
+import { FOCUS_RING } from '@/lib/ui-classes';
 import { loadSharpFile } from '@/lib/sharp-loader';
 import { isInstrumentFile, isSupportedFile, loadInstrumentFile, loadBioradFolder } from '@/lib/instrument-loader';
-import { exportPlotImage, exportDataCsv, exportResultsCsv, exportMeltCsv, exportAsSharp, exportAsSharpx, saveSession } from '@/lib/export';
+import { exportActivePlot, exportDataCsv, exportResultsCsv, exportMeltCsv, exportAsSharp, exportAsSharpx, saveSession } from '@/lib/export';
 import { addRecentFile } from '@/lib/recent-files';
 
 export function DataTab() {
@@ -17,6 +18,8 @@ export function DataTab() {
   const hiddenWells = useAppState((s) => s.hiddenWells);
   const xAxisMode = useAppState((s) => s.xAxisMode);
   const figureDpi = useAppState((s) => s.figureDpi);
+  const plotTab = useAppState((s) => s.plotTab);
+  const setExperimentNotes = useAppState((s) => s.setExperimentNotes);
   const exp = experiments[idx];
   const analysisResults = useAnalysisResults();
   const [exportStatus, setExportStatus] = useState<string | null>(null);
@@ -83,15 +86,14 @@ export function DataTab() {
     : [];
 
   const handleExportPlot = useCallback(async (format: 'png' | 'svg' | 'jpeg') => {
-    const plotDiv = document.querySelector('.js-plotly-plot') as HTMLElement | null;
-    if (!plotDiv || !exp) return;
+    if (!exp) return;
     try {
-      const path = await exportPlotImage(plotDiv, format, figureDpi, exp.experimentId);
+      const path = await exportActivePlot(plotTab, format, figureDpi, exp.experimentId);
       if (path) showStatus(`Saved ${format.toUpperCase()}`);
     } catch (err) {
       showStatus(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-  }, [exp, figureDpi]);
+  }, [exp, figureDpi, plotTab]);
 
   const handleExportData = useCallback(async () => {
     if (!exp) return;
@@ -182,9 +184,13 @@ export function DataTab() {
       <div>
         <h3 className="text-sm font-semibold mb-1">Experiment Notes</h3>
         <textarea
-          className="w-full h-24 text-sm border rounded-md p-2 resize-none bg-background"
-          placeholder="Add notes..."
+          key={exp.experimentId}
+          className={`w-full h-24 text-sm border rounded-md p-2 resize-none bg-background ${FOCUS_RING}`}
+          placeholder="Add notes…"
           defaultValue={exp.notes}
+          onBlur={(e) => {
+            if (e.target.value !== (exp.notes ?? '')) setExperimentNotes(e.target.value);
+          }}
         />
       </div>
 
@@ -222,18 +228,18 @@ export function DataTab() {
       <Button
         variant="outline"
         size="sm"
-        className="w-full"
+        className="w-full h-7 text-xs"
         onClick={handleOpen}
       >
-        Open another file...
+        Open another file…
       </Button>
       <Button
         variant="outline"
         size="sm"
-        className="w-full"
+        className="w-full h-7 text-xs"
         onClick={handleOpenBioradFolder}
       >
-        Open BioRad folder...
+        Open BioRad folder…
       </Button>
     </div>
   );

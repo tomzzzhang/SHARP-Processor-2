@@ -614,6 +614,8 @@ interface AppState extends ExperimentViewState, ChannelAnalysisState {
   setWellContentType: (wells: string[], type: ContentType) => void;
   setWellSampleName: (well: string, name: string) => void;
   setWellSampleNameBatch: (wells: string[], name: string) => void;
+  /** Persist the active experiment's free-text notes (undoable). */
+  setExperimentNotes: (notes: string) => void;
   setWellStyleOverride: (wells: string[], style: WellStyleOverride) => void;
   clearWellStyleOverrides: (wells: string[]) => void;
   /** Per-curve (S-C pair) style overrides — keyed by curveKey. */
@@ -1344,6 +1346,16 @@ export const useAppState = create<AppState>((set, get) => ({
       }
       exp.wells = wellMap;
       exps[state.activeExperimentIndex] = exp;
+      return { experiments: exps };
+    });
+  },
+  setExperimentNotes: (notes) => {
+    get().pushUndo('Edit notes');
+    set((state) => {
+      const current = state.experiments[state.activeExperimentIndex];
+      if (!current) return {};
+      const exps = [...state.experiments];
+      exps[state.activeExperimentIndex] = { ...current, notes };
       return { experiments: exps };
     });
   },

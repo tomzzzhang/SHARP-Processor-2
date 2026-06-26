@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { loadSharpFile } from '@/lib/sharp-loader';
 import { isInstrumentFile, isSupportedFile, loadInstrumentFile, loadBioradFolder } from '@/lib/instrument-loader';
 import { getRecentFiles, addRecentFile } from '@/lib/recent-files';
+import { FOCUS_RING } from '@/lib/ui-classes';
+import { toast } from '@/lib/dialogs';
 
 // Dynamic imports — avoid crash when running outside Tauri (e.g. plain Vite dev)
 const isTauri = !!(window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__;
@@ -64,7 +66,7 @@ export function SidebarHome() {
       addRecentFile(dirPath, experiment.wellsUsed?.length);
       loadExperiment(experiment, dirPath);
     } catch (err) {
-      alert(`Failed to load BioRad folder:\n${err instanceof Error ? err.message : String(err)}`);
+      toast(`Failed to load BioRad folder: ${err instanceof Error ? err.message : String(err)}`, 'error');
     }
   }, [loadExperiment]);
 
@@ -80,17 +82,17 @@ export function SidebarHome() {
         className="w-full"
         onClick={handleOpen}
       >
-        Load file...
+        Load file…
       </Button>
       <Button
         variant="outline"
         className="w-full"
         onClick={handleOpenBioradFolder}
       >
-        Load BioRad folder...
+        Load BioRad folder…
       </Button>
       <p className="text-xs text-muted-foreground text-center">
-        or drag & drop a file anywhere
+        or drag and drop a file anywhere
       </p>
       <p className="text-xs text-muted-foreground text-center">
         .sharp · .pcrd · .tlpd · .eds · .amxd
@@ -98,8 +100,8 @@ export function SidebarHome() {
 
       {recentFiles.length > 0 && (
         <div className="pt-2 border-t">
-          <h3 className="text-xs font-semibold text-muted-foreground mb-2">Recent Experiments</h3>
-          <div className="border border-border rounded overflow-hidden">
+          <h3 className="text-[11px] font-semibold text-muted-foreground mb-2">Recent Experiments</h3>
+          <div className="border border-border rounded-md overflow-hidden">
             {/* Header */}
             <div className="flex text-[10px] font-semibold text-muted-foreground bg-muted/50 border-b border-border px-2 py-1">
               <span className="flex-1">Name</span>
@@ -110,8 +112,8 @@ export function SidebarHome() {
             <div className="max-h-[200px] overflow-y-auto">
               {recentFiles.map((f, i) => (
                 <button
-                  key={i}
-                  className={`w-full flex items-center px-2 py-1.5 text-xs hover:bg-accent transition-colors ${i % 2 === 1 ? 'bg-muted/30' : ''}`}
+                  key={f.path}
+                  className={`w-full flex items-center px-2 py-1.5 text-xs hover:bg-accent active:bg-accent/80 transition-colors ${i % 2 === 1 ? 'bg-muted/30' : ''} ${FOCUS_RING}`}
                   title={f.path}
                   onClick={() => openFilePath(f.path)}
                 >

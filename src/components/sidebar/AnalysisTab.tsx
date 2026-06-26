@@ -7,6 +7,7 @@ import type { AmplificationData, XAxisMode } from '@/types/experiment';
 import { Checkbox } from '@/components/ui/checkbox';
 import { CollapsibleSection } from './CollapsibleSection';
 import { effectiveChannelLabel } from '@/lib/channels';
+import { FOCUS_RING } from '@/lib/ui-classes';
 
 /**
  * Number input for a baseline / plateau zone boundary. Stored internally
@@ -56,7 +57,7 @@ function ZoneInput({
       onChange={(e) => setText(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
-      className={className}
+      className={`${className ?? ''} ${FOCUS_RING}`}
     />
   );
 }
@@ -161,7 +162,7 @@ export function AnalysisTab() {
               if (v === '__all__') setAnalysisScopeAll(true);
               else { setAnalysisScopeAll(false); setActiveChannel(v); }
             }}
-            className="flex-1 h-7 border rounded px-1 text-sm bg-background"
+            className={`flex-1 h-7 border rounded-md px-1 text-sm bg-background ${FOCUS_RING}`}
             title="Choose a channel to edit, or All channels to apply settings to every channel at once"
           >
             <option value="__all__">All channels</option>
@@ -196,8 +197,8 @@ export function AnalysisTab() {
         </div>
 
         <p className="text-[11px] text-muted-foreground italic">
-          Removes a single run-level slope — fitted across every well's
-          pre-amplification baseline — from all curves before baseline
+          Removes a single run-level slope, fitted across every well's
+          pre-amplification baseline, from all curves before baseline
           correction. Per-well baseline offset is handled separately.
         </p>
       </CollapsibleSection>
@@ -230,6 +231,7 @@ export function AnalysisTab() {
               checked={baselineMethod === 'horizontal'}
               onChange={() => setBaselineMethod('horizontal')}
               style={{ accentColor: 'var(--brand-red-dark)' }}
+              className={FOCUS_RING}
             />
             Horizontal
           </label>
@@ -240,6 +242,7 @@ export function AnalysisTab() {
               checked={baselineMethod === 'linear'}
               onChange={() => setBaselineMethod('linear')}
               style={{ accentColor: 'var(--brand-red-dark)' }}
+              className={FOCUS_RING}
             />
             Linear
           </label>
@@ -253,7 +256,7 @@ export function AnalysisTab() {
             amp={amp}
             xAxisMode={xAxisMode}
             onCommit={(c) => { if (c != null) setBaselineZone(c, baselineEnd); }}
-            className="w-14 h-6 border rounded px-1 text-center text-sm"
+            className="w-14 h-6 border rounded-md px-1 text-center text-sm"
           />
           <span>End:</span>
           <ZoneInput
@@ -261,7 +264,7 @@ export function AnalysisTab() {
             amp={amp}
             xAxisMode={xAxisMode}
             onCommit={(c) => { if (c != null) setBaselineZone(baselineStart, c); }}
-            className="w-14 h-6 border rounded px-1 text-center text-sm"
+            className="w-14 h-6 border rounded-md px-1 text-center text-sm"
           />
           <span className="text-xs text-muted-foreground">{unitLabel}</span>
           </div>
@@ -289,7 +292,7 @@ export function AnalysisTab() {
               </span>
               {hasSelectedOverrides && (
                 <button
-                  className="text-xs text-destructive hover:underline"
+                  className={`text-xs text-destructive hover:underline ${FOCUS_RING}`}
                   onClick={() => clearWellBaselineOverrides(selectedArr)}
                 >
                   Clear
@@ -307,7 +310,7 @@ export function AnalysisTab() {
               />
               Auto baseline
               {selectedAutoState === 'mixed' && (
-                <span className="text-muted-foreground">(mixed)</span>
+                <span className="text-foreground/70 italic">(mixed)</span>
               )}
             </label>
 
@@ -321,6 +324,7 @@ export function AnalysisTab() {
                   checked={selectedOverride?.method === 'horizontal'}
                   onChange={() => setWellBaselineOverride(selectedArr, { method: 'horizontal' })}
                   style={{ accentColor: 'var(--brand-red-dark)' }}
+                  className={FOCUS_RING}
                 />
                 Horiz.
               </label>
@@ -331,6 +335,7 @@ export function AnalysisTab() {
                   checked={selectedOverride?.method === 'linear'}
                   onChange={() => setWellBaselineOverride(selectedArr, { method: 'linear' })}
                   style={{ accentColor: 'var(--brand-red-dark)' }}
+                  className={FOCUS_RING}
                 />
                 Linear
               </label>
@@ -346,7 +351,7 @@ export function AnalysisTab() {
                 xAxisMode={xAxisMode}
                 allowEmpty
                 onCommit={(c) => setWellBaselineOverride(selectedArr, { start: c })}
-                className="w-12 h-6 border rounded px-1 text-center text-xs"
+                className="w-12 h-6 border rounded-md px-1 text-center text-xs"
               />
               <span>End:</span>
               <ZoneInput
@@ -356,7 +361,7 @@ export function AnalysisTab() {
                 xAxisMode={xAxisMode}
                 allowEmpty
                 onCommit={(c) => setWellBaselineOverride(selectedArr, { end: c })}
-                className="w-12 h-6 border rounded px-1 text-center text-xs"
+                className="w-12 h-6 border rounded-md px-1 text-center text-xs"
               />
               <span className="text-muted-foreground">{unitLabel}</span>
             </div>
@@ -385,7 +390,7 @@ export function AnalysisTab() {
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-muted-foreground">Per-well zones</span>
               <button
-                className="text-xs text-destructive hover:underline"
+                className={`text-xs text-destructive hover:underline ${FOCUS_RING}`}
                 onClick={() => clearWellNormalizeOverrides(exp.wellsUsed)}
               >
                 Reset
@@ -413,7 +418,7 @@ export function AnalysisTab() {
                     const shadowParts: string[] = [];
                     if (isSelected) shadowParts.push('inset 3px 0 0 var(--brand-red)');
                     if (isHovered) shadowParts.push('inset 0 0 0 9999px color-mix(in srgb, var(--brand-red) 18%, transparent)');
-                    const inputCls = 'w-9 h-5 border rounded px-0.5 text-center text-[10px] bg-background';
+                    const inputCls = 'w-9 h-5 border rounded-md px-0.5 text-center text-[10px] bg-background';
                     return (
                       <tr
                         key={well}
@@ -445,7 +450,7 @@ export function AnalysisTab() {
                             className={inputCls}
                           />
                         </td>
-                        <td className="px-0.5" title={pw ? undefined : 'No plateau detected — normalized to final reading'}>
+                        <td className="px-0.5" title={pw ? undefined : 'No plateau detected; normalized to final reading'}>
                           <ZoneInput
                             valueCycle={pw?.start}
                             amp={amp} xAxisMode={xAxisMode} allowEmpty
@@ -453,7 +458,7 @@ export function AnalysisTab() {
                             className={inputCls}
                           />
                         </td>
-                        <td className="px-0.5" title={pw ? undefined : 'No plateau detected — normalized to final reading'}>
+                        <td className="px-0.5" title={pw ? undefined : 'No plateau detected; normalized to final reading'}>
                           <ZoneInput
                             valueCycle={pw?.end}
                             amp={amp} xAxisMode={xAxisMode} allowEmpty
@@ -489,7 +494,7 @@ export function AnalysisTab() {
             step={100}
             value={thresholdRfu}
             onChange={(e) => setThresholdRfu(Number(e.target.value))}
-            className="w-24 h-7 border rounded px-1 text-sm"
+            className={`w-24 h-7 border rounded-md px-1 text-sm ${FOCUS_RING}`}
           />
           <span className="text-muted-foreground">RFU</span>
         </div>
@@ -518,7 +523,7 @@ export function AnalysisTab() {
             value={meltThresholdValue}
             onChange={(e) => setMeltThresholdValue(Number(e.target.value))}
             disabled={!meltThresholdEnabled}
-            className="w-24 h-7 border rounded px-1 text-sm bg-background disabled:opacity-40"
+            className={`w-24 h-7 border rounded-md px-1 text-sm bg-background disabled:opacity-50 ${FOCUS_RING}`}
           />
           <span className="text-muted-foreground">-dF/dT</span>
         </div>
@@ -552,7 +557,7 @@ export function AnalysisTab() {
               setSmoothingWindow(v);
             }}
             disabled={!smoothingEnabled}
-            className="w-14 h-6 text-center text-sm border rounded px-1 bg-background disabled:opacity-40"
+            className={`w-14 h-6 text-center text-sm border rounded-md px-1 bg-background disabled:opacity-50 ${FOCUS_RING}`}
           />
         </div>
 

@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { ChevronDown, Check } from 'lucide-react';
 import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { Button } from '@/components/ui/button';
 import { MAIN_PALETTE_NAMES, GRADIENT_PALETTE_NAMES, MOD_KEY, getPaletteColors } from '@/lib/constants';
 import { parseCurveKey } from '@/lib/curves';
 import { InlineColorPicker } from '@/components/ui/color-picker';
+import { FOCUS_RING } from '@/lib/ui-classes';
+import { showPrompt } from '@/lib/dialogs';
 import type { ContentType } from '@/types/experiment';
 
 function PanelSection({ title, defaultOpen = true, children }: { title: string; defaultOpen?: boolean; children: ReactNode }) {
@@ -13,16 +16,11 @@ function PanelSection({ title, defaultOpen = true, children }: { title: string; 
     <div className="space-y-0.5">
       <button
         type="button"
-        className="w-full flex items-center justify-between text-[9px] font-semibold text-foreground/70 uppercase cursor-pointer hover:text-foreground transition-colors"
+        className={`w-full flex items-center justify-between text-[10px] font-semibold text-foreground/70 uppercase cursor-pointer hover:text-foreground transition-colors ${FOCUS_RING}`}
         onClick={() => setOpen((o) => !o)}
       >
         <span>{title}</span>
-        <svg
-          className={`h-2.5 w-2.5 transition-transform duration-150 ${open ? '' : '-rotate-90'}`}
-          viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-        >
-          <path d="M3 4.5 L6 7.5 L9 4.5" />
-        </svg>
+        <ChevronDown className={`h-2.5 w-2.5 transition-transform ${open ? '' : '-rotate-90'}`} />
       </button>
       {open && children}
     </div>
@@ -89,8 +87,8 @@ export function QuickStylePanel() {
     return anyOn ? 'on' : 'off';
   })();
 
-  const handleGroup = useCallback(() => {
-    const name = prompt('Group name:');
+  const handleGroup = useCallback(async () => {
+    const name = await showPrompt({ title: 'Group name', defaultValue: 'Group 1' });
     if (name) setCurveGroup(curves, name);
   }, [curves, setCurveGroup]);
 
@@ -137,16 +135,16 @@ export function QuickStylePanel() {
     }
   }, [curves, curveStyleOverrides, setCurveStyleOverride]);
 
-  const btn = (label: string, action: () => void, disabled = false, shortcut?: string) => (
+  const btn = (label: ReactNode, action: () => void, disabled = false, shortcut?: string) => (
     <Button
       variant="outline"
       size="sm"
-      className="w-full h-5 text-[9px] px-1.5 justify-between"
+      className="w-full h-5 text-[10px] px-1.5 justify-between"
       disabled={disabled}
       onClick={action}
     >
       <span className="truncate">{label}</span>
-      {shortcut && <span className="text-muted-foreground text-[7px] ml-0.5">{shortcut}</span>}
+      {shortcut && <span className="text-muted-foreground text-[10px] ml-0.5">{shortcut}</span>}
     </Button>
   );
 
@@ -169,8 +167,8 @@ export function QuickStylePanel() {
       {/* Panel content */}
       {expanded && (
         <div className="w-[120px] overflow-y-auto p-1.5 space-y-1.5 text-[10px]">
-          <div className="text-[9px] font-semibold text-muted-foreground">Quick Actions</div>
-          <div className="text-[9px] text-muted-foreground">
+          <div className="text-[10px] font-semibold text-muted-foreground">Quick Actions</div>
+          <div className="text-[10px] text-muted-foreground">
             {n > 0 ? `${n} curve${n > 1 ? 's' : ''}` : 'No selection'}
           </div>
 
@@ -186,7 +184,7 @@ export function QuickStylePanel() {
             <select
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value as ContentType)}
-              className="w-full h-6 text-[10px] border rounded px-1 bg-background"
+              className={`w-full h-6 text-[10px] border rounded-md px-1 bg-background ${FOCUS_RING}`}
             >
               {CONTENT_TYPES.map(({ value, label }) => (
                 <option key={value} value={value}>{label}</option>
@@ -197,7 +195,7 @@ export function QuickStylePanel() {
 
           {/* Grouping */}
           <PanelSection title="Grouping">
-            {btn('Group...', handleGroup, n === 0, `${MOD_KEY}+G`)}
+            {btn('Group…', handleGroup, n === 0, `${MOD_KEY}+G`)}
             {btn('Ungroup', () => removeCurveGroup(curves), n === 0, `${MOD_KEY}+⇧+G`)}
             {btn('Auto-Group by Sample', autoGroupBySample)}
           </PanelSection>
@@ -211,7 +209,7 @@ export function QuickStylePanel() {
             )}
             {n > 0 && (
               <select
-                className="w-full h-6 border rounded text-[10px] bg-background mt-0.5 px-1"
+                className={`w-full h-6 border rounded-md text-[10px] bg-background mt-0.5 px-1 ${FOCUS_RING}`}
                 value=""
                 onChange={(e) => {
                   if (e.target.value) setCurveStyleOverride(curves, { lineStyle: e.target.value as 'solid' | 'dash' | 'dot' | 'dashdot' });
@@ -235,7 +233,7 @@ export function QuickStylePanel() {
                 type="checkbox"
                 checked={selectionPaletteGroupColors}
                 onChange={(e) => setSelectionPaletteGroupColors(e.target.checked)}
-                className="h-3 w-3"
+                className="h-3 w-3 accent-[var(--brand-red-dark)]"
               />
               Group coloring
             </label>
@@ -250,7 +248,7 @@ export function QuickStylePanel() {
                 </button>
               ))}
               <div className="border-t mx-1 my-0.5" />
-              <div className="px-2 py-0.5 text-[9px] font-medium text-muted-foreground uppercase">Gradients</div>
+              <div className="px-2 py-0.5 text-[10px] font-medium text-muted-foreground uppercase">Gradients</div>
               {GRADIENT_PALETTE_NAMES.map((p) => (
                 <button
                   key={p}
@@ -267,12 +265,22 @@ export function QuickStylePanel() {
           {/* Baseline */}
           <PanelSection title="Baseline">
             {btn(
-              `${selectionAutoState === 'on' ? '✓ ' : ''}Auto`,
+              <span className="inline-flex items-center gap-1">
+                {selectionAutoState === 'on'
+                  ? <Check className="size-3 shrink-0" />
+                  : <span className="size-3 shrink-0" aria-hidden />}
+                Auto
+              </span>,
               () => setWellBaselineOverride(wells, { auto: true }),
               n === 0,
             )}
             {btn(
-              `${selectionAutoState === 'off' ? '✓ ' : ''}Manual`,
+              <span className="inline-flex items-center gap-1">
+                {selectionAutoState === 'off'
+                  ? <Check className="size-3 shrink-0" />
+                  : <span className="size-3 shrink-0" aria-hidden />}
+                Manual
+              </span>,
               () => setWellBaselineOverride(wells, { auto: false }),
               n === 0,
             )}

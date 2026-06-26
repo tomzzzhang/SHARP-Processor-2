@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { ChevronRight, Check } from 'lucide-react';
 import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { MAIN_PALETTE_NAMES, GRADIENT_PALETTE_NAMES, getPaletteColors } from '@/lib/constants';
 import { parseCurveKey } from '@/lib/curves';
 import { InlineColorPicker } from '@/components/ui/color-picker';
+import { FOCUS_RING } from '@/lib/ui-classes';
+import { showPrompt } from '@/lib/dialogs';
 import type { ContentType } from '@/types/experiment';
 
 interface ContextMenuProps {
@@ -26,6 +29,10 @@ const LINE_STYLES: { value: 'solid' | 'dash' | 'dot' | 'dashdot'; label: string 
   { value: 'dot', label: 'Dotted' },
   { value: 'dashdot', label: 'Dash-Dot' },
 ];
+
+/** Shared classes for menu-item buttons (leaf items + submenu triggers). */
+const MENU_ITEM = `w-full text-left px-3 py-1.5 text-xs hover:bg-accent ${FOCUS_RING}`;
+const MENU_TRIGGER = `${MENU_ITEM} flex items-center disabled:opacity-50`;
 
 /** Viewport-aware submenu wrapper — flips left if it would overflow right edge */
 function SubMenu({ children, className = '' }: { children: React.ReactNode; className?: string }) {
@@ -132,7 +139,7 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
   const itemWithHover = (label: string, action: () => void, disabled = false) => (
     <button
       key={label}
-      className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-40 disabled:cursor-default"
+      className={`${MENU_ITEM} disabled:opacity-50 disabled:cursor-default`}
       disabled={disabled}
       onMouseEnter={() => setSubmenu(null)}
       onClick={() => { action(); onClose(); }}
@@ -143,8 +150,8 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
 
   const sep = (key: string) => <div key={key} className="border-t my-0.5" />;
 
-  const handleGroupPrompt = useCallback(() => {
-    const name = prompt('Group name:');
+  const handleGroupPrompt = useCallback(async () => {
+    const name = await showPrompt({ title: 'Group name', defaultValue: 'Group 1' });
     if (name) {
       setCurveGroup(curves, name);
       onClose();
@@ -213,15 +220,16 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
         className="relative"
         onMouseEnter={() => setSubmenu('type')}
       >
-        <button className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-40" disabled={n === 0}>
-          Sample Type &rarr;
+        <button className={MENU_TRIGGER} disabled={n === 0}>
+          Sample Type
+          <ChevronRight className="size-3 ml-auto opacity-60" />
         </button>
         {submenu === 'type' && n > 0 && (
           <SubMenu className="min-w-[120px]">
             {CONTENT_TYPES.map(({ value, label }) => (
               <button
                 key={value}
-                className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent"
+                className={MENU_ITEM}
                 onClick={() => { setWellContentType(wells, value); onClose(); }}
               >
                 {label}
@@ -233,7 +241,7 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
       {sep('s3')}
 
       {/* Grouping — plain items clear submenu on hover */}
-      {itemWithHover('Group...', handleGroupPrompt, n === 0)}
+      {itemWithHover('Group…', handleGroupPrompt, n === 0)}
       {itemWithHover('Remove from Group', () => removeCurveGroup(curves), n === 0)}
       {itemWithHover('Auto-Group by Sample', () => { autoGroupBySample(); onClose(); })}
       {sep('s4')}
@@ -243,8 +251,9 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
         className="relative"
         onMouseEnter={() => setSubmenu('color')}
       >
-        <button className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-40" disabled={n === 0}>
-          Color &rarr;
+        <button className={MENU_TRIGGER} disabled={n === 0}>
+          Color
+          <ChevronRight className="size-3 ml-auto opacity-60" />
         </button>
         {submenu === 'color' && n > 0 && (
           <SubMenu className="min-w-[220px]">
@@ -258,15 +267,16 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
         className="relative"
         onMouseEnter={() => setSubmenu('linestyle')}
       >
-        <button className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-40" disabled={n === 0}>
-          Line Style &rarr;
+        <button className={MENU_TRIGGER} disabled={n === 0}>
+          Line Style
+          <ChevronRight className="size-3 ml-auto opacity-60" />
         </button>
         {submenu === 'linestyle' && n > 0 && (
           <SubMenu className="min-w-[100px]">
             {LINE_STYLES.map(({ value, label }) => (
               <button
                 key={value}
-                className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent"
+                className={MENU_ITEM}
                 onClick={() => { setCurveStyleOverride(curves, { lineStyle: value }); onClose(); }}
               >
                 {label}
@@ -283,8 +293,9 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
         className="relative"
         onMouseEnter={() => setSubmenu('palette')}
       >
-        <button className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent">
-          Palette &rarr;
+        <button className={MENU_TRIGGER}>
+          Palette
+          <ChevronRight className="size-3 ml-auto opacity-60" />
         </button>
         {(submenu === 'palette' || submenu === 'gradients') && (
           <SubMenu className="min-w-[120px]">
@@ -293,14 +304,14 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
                 type="checkbox"
                 checked={selectionPaletteGroupColors}
                 onChange={(e) => setSelectionPaletteGroupColors(e.target.checked)}
-                className="h-3 w-3"
+                className="h-3 w-3 accent-[var(--brand-red-dark)]"
               />
               Group coloring
             </label>
             {MAIN_PALETTE_NAMES.map((p) => (
               <button
                 key={p}
-                className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent"
+                className={MENU_ITEM}
                 onMouseEnter={() => setSubmenu('palette')}
                 onClick={() => { applyPaletteToSelection(p); onClose(); }}
               >
@@ -312,15 +323,16 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
               className="relative"
               onMouseEnter={() => setSubmenu('gradients')}
             >
-              <button className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent">
-                Gradients &rarr;
+              <button className={MENU_TRIGGER}>
+                Gradients
+                <ChevronRight className="size-3 ml-auto opacity-60" />
               </button>
               {submenu === 'gradients' && (
                 <SubMenu className="min-w-[100px]">
                   {GRADIENT_PALETTE_NAMES.map((p) => (
                     <button
                       key={p}
-                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent"
+                      className={MENU_ITEM}
                       onClick={() => { applyPaletteToSelection(p); onClose(); }}
                     >
                       {p}
@@ -331,7 +343,7 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
             </div>
             <div className="border-t my-1" />
             <button
-              className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent"
+              className={MENU_ITEM}
               onMouseEnter={() => setSubmenu('palette')}
               onClick={() => { reverseSelectionColors(); onClose(); }}
             >
@@ -347,26 +359,33 @@ export function ContextMenu({ x, y, onClose }: ContextMenuProps) {
         className="relative"
         onMouseEnter={() => setSubmenu('baseline')}
       >
-        <button className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-40" disabled={n === 0}>
-          Baseline &rarr;
+        <button className={MENU_TRIGGER} disabled={n === 0}>
+          Baseline
+          <ChevronRight className="size-3 ml-auto opacity-60" />
         </button>
         {submenu === 'baseline' && n > 0 && (
           <SubMenu className="min-w-[160px]">
             <button
-              className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent"
+              className={`${MENU_ITEM} flex items-center gap-1.5`}
               onClick={() => { setWellBaselineOverride(wells, { auto: true }); onClose(); }}
             >
-              {selectionAutoState === 'on' ? '✓ ' : '   '}Auto
+              {selectionAutoState === 'on'
+                ? <Check className="size-3 shrink-0" />
+                : <span className="size-3 shrink-0" aria-hidden />}
+              Auto
             </button>
             <button
-              className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent"
+              className={`${MENU_ITEM} flex items-center gap-1.5`}
               onClick={() => { setWellBaselineOverride(wells, { auto: false }); onClose(); }}
             >
-              {selectionAutoState === 'off' ? '✓ ' : '   '}Manual
+              {selectionAutoState === 'off'
+                ? <Check className="size-3 shrink-0" />
+                : <span className="size-3 shrink-0" aria-hidden />}
+              Manual
             </button>
             <div className="border-t my-0.5" />
             <button
-              className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent"
+              className={MENU_ITEM}
               onClick={() => { clearWellBaselineOverrides(wells); onClose(); }}
             >
               Follow global default

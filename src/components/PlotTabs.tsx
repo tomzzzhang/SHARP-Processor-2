@@ -2,6 +2,7 @@ import { useAppState, type PlotTab } from '@/hooks/useAppState';
 import { Checkbox } from '@/components/ui/checkbox';
 import type { XAxisMode } from '@/types/experiment';
 import { effectiveChannelLabel, effectiveChannelColor } from '@/lib/channels';
+import { FOCUS_RING } from '@/lib/ui-classes';
 
 const TABS: { value: PlotTab; label: string }[] = [
   { value: 'amplification', label: 'Amplification' },
@@ -98,9 +99,9 @@ export function PlotTabs() {
                 <Checkbox
                   checked={visibleChannels.has(ch)}
                   onCheckedChange={() => toggleChannelGlobal(ch)}
-                  className="h-3.5 w-3.5"
+                  className="h-3 w-3"
                 />
-                <svg width="16" height="8" style={{ display: 'inline-block' }}>
+                <svg width="16" height="8" className="inline-block shrink-0">
                   <line x1="0" y1="4" x2="16" y2="4" stroke={color} strokeWidth="2"
                         strokeDasharray={dashArray(dash)} />
                 </svg>
@@ -118,7 +119,7 @@ export function PlotTabs() {
           <select
             value={activeChannel}
             onChange={(e) => setActiveChannel(e.target.value)}
-            className="h-7 border rounded px-1 text-xs bg-background"
+            className={`h-7 border rounded-md px-1 text-xs bg-background ${FOCUS_RING}`}
           >
             {channels.map((ch) => (
               <option key={ch} value={ch}>{effectiveChannelLabel(ch, channelLabels, exp?.channelFluorophore)}</option>
@@ -129,7 +130,7 @@ export function PlotTabs() {
 
       {/* Log Scale + X-axis selector — right side */}
       <div className={`flex items-center gap-3 px-3 text-xs ${!hasExperiment ? 'opacity-40 pointer-events-none' : ''}`}>
-        <span className="mx-1 text-border">|</span>
+        <span aria-hidden className="mx-1 h-4 w-px bg-border self-center" />
 
         {plotTab === 'melt' && (
           <>
@@ -137,36 +138,40 @@ export function PlotTabs() {
               <Checkbox
                 checked={meltNormalizeEnabled}
                 onCheckedChange={(v) => setMeltNormalizeEnabled(v === true)}
-                className="h-3.5 w-3.5"
+                className="h-3 w-3"
               />
               Normalize
             </label>
-            <span className="mx-1 text-border">|</span>
+            <span aria-hidden className="mx-1 h-4 w-px bg-border self-center" />
           </>
         )}
 
-        <label className="flex items-center gap-1.5 cursor-pointer whitespace-nowrap">
+        <label
+          className={`flex items-center gap-1.5 whitespace-nowrap ${
+            baselineEnabled ? 'cursor-pointer' : 'opacity-50 cursor-default'
+          }`}
+        >
           <Checkbox
             checked={baselineAuto}
             onCheckedChange={(v) => setBaselineAuto(v === true)}
             disabled={!baselineEnabled}
-            className="h-3.5 w-3.5"
+            className="h-3 w-3"
           />
           Auto Baseline
         </label>
 
-        <span className="mx-1 text-border">|</span>
+        <span aria-hidden className="mx-1 h-4 w-px bg-border self-center" />
 
         <label className="flex items-center gap-1.5 cursor-pointer whitespace-nowrap">
           <Checkbox
             checked={logScale}
             onCheckedChange={(v) => setLogScale(v === true)}
-            className="h-3.5 w-3.5"
+            className="h-3 w-3"
           />
           Log
         </label>
 
-        <span className="mx-1 text-border">|</span>
+        <span aria-hidden className="mx-1 h-4 w-px bg-border self-center" />
 
         <label
           className="flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
@@ -175,25 +180,25 @@ export function PlotTabs() {
           <Checkbox
             checked={autoScale}
             onCheckedChange={(v) => setAutoScale(v === true)}
-            className="h-3.5 w-3.5"
+            className="h-3 w-3"
           />
           Auto-scale
         </label>
         <button
           onClick={() => triggerAutoScale()}
-          className="px-1.5 py-0.5 border rounded text-[11px] hover:bg-accent"
+          className={`px-1.5 py-0.5 border rounded text-xs hover:bg-accent transition-colors active:bg-accent/80 ${FOCUS_RING}`}
           title="Auto-scale axes now (same as double right-click on a plot)"
         >
           Fit
         </button>
 
-        <span className="mx-1 text-border">|</span>
+        <span aria-hidden className="mx-1 h-4 w-px bg-border self-center" />
 
         <span className="font-medium text-muted-foreground">X:</span>
         <select
           value={xAxisMode}
           onChange={(e) => setXAxisMode(e.target.value as XAxisMode)}
-          className="h-7 border rounded px-1 text-xs bg-background"
+          className={`h-7 border rounded-md px-1 text-xs bg-background ${FOCUS_RING}`}
         >
           {MODES.map(({ value, label }) => (
             <option key={value} value={value}>{label}</option>

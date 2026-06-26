@@ -108,6 +108,38 @@ export async function exportPlotImage(
 }
 
 /**
+ * Export the currently-displayed plot for a given plot tab at its on-screen
+ * size, upscaled by `dpi`. Resolves the active tab's stable container id rather
+ * than a fragile `.js-plotly-plot` query (which grabs whichever Plotly plot is
+ * first in the DOM — often the melt-derivative mini-plot), so it always
+ * captures the right plot. On the amplification tab a PNG/JPEG export stitches
+ * the melt-derivative mini-plot below the main plot, matching what's shown.
+ */
+export async function exportActivePlot(
+  plotTab: 'amplification' | 'melt' | 'doubling',
+  format: ImageFormat,
+  dpi: number,
+  defaultName: string,
+): Promise<string | null> {
+  const byId = (id: string) => document.getElementById(id);
+  if (plotTab === 'amplification') {
+    const amp = byId('sharp-plot-amp');
+    if (!amp) return null;
+    const deriv = byId('sharp-plot-amp-deriv');
+    if (deriv && (format === 'png' || format === 'jpeg')) {
+      return exportCompositePlotImage([amp, deriv], format, dpi, defaultName);
+    }
+    return exportPlotImage(amp, format, dpi, defaultName);
+  }
+  if (plotTab === 'melt') {
+    const melt = byId('sharp-plot-melt');
+    return melt ? exportPlotImage(melt, format, dpi, defaultName) : null;
+  }
+  const doubling = byId('sharp-plot-doubling');
+  return doubling ? exportPlotImage(doubling, format, dpi, defaultName) : null;
+}
+
+/**
  * Export a stack of on-screen Plotly plots as a single composite image —
  * used on the Amplification tab to include the melt-derivative mini-plot
  * below the main amp plot, matching what's displayed. Plots are captured

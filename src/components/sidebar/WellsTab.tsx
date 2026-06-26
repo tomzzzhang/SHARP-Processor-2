@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { CollapsibleSection } from './CollapsibleSection';
 import { effectiveChannelLabel } from '@/lib/channels';
 import { curveKey } from '@/lib/curves';
+import { FOCUS_RING } from '@/lib/ui-classes';
 
 export function WellsTab() {
   const selectAll = useAppState((s) => s.selectAll);
@@ -76,7 +77,7 @@ export function WellsTab() {
                 <select
                   value=""
                   onChange={(e) => { if (e.target.value) selectByChannel(e.target.value); e.target.value = ''; }}
-                  className="flex-1 h-7 text-xs border rounded-md px-1 bg-background text-foreground"
+                  className={`flex-1 h-7 text-xs border rounded-md px-1 bg-background text-foreground ${FOCUS_RING}`}
                   title="Select all S-C pairs for a fluorophore"
                 >
                   <option value="" disabled>Fluor…</option>
@@ -92,7 +93,7 @@ export function WellsTab() {
                   e.target.value = '';
                 }}
                 disabled={groupNames.length === 0}
-                className="flex-1 h-7 text-xs border rounded-md px-1 bg-background text-foreground disabled:opacity-40"
+                className={`flex-1 h-7 text-xs border rounded-md px-1 bg-background text-foreground disabled:opacity-50 ${FOCUS_RING}`}
                 title="Select all curves in a group"
               >
                 <option value="" disabled>Group…</option>

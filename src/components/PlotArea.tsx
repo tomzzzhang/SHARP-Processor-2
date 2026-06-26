@@ -163,6 +163,55 @@ function usePlotStyle() {
   );
 }
 
+/** Observe a plot container and return a font-scale factor: 1 at a comfortable
+ *  size, shrinking to a floor as the plot gets small so axis titles/ticks don't
+ *  crowd or overrun a small chart. rAF-throttled and only updates state on a
+ *  meaningful change, so it can't churn the memoized layout on its own. */
+function usePlotFontScale(ref: React.RefObject<HTMLDivElement | null>) {
+  // WIDTH-driven so every plot — and a plot plus its sibling sub-plot (the amp
+  // chart and the −dF/dT mini below it share the same content width) — gets the
+  // SAME scale, so their axis labels match in size. Caps at 0.8 so labels stay
+  // comfortably small by default (the "labels are too big" report), easing to a
+  // 0.6 floor as the plot narrows so labels never overrun a small chart.
+  const [scale, setScale] = useState(0.8);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    let raf = 0;
+    const measure = () => {
+      const w = el.clientWidth;
+      if (!w) return;
+      const next = Math.max(0.6, 0.8 * Math.min(1, w / 640));
+      setScale((prev) => (Math.abs(prev - next) > 0.02 ? next : prev));
+    };
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(measure);
+    });
+    ro.observe(el);
+    measure();
+    return () => { ro.disconnect(); cancelAnimationFrame(raf); };
+  }, [ref]);
+  return scale;
+}
+
+/** Return a copy of `style` with the plot font sizes scaled by `scale`
+ *  (identity at scale === 1, so the memo identity is preserved at full size). */
+function useScaledStyle(style: ReturnType<typeof usePlotStyle>, scale: number) {
+  // Scales the axis title / label / tick fonts. Legend size is left alone — it's
+  // a separate element, not a crowded axis label. Memoized so the layout's
+  // identity stays stable while scale is unchanged (no redraw on hover/select).
+  return useMemo(
+    () => ({
+      ...style,
+      titleSize: style.titleSize * scale,
+      labelSize: style.labelSize * scale,
+      tickSize: style.tickSize * scale,
+    }),
+    [style, scale],
+  );
+}
+
 /** Build an axis title object — returns empty text when labels are hidden. */
 function axisLabel(text: string, style: ReturnType<typeof usePlotStyle>) {
   return {
@@ -192,14 +241,17 @@ function titleField(text: string, style: ReturnType<typeof usePlotStyle>) {
 /** Compute plot margins that scale with font sizes so text doesn't
  *  overlap the chart area. When labels or ticks are hidden, their
  *  contribution is excluded. */
-function computeMargins(style: ReturnType<typeof usePlotStyle>) {
+function computeMargins(style: ReturnType<typeof usePlotStyle>, hintTop = 0) {
   const labelContrib = style.showLabels ? style.labelSize * 1.5 : 0;
   const tickContribL = style.showTicks ? style.tickSize * 2 : 0;
   const tickContribB = style.showTicks ? style.tickSize * 1.2 : 0;
+  const titleTop = style.showTitle ? 20 + style.titleSize * 1.5 : 20;
   return {
     l: Math.round(40 + labelContrib + tickContribL),
     r: 20,
-    t: Math.round(style.showTitle ? 20 + style.titleSize * 1.5 : 20),
+    // hintTop reserves a top band for the gesture hint + modebar so the plotted
+    // curves don't rise into them; take whichever is taller (title vs hint band).
+    t: Math.round(Math.max(titleTop, hintTop)),
     b: Math.round(30 + labelContrib + tickContribB),
   };
 }
@@ -662,10 +714,12 @@ function useMiddleMousePan(containerRef: React.RefObject<HTMLDivElement | null>)
   }, [containerRef]);
 }
 
-// Plot config: scroll zoom + reset button only, hide other controls
+// Plot config: scroll zoom + reset ("house") button only, logo hidden so the
+// house is the sole, rightmost modebar control (the gesture hint sits to its left)
 const PLOT_CONFIG: Partial<Plotly.Config> = {
   responsive: true,
   displayModeBar: true,
+  displaylogo: false,
   scrollZoom: true,
   editable: false,
   modeBarButtonsToRemove: [
@@ -675,7 +729,7 @@ const PLOT_CONFIG: Partial<Plotly.Config> = {
   ] as Plotly.ModeBarDefaultButtons[],
 };
 
-// ── Plot hint overlay (subtle bottom-right text with mouse icons) ────
+// ── Plot hint overlay (subtle top-right text, beside the modebar) ────
 
 /** Tiny top-down mouse glyph with one button (or wheel) highlighted. */
 function MouseIcon({ side }: { side: 'L' | 'M' | 'R' }) {
@@ -708,16 +762,52 @@ function MouseIcon({ side }: { side: 'L' | 'M' | 'R' }) {
   );
 }
 
+// Top band (px) reserved by computeMargins so the gesture hint + modebar clear
+// the plotted curves (the hint sits in this band, above the plotting area).
+const HINT_TOP_RESERVE = 28;
+
 const PLOT_HINT_STYLE: React.CSSProperties = {
-  position: 'absolute', bottom: 6, right: 8,
-  fontSize: 10, color: 'rgba(120,120,120,0.55)',
+  // Top-right, just left of the Plotly modebar's reset ("house") button.
+  // Rendered at its natural size (~ the house icon), not plot-scaled.
+  position: 'absolute', top: 4, right: 34,
+  fontSize: 10, color: 'rgba(120,120,120,0.7)',
   pointerEvents: 'none', userSelect: 'none',
   zIndex: 5, whiteSpace: 'nowrap', lineHeight: 1,
+  padding: '2px 5px', borderRadius: 5,
 };
 
-function PlotHint() {
+function PlotHint({ isDark = false, containerRef }: {
+  isDark?: boolean;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  // Sit just left of the Plotly modebar by measuring the modebar's ACTUAL width
+  // (Plotly builds it asynchronously, so retry until it appears), instead of
+  // guessing a fixed offset — this keeps the reset ("house") button clear no
+  // matter how wide the modebar renders.
+  const [right, setRight] = useState(34);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    let raf = 0, tries = 0;
+    const measure = () => {
+      const mb = el.querySelector('.modebar') as HTMLElement | null;
+      if (mb && mb.offsetWidth > 0) setRight(mb.offsetWidth + 14);
+      else if (tries++ < 90) raf = requestAnimationFrame(measure);
+    };
+    measure();
+    return () => cancelAnimationFrame(raf);
+  }, [containerRef]);
+
+  // A translucent chip backdrop keeps the text legible as a backstop near the top.
+  const style: React.CSSProperties = {
+    ...PLOT_HINT_STYLE,
+    right,
+    backgroundColor: isDark ? 'rgba(28,28,30,0.72)' : 'rgba(250,250,250,0.8)',
+    backdropFilter: 'blur(2px)',
+    WebkitBackdropFilter: 'blur(2px)',
+  };
   return (
-    <div style={PLOT_HINT_STYLE}>
+    <div style={style}>
       <MouseIcon side="L" />drag: select  ·  <MouseIcon side="M" />drag: pan  ·  <MouseIcon side="M" />scroll: zoom  ·  <MouseIcon side="R" />drag: resize  ·  2× <MouseIcon side="R" />click: reset
     </div>
   );
@@ -774,6 +864,9 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
   const autoScale = useAppState((s) => s.autoScale);
   const autoScalePulse = useAppState((s) => s._autoScalePulse);
   const style = usePlotStyle();
+  const sizeRef = useRef<HTMLDivElement | null>(null);
+  const fontScale = usePlotFontScale(sizeRef);
+  const sstyle = useScaledStyle(style, fontScale);
   const analysisResults = useAnalysisResults();
   const allChannelResults = useAllChannelResults();
   const dragPreviewCurves = useAppState((s) => s.dragPreviewCurves);
@@ -990,29 +1083,29 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
       });
     }
     return {
-      title: titleField(title, style),
+      title: titleField(title, sstyle),
       xaxis: {
-        title: axisLabel(X_AXIS_LABELS[xAxisMode], style),
-        ...tickProps(style),
-        ...gridStyle(style, isDark),
+        title: axisLabel(X_AXIS_LABELS[xAxisMode], sstyle),
+        ...tickProps(sstyle),
+        ...gridStyle(sstyle, isDark),
         ...rangeProps(frozenRanges?.x, frozen),
       },
       yaxis: {
         title: axisLabel(
           normalizeEnabled ? 'Normalized fluorescence' : baselineEnabled ? 'RFU (corrected)' : 'RFU',
-          style,
+          sstyle,
         ),
         type: logScale ? 'log' : 'linear',
-        ...tickProps(style),
-        ...gridStyle(style, isDark),
+        ...tickProps(sstyle),
+        ...gridStyle(sstyle, isDark),
         ...rangeProps(frozenRanges?.y, frozen),
       },
       shapes,
       dragmode: false as Layout['dragmode'],
       autosize: true,
-      margin: computeMargins(style),
+      margin: computeMargins(sstyle, HINT_TOP_RESERVE),
       plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) },
-      ...legendLayout(style, showLegendAmp, traces, isDark),
+      ...legendLayout(sstyle, showLegendAmp, traces, isDark),
       datarevision: dataRevision,
       // Preserve zoom/pan across hover & selection re-renders. With auto-scale
       // on, fold the data-transform signature in so toggling normalization /
@@ -1022,7 +1115,7 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
         ? `amp-${exp?.experimentId ?? 'none'}-${xAxisMode}-n${normalizeEnabled ? 1 : 0}b${baselineEnabled ? 1 : 0}l${logScale ? 1 : 0}d${driftCorrectionEnabled ? 1 : 0}`
         : `amp-${exp?.experimentId ?? 'none'}-${xAxisMode}`,
     };
-  }, [exp, xAxisMode, logScale, thresholdEnabled, thresholdRfu, style, baselineEnabled, normalizeEnabled, driftCorrectionEnabled, autoScale, frozen, frozenRanges, baselineZoneBounds, showLegendAmp, traces, dataRevision]);
+  }, [exp, xAxisMode, logScale, thresholdEnabled, thresholdRfu, sstyle, baselineEnabled, normalizeEnabled, driftCorrectionEnabled, autoScale, frozen, frozenRanges, baselineZoneBounds, showLegendAmp, traces, dataRevision]);
 
   // Refs for box selection data matching (channel-aware)
   const visibleWellsRef = useRef(visibleWells);
@@ -1222,7 +1315,7 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
 
   return (
     <div
-      ref={plotContainerRef}
+      ref={(el) => { plotContainerRef.current = el; sizeRef.current = el; }}
       id="sharp-plot-amp"
       data-sharp-plot="amp"
       style={{ width: '100%', height: '100%', position: 'relative' }}
@@ -1240,7 +1333,7 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
       <div ref={selectionOverlayRef} style={BOX_SELECT_OVERLAY_STYLE} />
       <div ref={ampResizeOverlayRef} style={RESIZE_OVERLAY_STYLE} />
       <svg ref={arrowOverlayRef} style={{ position: 'absolute', top: 0, left: 0, display: 'none', pointerEvents: 'none', zIndex: 11 }} />
-      <PlotHint />
+      <PlotHint isDark={isDark} containerRef={sizeRef} />
     </div>
   );
 }
@@ -1262,6 +1355,9 @@ function MeltDerivMini({ openContextMenu }: { openContextMenu: (x: number, y: nu
   const setHoveredWell = useAppState((s) => s.setHoveredWell);
   const deselectAll = useAppState((s) => s.deselectAll);
   const style = usePlotStyle();
+  const sizeRef = useRef<HTMLDivElement | null>(null);
+  const fontScale = usePlotFontScale(sizeRef);
+  const sstyle = useScaledStyle(style, fontScale);
   const setSelectedCurves = useAppState((s) => s.setSelectedCurves);
   const selectCurvesOnly = useAppState((s) => s.selectCurvesOnly);
   const toggleCurves = useAppState((s) => s.toggleCurves);
@@ -1405,25 +1501,25 @@ function MeltDerivMini({ openContextMenu }: { openContextMenu: (x: number, y: nu
     // sub-plot below the amp chart.
     return {
       xaxis: {
-        title: axisLabel('Temperature (°C)', style),
-        ...tickProps(style),
-        ...gridStyle(style, isDark),
+        title: axisLabel('Temperature (°C)', sstyle),
+        ...tickProps(sstyle),
+        ...gridStyle(sstyle, isDark),
       },
       yaxis: {
-        title: axisLabel('-dF/dT', style),
-        ...tickProps(style),
-        ...gridStyle(style, isDark),
+        title: axisLabel('-dF/dT', sstyle),
+        ...tickProps(sstyle),
+        ...gridStyle(sstyle, isDark),
       },
       shapes: shapes as Layout['shapes'],
       dragmode: false as Layout['dragmode'],
       autosize: true,
-      margin: computeMiniMargins(style),
+      margin: computeMiniMargins(sstyle),
       plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) },
       showlegend: false,
       datarevision: dataRevision,
       uirevision: `deriv-${experiments[idx]?.experimentId ?? 'none'}`,
     };
-  }, [style, traces, meltThresholdEnabled, meltThresholdValue, experiments, idx, dataRevision]);
+  }, [sstyle, fontScale, traces, meltThresholdEnabled, meltThresholdValue, experiments, idx, dataRevision]);
 
   // Box select on melt derivative (channel-aware)
   const visibleWellsRef = useRef(visibleWells);
@@ -1537,7 +1633,7 @@ function MeltDerivMini({ openContextMenu }: { openContextMenu: (x: number, y: nu
 
   return (
     <div
-      ref={containerRef}
+      ref={(el) => { containerRef.current = el; sizeRef.current = el; }}
       id="sharp-plot-amp-deriv"
       data-sharp-plot="amp-deriv"
       style={{ width: '100%', height: '100%', position: 'relative' }}
@@ -1581,6 +1677,9 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
   const legendVisibleOnly = useAppState((s) => s.legendVisibleOnly);
   const legendOrder = useAppState((s) => s.legendOrder);
   const style = usePlotStyle();
+  const sizeRef = useRef<HTMLDivElement | null>(null);
+  const fontScale = usePlotFontScale(sizeRef);
+  const sstyle = useScaledStyle(style, fontScale);
   const analysisResults = useAnalysisResults();
   const dragPreviewCurves = useAppState((s) => s.dragPreviewCurves);
   const setDragPreviewCurves = useAppState((s) => s.setDragPreviewCurves);
@@ -1793,7 +1892,7 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
 
   const layout = useMemo((): Partial<Layout> => {
     const title = exp?.experimentId ? `${exp.experimentId} — Melt` : 'Melt Curve';
-    const grid = gridStyle(style, isDark);
+    const grid = gridStyle(sstyle, isDark);
     const rfuLabel = meltNormalizeEnabled ? 'Normalized fluorescence' : 'RFU';
     const shapes: Partial<Shape>[] = [];
     if (meltThresholdEnabled && hasDerivative) {
@@ -1805,19 +1904,19 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
     }
     if (hasDerivative) {
       return {
-        title: titleField(title, style),
+        title: titleField(title, sstyle),
         // Top subplot x-axis: anchored to yaxis (RFU), tick labels hidden
         // so they don't appear between the two subplots.
-        xaxis: { ...tickProps(style), showticklabels: false, ...grid, anchor: 'y', ...rangeProps(frozenRanges?.x, frozen) },
+        xaxis: { ...tickProps(sstyle), showticklabels: false, ...grid, anchor: 'y', ...rangeProps(frozenRanges?.x, frozen) },
         // Bottom subplot x-axis: matches xaxis so zoom/pan stay in sync,
         // anchored to yaxis2 so the Temperature label + ticks sit at the bottom.
         // (No explicit range — `matches:'x'` inherits the pinned x range.)
-        xaxis2: { title: axisLabel('Temperature (°C)', style), ...tickProps(style), ...grid, matches: 'x', anchor: 'y2' },
-        yaxis: { title: axisLabel(rfuLabel, style), ...tickProps(style), domain: [0.55, 1], anchor: 'x', ...grid, ...rangeProps(frozenRanges?.y, frozen) },
-        yaxis2: { title: axisLabel('-dF/dT', style), ...tickProps(style), domain: [0, 0.45], anchor: 'x2', ...grid, ...rangeProps(frozenRanges?.y2, frozen) },
+        xaxis2: { title: axisLabel('Temperature (°C)', sstyle), ...tickProps(sstyle), ...grid, matches: 'x', anchor: 'y2' },
+        yaxis: { title: axisLabel(rfuLabel, sstyle), ...tickProps(sstyle), domain: [0.55, 1], anchor: 'x', ...grid, ...rangeProps(frozenRanges?.y, frozen) },
+        yaxis2: { title: axisLabel('-dF/dT', sstyle), ...tickProps(sstyle), domain: [0, 0.45], anchor: 'x2', ...grid, ...rangeProps(frozenRanges?.y2, frozen) },
         shapes: shapes as Layout['shapes'],
-        dragmode: false as Layout['dragmode'], autosize: true, margin: computeMargins(style),
-        plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) }, ...legendLayout(style, showLegendMelt, traces, isDark),
+        dragmode: false as Layout['dragmode'], autosize: true, margin: computeMargins(sstyle, HINT_TOP_RESERVE),
+        plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) }, ...legendLayout(sstyle, showLegendMelt, traces, isDark),
         datarevision: dataRevision,
         uirevision: autoScale
           ? `melt-${exp?.experimentId ?? 'none'}-n${meltNormalizeEnabled ? 1 : 0}`
@@ -1825,17 +1924,17 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
       };
     }
     return {
-      title: titleField(title, style),
-      xaxis: { title: axisLabel('Temperature (°C)', style), ...tickProps(style), ...grid, ...rangeProps(frozenRanges?.x, frozen) },
-      yaxis: { title: axisLabel(rfuLabel, style), ...tickProps(style), ...grid, ...rangeProps(frozenRanges?.y, frozen) },
-      dragmode: false as Layout['dragmode'], autosize: true, margin: computeMargins(style),
-      plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) }, ...legendLayout(style, showLegendMelt, traces, isDark),
+      title: titleField(title, sstyle),
+      xaxis: { title: axisLabel('Temperature (°C)', sstyle), ...tickProps(sstyle), ...grid, ...rangeProps(frozenRanges?.x, frozen) },
+      yaxis: { title: axisLabel(rfuLabel, sstyle), ...tickProps(sstyle), ...grid, ...rangeProps(frozenRanges?.y, frozen) },
+      dragmode: false as Layout['dragmode'], autosize: true, margin: computeMargins(sstyle, HINT_TOP_RESERVE),
+      plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) }, ...legendLayout(sstyle, showLegendMelt, traces, isDark),
       datarevision: dataRevision,
       uirevision: autoScale
         ? `melt-${exp?.experimentId ?? 'none'}-n${meltNormalizeEnabled ? 1 : 0}`
         : `melt-${exp?.experimentId ?? 'none'}`,
     };
-  }, [exp, style, hasDerivative, traces, showLegendMelt, meltThresholdEnabled, meltThresholdValue, meltNormalizeEnabled, autoScale, frozen, frozenRanges, isDark, plotBg, textColor, dataRevision]);
+  }, [exp, sstyle, hasDerivative, traces, showLegendMelt, meltThresholdEnabled, meltThresholdValue, meltNormalizeEnabled, autoScale, frozen, frozenRanges, isDark, plotBg, textColor, dataRevision]);
 
   // Box select on melt plot (channel-aware; RFU on y, derivative on y2)
   const visibleWellsRef = useRef(visibleWells);
@@ -1996,7 +2095,7 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
 
   return (
     <div
-      ref={containerRef}
+      ref={(el) => { containerRef.current = el; sizeRef.current = el; }}
       id="sharp-plot-melt"
       data-sharp-plot="melt"
       style={{ width: '100%', height: '100%', position: 'relative' }}
@@ -2013,7 +2112,7 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
       />
       <div ref={overlayRef} style={BOX_SELECT_OVERLAY_STYLE} />
       <div ref={meltResizeOverlayRef} style={RESIZE_OVERLAY_STYLE} />
-      <PlotHint />
+      <PlotHint isDark={isDark} containerRef={sizeRef} />
     </div>
   );
 }
@@ -2044,6 +2143,9 @@ function DilutionPlot() {
   const idx = useAppState((s) => s.activeExperimentIndex);
   const xAxisMode = useAppState((s) => s.xAxisMode);
   const style = usePlotStyle();
+  const sizeRef = useRef<HTMLDivElement | null>(null);
+  const fontScale = usePlotFontScale(sizeRef);
+  const sstyle = useScaledStyle(style, fontScale);
   const analysisResults = useAnalysisResults();
   const exp = experiments[idx];
 
@@ -2107,20 +2209,20 @@ function DilutionPlot() {
   const layout = useMemo((): Partial<Layout> => {
     const title = exp?.experimentId ? `${exp.experimentId} — Standard Curve` : 'Standard Curve';
     return {
-      title: titleField(title, style),
+      title: titleField(title, sstyle),
       xaxis: {
-        title: axisLabel(`log₂(Concentration${unit ? ', ' + unit : ''})`, style),
-        ...tickProps(style), ...gridStyle(style, isDark),
+        title: axisLabel(`log₂(Concentration${unit ? ', ' + unit : ''})`, sstyle),
+        ...tickProps(sstyle), ...gridStyle(sstyle, isDark),
       },
       yaxis: {
-        title: axisLabel(`${xLabel} (${X_AXIS_LABELS[xAxisMode]})`, style),
-        ...tickProps(style), ...gridStyle(style, isDark),
+        title: axisLabel(`${xLabel} (${X_AXIS_LABELS[xAxisMode]})`, sstyle),
+        ...tickProps(sstyle), ...gridStyle(sstyle, isDark),
       },
-      autosize: true, margin: computeMargins(style),
+      autosize: true, margin: computeMargins(sstyle),
       plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) },
       datarevision: dataRevision,
     };
-  }, [exp, xAxisMode, xLabel, style, unit, dataRevision]);
+  }, [exp, xAxisMode, xLabel, sstyle, fontScale, unit, dataRevision]);
 
   if (!result) {
     return (
@@ -2142,6 +2244,7 @@ function DilutionPlot() {
   return (
     <div ref={dilutionRef} className="flex flex-col h-full">
       <div
+        ref={sizeRef}
         id="sharp-plot-doubling"
         data-sharp-plot="doubling"
         className="flex-1 min-h-0"
@@ -2241,6 +2344,8 @@ function PerWellDoublingPlot() {
   const paletteReversed = useAppState((s) => s.paletteReversed);
   const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
   const style = usePlotStyle();
+  const fontScale = usePlotFontScale(doublingRef);
+  const sstyle = useScaledStyle(style, fontScale);
   const analysisResults = useAnalysisResults();
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
   const wellGroups = useAppState((s) => s.wellGroups);
@@ -2287,14 +2392,14 @@ function PerWellDoublingPlot() {
   const layout = useMemo((): Partial<Layout> => {
     const title = exp?.experimentId ? `${exp.experimentId} — Doubling Time` : 'Doubling Time';
     return {
-      title: titleField(title, style),
-      xaxis: { title: axisLabel(`${xLabel} (${X_AXIS_LABELS[xAxisMode]})`, style), ...tickProps(style), ...gridStyle(style, isDark) },
-      yaxis: { title: axisLabel('Doubling Time', style), ...tickProps(style), ...gridStyle(style, isDark) },
-      autosize: true, margin: computeMargins(style),
-      plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) }, ...legendLayout(style, showLegendDoubling, traces, isDark),
+      title: titleField(title, sstyle),
+      xaxis: { title: axisLabel(`${xLabel} (${X_AXIS_LABELS[xAxisMode]})`, sstyle), ...tickProps(sstyle), ...gridStyle(sstyle, isDark) },
+      yaxis: { title: axisLabel('Doubling Time', sstyle), ...tickProps(sstyle), ...gridStyle(sstyle, isDark) },
+      autosize: true, margin: computeMargins(sstyle),
+      plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) }, ...legendLayout(sstyle, showLegendDoubling, traces, isDark),
       datarevision: dataRevision,
     };
-  }, [exp, xAxisMode, xLabel, style, traces, showLegendDoubling, dataRevision]);
+  }, [exp, xAxisMode, xLabel, sstyle, fontScale, traces, showLegendDoubling, dataRevision]);
 
   if (data.wells.length === 0) {
     return <div className="flex items-center justify-center h-full text-muted-foreground text-sm">

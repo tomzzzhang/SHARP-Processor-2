@@ -6,6 +6,8 @@ import { createPortal } from 'react-dom';
 import { CONTENT_DISPLAY, getPaletteColors } from '@/lib/constants';
 import { effectiveChannelLabel, effectiveChannelColor } from '@/lib/channels';
 import { curveKey, parseCurveKey } from '@/lib/curves';
+import { FOCUS_RING } from '@/lib/ui-classes';
+import { ChevronUp, ChevronDown } from 'lucide-react';
 import type { ContentType } from '@/types/experiment';
 
 const CONTENT_TYPES: ContentType[] = ['Unkn', 'Neg Ctrl', 'Pos Ctrl', 'Std', 'NPC', 'Neg', ''];
@@ -43,7 +45,7 @@ function InlineEdit({ value, onCommit }: { value: string; onCommit: (v: string) 
         if (e.key === 'Enter') { e.preventDefault(); commit(); }
         if (e.key === 'Escape') { e.preventDefault(); onCommit(value); }
       }}
-      className="w-full h-5 px-0.5 text-xs border border-primary rounded-sm bg-background outline-none"
+      className={`w-full h-5 px-0.5 text-xs border border-primary rounded-sm bg-background outline-none ${FOCUS_RING}`}
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
     />
@@ -210,7 +212,7 @@ export function WellList() {
         const key = curveKey(well, ch);
         const color = (curveStyleOverrides.get(key)?.color)
           ?? (wellStyleOverrides.get(well)?.color)
-          ?? wellColorMap.get(well) ?? '#999';
+          ?? wellColorMap.get(well) ?? 'var(--muted-foreground)';
         out.push({
           key, well, channel: ch,
           sample: info?.sample ?? '',
@@ -259,14 +261,19 @@ export function WellList() {
     return <div className="p-3 text-sm text-muted-foreground">No data loaded</div>;
   }
 
-  const arrow = (k: SortKey) => (sortKey === k ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '');
-  const thHeader = (k: SortKey, label: string, className = '') => (
+  const arrow = (k: SortKey) => {
+    if (sortKey !== k) return <span className="inline-block w-3 shrink-0" aria-hidden />;
+    const Icon = sortDir === 'asc' ? ChevronUp : ChevronDown;
+    return <Icon className="inline-block w-3 h-3 shrink-0" aria-hidden />;
+  };
+  const thHeader = (k: SortKey, label: string, className = '', title?: string) => (
     <th
       key={k}
+      title={title}
       className={`px-1 py-1 text-left cursor-pointer select-none hover:text-foreground ${sortKey === k ? 'text-[var(--brand-red-dark)]' : ''} ${className}`}
       onClick={() => handleSort(k)}
     >
-      {label}{arrow(k)}
+      <span className="inline-flex items-center gap-0.5 align-middle">{label}{arrow(k)}</span>
     </th>
   );
 
@@ -275,7 +282,7 @@ export function WellList() {
       <table className="w-full">
         <thead className="sticky top-0 bg-background border-b">
           <tr className="text-muted-foreground">
-            {thHeader('visible', 'L', 'w-7 text-center')}
+            {thHeader('visible', 'L', 'w-7 text-center', 'Show on plot')}
             {thHeader('well', 'Well', 'w-10')}
             {thHeader('sample', 'Sample')}
             {thHeader('type', 'Type', 'w-10')}
@@ -310,10 +317,10 @@ export function WellList() {
                   <Checkbox
                     checked={!isHidden}
                     onCheckedChange={() => toggleRowVisible(row.well, row.channel)}
-                    className="h-3.5 w-3.5"
+                    className="h-3 w-3"
                   />
                 </td>
-                <td className="px-1 py-0 font-medium" style={{ color: row.color }}>
+                <td className="px-1 py-0 font-medium tabular-nums" style={{ color: row.color }}>
                   {row.well}
                 </td>
                 <td
@@ -356,9 +363,7 @@ export function WellList() {
                 >
                   <span className="flex items-center gap-0.5">
                     {row.displayType}
-                    <svg className="w-2.5 h-2.5 opacity-0 group-hover/type:opacity-40 shrink-0" viewBox="0 0 10 6" fill="currentColor">
-                      <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
+                    <ChevronDown className="w-2.5 h-2.5 opacity-0 group-hover/type:opacity-40 shrink-0" />
                   </span>
                 </td>
                 {multiChannel && (

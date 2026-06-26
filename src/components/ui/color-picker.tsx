@@ -6,11 +6,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { getPaletteColors, TABLEAU_10, COLORBLIND_SAFE, PAIRED } from '@/lib/constants';
+import { FOCUS_RING } from '@/lib/ui-classes';
 
 /** Palette-based swatch series. Each row is labeled with the palette
  *  name and shows its colors as clickable chips. */
 const SWATCH_SERIES: { label: string; colors: string[] }[] = [
-  { label: 'Basics', colors: ['#000000', '#444444', '#888888', '#bbbbbb', '#ffffff', '#c42a30', '#2563eb', '#16a34a'] },
+  { label: 'Basics', colors: ['#000000', '#444444', '#888888', '#bbbbbb', '#ffffff', '#d81f27', '#2563eb', '#16a34a'] },
   { label: 'SHARP', colors: getPaletteColors('SHARP', 6) },
   { label: 'Tableau', colors: TABLEAU_10 },
   { label: 'CB Safe', colors: COLORBLIND_SAFE },
@@ -32,11 +33,11 @@ function Swatch({ color, selected, size = 'md', onClick }: {
 }) {
   const dim = size === 'sm' ? 'w-4 h-4' : 'w-[18px] h-[18px]';
   const ring = selected
-    ? 'ring-2 ring-primary ring-offset-1'
+    ? 'ring-2 ring-primary ring-offset-1 ring-offset-background'
     : 'border-border';
   return (
     <button
-      className={`${dim} rounded-sm cursor-pointer border hover:scale-110 transition-transform ${ring}`}
+      className={`${dim} rounded-sm cursor-pointer border hover:ring-2 hover:ring-ring/40 hover:z-10 ${ring} ${FOCUS_RING}`}
       style={{ backgroundColor: color }}
       onClick={onClick}
       title={color}
@@ -117,7 +118,7 @@ export function ColorPicker({ value, onChange, label }: ColorPickerProps) {
       <div className="space-y-1.5 mb-2">
         {SWATCH_SERIES.map((series) => (
           <div key={series.label}>
-            <div className="text-[9px] text-muted-foreground mb-0.5">{series.label}</div>
+            <div className="text-[10px] text-muted-foreground mb-0.5">{series.label}</div>
             <div className="flex flex-wrap gap-1">
               {series.colors.map((c, i) => (
                 <Swatch key={`${c}-${i}`} color={c} selected={value === c} onClick={() => handleSwatchClick(c)} />
@@ -129,13 +130,13 @@ export function ColorPicker({ value, onChange, label }: ColorPickerProps) {
 
       {/* Custom color row */}
       <div className="border-t pt-2">
-        <div className="text-[9px] text-muted-foreground mb-1">Custom</div>
+        <div className="text-[10px] text-muted-foreground mb-1">Custom</div>
         <div className="flex items-center gap-1.5">
           <input
             type="color"
             value={customColor}
             onChange={(e) => setCustomColor(e.target.value)}
-            className="w-7 h-7 border rounded cursor-pointer p-0 shrink-0"
+            className={`w-7 h-7 border rounded-md cursor-pointer p-0 shrink-0 ${FOCUS_RING}`}
             title="Open color picker"
           />
           <input
@@ -143,11 +144,11 @@ export function ColorPicker({ value, onChange, label }: ColorPickerProps) {
             value={customColor}
             onChange={(e) => setCustomColor(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') handleApply(); }}
-            className="flex-1 h-7 border rounded px-1.5 text-xs bg-background font-mono"
+            className={`flex-1 h-7 border rounded-md px-1.5 text-xs bg-background font-mono ${FOCUS_RING}`}
             placeholder="#hexcolor"
           />
           <button
-            className="h-7 px-2.5 text-xs font-medium border rounded bg-primary text-primary-foreground hover:bg-primary/90"
+            className={`h-7 px-2.5 text-xs font-medium border rounded-md bg-primary text-primary-foreground hover:bg-primary/90 ${FOCUS_RING}`}
             onClick={handleApply}
             type="button"
           >
@@ -203,18 +204,18 @@ export function InlineColorPicker({ value, onChange }: InlineColorPickerProps) {
           type="color"
           value={customColor}
           onChange={(e) => setCustomColor(e.target.value)}
-          className="w-5 h-5 border rounded cursor-pointer p-0 shrink-0"
+          className={`w-5 h-5 border rounded-md cursor-pointer p-0 shrink-0 ${FOCUS_RING}`}
         />
         <input
           type="text"
           value={customColor}
           onChange={(e) => setCustomColor(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') handleApply(); }}
-          className="flex-1 h-5 border rounded px-1 text-[9px] bg-background font-mono min-w-0"
+          className={`flex-1 h-5 border rounded-md px-1 text-[10px] bg-background font-mono min-w-0 ${FOCUS_RING}`}
           placeholder="#hex"
         />
         <button
-          className="h-5 px-1 text-[9px] border rounded bg-primary text-primary-foreground hover:bg-primary/90"
+          className={`h-5 px-1 text-[10px] border rounded-md bg-primary text-primary-foreground hover:bg-primary/90 ${FOCUS_RING}`}
           onClick={handleApply}
           type="button"
         >
