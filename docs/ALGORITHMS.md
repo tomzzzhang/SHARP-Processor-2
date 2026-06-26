@@ -1,6 +1,6 @@
 # Algorithms — Active vs Archived
 
-**Last Updated:** 2026-06-25 PST — Claude (branch `feature/ui-ux-enhancements` — UI/UX work only: restyle / icons / a11y (CLAUDE.md #48), themed dialogs + notes-persistence + stable-id export + User Manual fact-check (#49), responsive plot axis-label scaling (#50), toggle→checkbox + gesture-hint relocation (#51). **Analysis algorithms unchanged** — no change to baseline / threshold / normalize / drift / melt / doubling math; this branch is presentation + dialog + on-screen plot-font-scaling/layout only. See CLAUDE.md table #48–51. Prior: batch 4 performance sweep #46.)
+**Last Updated:** 2026-06-26 PST — Claude (Mac session — macOS live-UI sign-off PASSED + v0.1.13/v0.2.0 Mac DMGs built and published to GitHub; **analysis algorithms unchanged** by this session. Prior, branch `feature/ui-ux-enhancements` — UI/UX work only: restyle / icons / a11y (CLAUDE.md #48), themed dialogs + notes-persistence + stable-id export + User Manual fact-check (#49), responsive plot axis-label scaling (#50), toggle→checkbox + gesture-hint relocation (#51). **Analysis algorithms unchanged** — no change to baseline / threshold / normalize / drift / melt / doubling math; this branch is presentation + dialog + on-screen plot-font-scaling/layout only. See CLAUDE.md table #48–51. Prior: batch 4 performance sweep #46.)
 
 A single source of truth for which algorithm the app is currently using for
 each analysis step, and which earlier implementations have been retired.
