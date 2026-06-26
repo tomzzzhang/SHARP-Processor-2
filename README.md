@@ -167,7 +167,7 @@ Data exports:
 | `Ctrl/⌘+A` | Select all wells |
 | `Ctrl/⌘+H` | Show/hide selected wells on the plot |
 | `Ctrl/⌘+G` | Group selected wells |
-| `Ctrl/⌘+U` | Ungroup selected wells |
+| `Ctrl/⌘+Shift+G` | Ungroup selected wells |
 
 > **Tip:** The **MENU** panel on the right edge shows keyboard shortcut hints next to each action.
 

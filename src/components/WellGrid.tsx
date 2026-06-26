@@ -217,14 +217,14 @@ export function WellGrid() {
       {/* Column headers */}
       <div />
       {cols.map((col) => (
-        <div key={col} className="text-center text-[9px] text-muted-foreground font-medium leading-4">
+        <div key={col} className="text-center text-[10px] text-muted-foreground font-medium leading-4">
           {col}
         </div>
       ))}
 
       {/* Rows */}
       {[...rows].flatMap((row) => [
-        <div key={`label-${row}`} className="text-[9px] text-muted-foreground font-medium flex items-center justify-center">
+        <div key={`label-${row}`} className="text-[10px] text-muted-foreground font-medium flex items-center justify-center">
           {row}
         </div>,
         ...cols.map((col) => {
@@ -258,7 +258,7 @@ export function WellGrid() {
               style={{
                 width: CELL_SIZE, height: CELL_SIZE,
                 backgroundColor: bgColor,
-                border: `${isSelected ? 2 : isDragHighlighted === true ? 2 : 1}px solid ${isSelected ? WELL_SELECTED_BORDER : isDragHighlighted === true ? WELL_SELECTED_BORDER : 'rgba(0,0,0,0.18)'}`,
+                border: `${isSelected ? 2 : isDragHighlighted === true ? 2 : 1}px solid ${isSelected ? WELL_SELECTED_BORDER : isDragHighlighted === true ? WELL_SELECTED_BORDER : 'var(--border)'}`,
                 borderRadius: 3,
                 opacity: cellOpacity,
                 outline: isHovered ? `2px solid ${WELL_SELECTED_BORDER}` : 'none',
@@ -293,7 +293,7 @@ export function WellGrid() {
             width: dragRect.w,
             height: dragRect.h,
             border: `1.5px dashed ${WELL_SELECTED_BORDER}`,
-            backgroundColor: 'rgba(170, 32, 38, 0.07)',
+            backgroundColor: 'color-mix(in srgb, var(--brand-red) 7%, transparent)',
             pointerEvents: 'none',
             zIndex: 10,
           }}

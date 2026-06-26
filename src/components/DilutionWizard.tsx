@@ -3,6 +3,8 @@ import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import type { DilutionConfig, DilutionStep } from '@/lib/analysis';
 import { getPlateRowLetters, getPlateColNumbers, WELL_EMPTY_COLOR, WELL_SELECTED_BORDER, DEFAULT_PLATE_ROW_COUNT, DEFAULT_PLATE_COL_COUNT } from '@/lib/constants';
+import { FOCUS_RING } from '@/lib/ui-classes';
+import { DialogCloseButton } from '@/components/ui/DialogCloseButton';
 
 // ── Constants ─────────────────────────────────────────────────────────
 
@@ -59,7 +61,7 @@ function Page1({ config, setConfig, onNext, onCancel }: Page1Props) {
 
   return (
     <div className="space-y-4">
-      <h3 className="text-sm font-semibold">Step 1: Define Dilution Series</h3>
+      <h3 className="text-sm font-semibold">1. Define dilution series</h3>
 
       <div className="grid grid-cols-2 gap-3 text-sm">
         <label className="space-y-1">
@@ -70,7 +72,7 @@ function Page1({ config, setConfig, onNext, onCancel }: Page1Props) {
             step="any"
             value={config.highestConcentration}
             onChange={(e) => setConfig({ ...config, highestConcentration: Number(e.target.value) })}
-            className="w-full h-8 border rounded px-2 text-sm"
+            className={`w-full h-8 border rounded-md px-2 text-sm ${FOCUS_RING}`}
           />
         </label>
         <label className="space-y-1">
@@ -79,7 +81,7 @@ function Page1({ config, setConfig, onNext, onCancel }: Page1Props) {
             <select
               value={config.unit}
               onChange={(e) => setConfig({ ...config, unit: e.target.value })}
-              className="flex-1 h-8 border rounded px-2 text-sm bg-background"
+              className={`flex-1 h-8 border rounded-md px-2 text-sm bg-background ${FOCUS_RING}`}
             >
               <option value="">(none)</option>
               {CONCENTRATION_UNITS.map((u) => (
@@ -95,7 +97,7 @@ function Page1({ config, setConfig, onNext, onCancel }: Page1Props) {
                   max={20}
                   value={config.copiesExponent}
                   onChange={(e) => setConfig({ ...config, copiesExponent: Number(e.target.value) })}
-                  className="w-10 h-8 border rounded px-1 text-sm text-center"
+                  className={`w-10 h-8 border rounded-md px-1 text-sm text-center ${FOCUS_RING}`}
                 />
               </div>
             )}
@@ -109,7 +111,7 @@ function Page1({ config, setConfig, onNext, onCancel }: Page1Props) {
             max={1000}
             value={config.dilutionFactor}
             onChange={(e) => setConfig({ ...config, dilutionFactor: Number(e.target.value) })}
-            className="w-full h-8 border rounded px-2 text-sm"
+            className={`w-full h-8 border rounded-md px-2 text-sm ${FOCUS_RING}`}
           />
         </label>
         <label className="space-y-1">
@@ -120,7 +122,7 @@ function Page1({ config, setConfig, onNext, onCancel }: Page1Props) {
             max={20}
             value={config.numSteps}
             onChange={(e) => setConfig({ ...config, numSteps: Number(e.target.value) })}
-            className="w-full h-8 border rounded px-2 text-sm"
+            className={`w-full h-8 border rounded-md px-2 text-sm ${FOCUS_RING}`}
           />
         </label>
       </div>
@@ -143,7 +145,7 @@ function Page1({ config, setConfig, onNext, onCancel }: Page1Props) {
         <button
           onClick={onNext}
           disabled={!valid}
-          className="px-4 py-1.5 text-sm bg-primary text-primary-foreground rounded hover:opacity-90 disabled:opacity-40"
+          className="px-4 py-1.5 text-sm bg-primary text-primary-foreground rounded hover:opacity-90 disabled:opacity-50"
         >
           Next
         </button>
@@ -273,10 +275,10 @@ function MiniWellGrid({
       >
         <div />
         {cols.map((col) => (
-          <div key={col} className="text-center text-[8px] text-muted-foreground font-medium leading-4">{col}</div>
+          <div key={col} className="text-center text-[10px] text-muted-foreground font-medium leading-4">{col}</div>
         ))}
         {[...rows].flatMap((row) => [
-          <div key={`l-${row}`} className="text-[8px] text-muted-foreground font-medium flex items-center justify-center">{row}</div>,
+          <div key={`l-${row}`} className="text-[10px] text-muted-foreground font-medium flex items-center justify-center">{row}</div>,
           ...cols.map((col) => {
             const well = `${row}${col}`;
             const isUsed = usedWells.has(well);
@@ -302,7 +304,7 @@ function MiniWellGrid({
                 style={{
                   width: CELL_SIZE, height: CELL_SIZE,
                   backgroundColor: bg,
-                  border: `${highlighted ? 2 : 1}px solid ${highlighted ? WELL_SELECTED_BORDER : '#ccc'}`,
+                  border: `${highlighted ? 2 : 1}px solid ${highlighted ? WELL_SELECTED_BORDER : 'var(--border)'}`,
                   borderRadius: 2,
                   opacity,
                   cursor: isUsed ? 'pointer' : 'default',
@@ -408,7 +410,7 @@ function Page2({ steps, setSteps, unit, copiesExponent, onBack, onFinish, onCanc
 
   return (
     <div className="space-y-3">
-      <h3 className="text-sm font-semibold">Step 2: Assign Wells to Concentration Steps</h3>
+      <h3 className="text-sm font-semibold">2. Assign wells</h3>
 
       <div className="flex gap-3" style={{ minHeight: 300 }}>
         {/* Left: Step list */}
@@ -446,14 +448,14 @@ function Page2({ steps, setSteps, unit, copiesExponent, onBack, onFinish, onCanc
             <button
               onClick={assignToStep}
               disabled={wizardSelection.size === 0}
-              className="px-3 py-1 text-xs bg-primary text-primary-foreground rounded hover:opacity-90 disabled:opacity-40"
+              className="px-3 py-1 text-xs bg-primary text-primary-foreground rounded hover:opacity-90 disabled:opacity-50"
             >
               Assign {wizardSelection.size > 0 ? `${wizardSelection.size} well${wizardSelection.size > 1 ? 's' : ''}` : ''} to Step {activeStep + 1}
             </button>
             <button
               onClick={clearStep}
               disabled={steps[activeStep]?.wells.length === 0}
-              className="px-3 py-1 text-xs border rounded hover:bg-accent disabled:opacity-40"
+              className="px-3 py-1 text-xs border rounded hover:bg-accent disabled:opacity-50"
             >
               Clear Step
             </button>
@@ -462,7 +464,7 @@ function Page2({ steps, setSteps, unit, copiesExponent, onBack, onFinish, onCanc
       </div>
 
       {!canFinish && (
-        <p className="text-xs text-amber-600">
+        <p className="text-xs text-[var(--brand-red-mid)]">
           Assign wells to at least 3 steps to enable Finish.
         </p>
       )}
@@ -478,7 +480,7 @@ function Page2({ steps, setSteps, unit, copiesExponent, onBack, onFinish, onCanc
           <button
             onClick={onFinish}
             disabled={!canFinish}
-            className="px-4 py-1.5 text-sm bg-primary text-primary-foreground rounded hover:opacity-90 disabled:opacity-40"
+            className="px-4 py-1.5 text-sm bg-primary text-primary-foreground rounded hover:opacity-90 disabled:opacity-50"
           >
             Finish
           </button>
@@ -581,7 +583,7 @@ export function DilutionWizard({ onClose }: DilutionWizardProps) {
   return (
     <div
       ref={panelRef}
-      className="bg-background border rounded-md shadow-xl w-[640px] max-h-[90vh] overflow-y-auto"
+      className="bg-background border rounded-lg shadow-xl w-[640px] max-h-[90vh] overflow-y-auto"
       style={panelStyle}
     >
       {/* Draggable title bar */}
@@ -590,13 +592,7 @@ export function DilutionWizard({ onClose }: DilutionWizardProps) {
         onMouseDown={onTitleMouseDown}
       >
         <h2 className="text-base font-bold">Doubling Time Wizard</h2>
-        <button
-          onClick={onClose}
-          className="text-muted-foreground hover:text-foreground text-lg leading-none px-1"
-          title="Close"
-        >
-          ×
-        </button>
+        <DialogCloseButton onClick={onClose} />
       </div>
       <div className="px-5 pb-5">
         {page === 1 ? (

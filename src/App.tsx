@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { X, Plus } from 'lucide-react';
+import { FOCUS_RING } from '@/lib/ui-classes';
 // Dynamic imports to allow running in plain browser (preview)
 const isTauri = !!(window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__;
 const tauriWebviewWindow = isTauri ? import('@tauri-apps/api/webviewWindow') : null;
@@ -12,6 +14,7 @@ import { DilutionWizard } from './components/DilutionWizard';
 import { ExportWizard } from './components/ExportWizard';
 import { FluorophoreWizard } from './components/FluorophoreWizard';
 import { UserManual } from './components/UserManual';
+import { DialogHost } from './components/DialogHost';
 import { PlotTabs } from './components/PlotTabs';
 import { useAppState } from './hooks/useAppState';
 import { AnalysisResultsProvider } from './hooks/useAnalysisResults';
@@ -145,14 +148,14 @@ function App() {
 
       {/* Update available banner */}
       {updateBanner && (
-        <div className="flex items-center justify-between px-3 py-1 bg-blue-50 dark:bg-blue-950 border-b text-xs">
+        <div className="flex items-center justify-between px-3 py-1 bg-primary/10 border-b border-border text-xs">
           <span>
             Version {updateBanner.version} is available!{' '}
-            <a href={updateBanner.url} target="_blank" rel="noopener noreferrer" className="underline text-blue-600 dark:text-blue-400">
+            <a href={updateBanner.url} target="_blank" rel="noopener noreferrer" className="text-primary underline hover:text-primary/80">
               Download
             </a>
           </span>
-          <button className="text-muted-foreground hover:text-foreground" onClick={() => setUpdateBanner(null)}>✕</button>
+          <button className={`text-muted-foreground hover:text-foreground ${FOCUS_RING}`} onClick={() => setUpdateBanner(null)}><X className="size-3" /></button>
         </div>
       )}
 
@@ -162,7 +165,7 @@ function App() {
         <div className="fixed inset-0 z-50 bg-primary/10 border-4 border-dashed border-primary flex items-center justify-center pointer-events-none">
           <div className="bg-background rounded-md shadow-lg p-8 text-center">
             <p className="text-lg font-semibold">Drop experiment file to load</p>
-            <p className="text-xs text-muted-foreground mt-1">.sharp · .pcrd · .tlpd · .eds · .amxd</p>
+            <p className="text-xs text-muted-foreground mt-1">.sharp · .sharpx · .pcrd · .tlpd · .eds · .amxd</p>
           </div>
         </div>
       )}
@@ -171,7 +174,7 @@ function App() {
       {loading && (
         <div className="fixed inset-0 z-50 bg-background/60 backdrop-blur-sm flex items-center justify-center">
           <div className="bg-background rounded-md shadow-lg p-6 text-center flex flex-col items-center gap-3">
-            <div className="w-8 h-8 border-3 border-muted-foreground/30 border-t-primary rounded-full animate-spin" />
+            <div className="w-8 h-8 border-2 border-muted-foreground/30 border-t-primary rounded-full animate-spin" />
             <p className="text-sm text-muted-foreground">Loading experiment...</p>
           </div>
         </div>
@@ -222,25 +225,25 @@ function App() {
                     </span>
                     {isActive && (
                       <button
-                        className="ml-1 w-4 h-4 rounded-sm flex items-center justify-center text-muted-foreground hover:bg-destructive/20 hover:text-destructive shrink-0"
+                        className={`ml-1 w-4 h-4 rounded-sm flex items-center justify-center text-muted-foreground hover:bg-destructive/20 hover:text-destructive shrink-0 ${FOCUS_RING}`}
                         onClick={(e) => {
                           e.stopPropagation();
                           removeExperiment(i);
                         }}
                         title="Close experiment"
                       >
-                        ×
+                        <X className="size-3" />
                       </button>
                     )}
                   </div>
                 );
               })}
               <button
-                className="px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
+                className={`px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 ${FOCUS_RING}`}
                 onClick={addEmptyTab}
                 title="New tab"
               >
-                +
+                <Plus className="size-3.5" />
               </button>
             </div>
           )}
@@ -300,6 +303,7 @@ function App() {
       {showExportWizard && <ExportWizard onClose={() => setShowExportWizard(false)} />}
       {showFluorophoreWizard && <FluorophoreWizard onClose={() => setShowFluorophoreWizard(false)} />}
       {showManual && <UserManual onClose={() => setShowManual(false)} />}
+      <DialogHost />
     </div>
     </AnalysisResultsProvider>
   );

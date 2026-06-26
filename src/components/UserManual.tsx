@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
+import { DialogCloseButton } from '@/components/ui/DialogCloseButton';
+import { FOCUS_RING } from '@/lib/ui-classes';
 
 const isMac = navigator.platform.toUpperCase().includes('MAC');
 const mod = isMac ? '⌘' : 'Ctrl';
@@ -53,7 +55,7 @@ const sections: Section[] = [
             <tr><TD>BioRad CFX96</TD><TD>Instrument file</TD><TD>.pcrd</TD></tr>
             <tr><TD>TianLong Gentier</TD><TD>Instrument file</TD><TD>.tlpd</TD></tr>
             <tr><TD>ThermoFisher QuantStudio</TD><TD>Instrument file</TD><TD>.eds</TD></tr>
-            <tr><TD>Agilent AriaMx</TD><TD>Instrument file</TD><TD>.amxd</TD></tr>
+            <tr><TD>Agilent AriaMx</TD><TD>Instrument file</TD><TD>.amxd / .adxd</TD></tr>
           </tbody>
         </table>
 
@@ -62,7 +64,7 @@ const sections: Section[] = [
           <li><strong>File &gt; Open</strong> (<Kbd>{mod}+O</Kbd>) — file dialog</li>
           <li><strong>Drag and drop</strong> — drag any supported file onto the window</li>
           <li><strong>Recent Experiments</strong> — click any file in the sidebar list to reopen it</li>
-          <li><strong>Load file...</strong> button in the sidebar (when no experiment is loaded)</li>
+          <li><strong>Load file…</strong> button in the sidebar (when no experiment is loaded)</li>
         </ul>
         <p>
           The app opens with a Welcome tab. Load a file to replace it with your experiment data.
@@ -84,7 +86,7 @@ const sections: Section[] = [
     content: (
       <div className="space-y-3">
         {/* Visual layout diagram — styled to match actual app */}
-        <div className="border border-border rounded-md overflow-hidden text-[9px] leading-none" style={{ background: '#f3f2f0', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+        <div className="border border-border rounded-md overflow-hidden text-[9px] leading-none whitespace-nowrap" style={{ background: '#f3f2f0', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
           {/* Menu bar */}
           <div className="flex items-center gap-3 px-2.5 py-1" style={{ borderBottom: '1px solid #ddd8d3', background: '#f3f2f0' }}>
             {['File', 'Edit', 'View', 'Tools', 'Export', 'Help'].map(m => (
@@ -97,61 +99,112 @@ const sections: Section[] = [
             <div className="shrink-0" style={{ width: 170, borderRight: '1px solid #ddd8d3' }}>
               {/* Sidebar tabs */}
               <div className="flex" style={{ borderBottom: '1px solid #ddd8d3' }}>
-                {['DATA', 'WELLS', 'ANALYSIS', 'STYLE'].map((t, i) => (
-                  <div key={t} className="flex-1 text-center py-1" style={{
-                    fontSize: 8, fontWeight: i === 0 ? 700 : 400, letterSpacing: '0.03em',
-                    color: i === 0 ? '#aa2026' : '#888',
-                    borderBottom: i === 0 ? '2px solid #aa2026' : 'none',
-                  }}>{t}</div>
-                ))}
+                {['DATA', 'WELLS', 'ANALYSIS', 'STYLE'].map((t) => {
+                  const active = t === 'WELLS';
+                  return (
+                    <div key={t} className="flex-1 text-center py-1" style={{
+                      fontSize: 7.5, fontWeight: active ? 700 : 400, letterSpacing: '0.03em',
+                      color: active ? '#aa2026' : '#888',
+                      borderBottom: active ? '2px solid #aa2026' : 'none',
+                    }}>{t}</div>
+                  );
+                })}
               </div>
-              {/* Sidebar content */}
-              <div className="p-2 space-y-1.5" style={{ fontSize: 8, color: '#666' }}>
-                <div style={{ fontSize: 8, color: '#999' }}>No experiment loaded.</div>
-                <div className="text-center py-1.5 rounded" style={{ border: '1px solid #ddd8d3', fontSize: 9, color: '#212224', fontWeight: 500, background: '#faf9f8' }}>Load file...</div>
-                <div className="text-center" style={{ fontSize: 7, color: '#aaa' }}>or drag &amp; drop a file</div>
-                <div className="text-center" style={{ fontSize: 7, color: '#bbb' }}>.sharp · .sharpx · .pcrd · .tlpd · .eds · .amxd</div>
+              {/* Sidebar content — Wells tab: select buttons, mini plate grid, list row */}
+              <div className="p-2 space-y-1.5">
+                <div className="flex gap-1">
+                  {['All', 'Samp', 'NTC', 'Shown'].map((b) => (
+                    <span key={b} className="px-1 py-0.5 rounded" style={{ fontSize: 6.5, border: '1px solid #ddd8d3', background: '#faf9f8', color: '#555' }}>{b}</span>
+                  ))}
+                </div>
+                <div className="grid" style={{ gridTemplateColumns: 'repeat(12, 1fr)', gap: 1.5 }}>
+                  {Array.from({ length: 96 }).map((_, i) => {
+                    const col = i % 12;
+                    // Three samples, greyscale (curve colours are greyscale in this mock).
+                    const greys = ['#4f4f4f', '#7d7d7d', '#a8a8a8'];
+                    const selected = i === 13 || i === 14 || i === 25 || i === 26;
+                    return (
+                      <div key={i} style={{
+                        aspectRatio: '1', borderRadius: 1,
+                        background: col < 3 ? greys[col] : '#e6e2dd',
+                        boxShadow: selected ? '0 0 0 1px #aa2026' : 'none',
+                      }} />
+                    );
+                  })}
+                </div>
+                <div className="pt-0.5" style={{ borderTop: '1px solid #e8e5e2' }}>
+                  <div className="flex" style={{ fontSize: 6.5, color: '#888', fontWeight: 600 }}>
+                    <span style={{ width: 12 }}>L</span><span style={{ width: 22 }}>Well</span><span className="flex-1">Sample</span><span style={{ width: 26 }}>Type</span>
+                  </div>
+                  <div className="flex items-center" style={{ fontSize: 6.5, color: '#555', paddingTop: 1 }}>
+                    <span style={{ width: 12, color: '#aa2026' }}>◉</span><span style={{ width: 22, color: '#4f4f4f' }}>A1</span><span className="flex-1">Sample 1</span><span style={{ width: 26 }}>Samp</span>
+                  </div>
+                </div>
               </div>
             </div>
 
             {/* Content column — plot tabs + plot + mini-plot + resize handle + results table */}
             <div className="flex-1 flex flex-col min-w-0">
-              {/* Experiment tab bar (placeholder — appears only when experiments are loaded) */}
-              <div className="flex items-end" style={{ borderBottom: '1px solid #ddd8d3', background: '#eeece9', minHeight: 14 }}>
-                <span style={{ fontSize: 7, color: '#bbb', padding: '2px 6px' }}>(experiment tabs appear here once a file is loaded)</span>
+              {/* Experiment tab bar — one open experiment */}
+              <div className="flex items-end gap-0.5 px-1 pt-0.5" style={{ borderBottom: '1px solid #ddd8d3', background: '#eeece9', minHeight: 14 }}>
+                <span className="flex items-center gap-1 px-1.5 py-0.5" style={{ fontSize: 7, background: '#f9f8f7', borderBottom: '2px solid #aa2026', color: '#212224', fontWeight: 600, borderTopLeftRadius: 2, borderTopRightRadius: 2 }}>cov_run_private-date <span style={{ color: '#999' }}>×</span></span>
+                <span className="px-1" style={{ fontSize: 8, color: '#999' }}>+</span>
               </div>
 
               {/* Plot tabs + Auto Baseline + Log + X-axis on same row */}
               <div className="flex items-center" style={{ borderBottom: '1px solid #ddd8d3' }}>
                 {['Amplification', 'Melt', 'Doubling Time'].map((t, i) => (
-                  <div key={t} className="px-2 py-1" style={{
-                    fontSize: 8, color: i === 0 ? '#aa2026' : '#999',
+                  <div key={t} className="px-1.5 py-1" style={{
+                    fontSize: 7.5, color: i === 0 ? '#aa2026' : '#999',
                     fontWeight: i === 0 ? 600 : 400,
                     borderBottom: i === 0 ? '2px solid #aa2026' : 'none',
                   }}>{t}</div>
                 ))}
                 <span className="flex-1" />
-                <div className="flex items-center gap-1 pr-2" style={{ fontSize: 7, color: '#666' }}>
+                <div className="flex items-center gap-1 pr-2" style={{ fontSize: 6.5, color: '#666' }}>
                   <span style={{ color: '#ccc' }}>|</span>
-                  <span>☑Auto Baseline</span>
+                  <span style={{ color: '#aa2026' }}>◉</span><span>Auto Baseline</span>
                   <span style={{ color: '#ccc' }}>|</span>
-                  <span>☐Log</span>
+                  <span>○ Log</span>
+                  <span style={{ color: '#ccc' }}>|</span>
+                  <span style={{ color: '#aa2026' }}>◉</span><span>Auto-scale</span>
+                  <span className="px-1 rounded" style={{ border: '1px solid #ddd8d3', background: '#faf9f8', color: '#212224' }}>Fit</span>
                   <span style={{ color: '#ccc' }}>|</span>
                   <span>X:</span>
-                  <span>○Cycle</span>
-                  <span>○Sec</span>
-                  <span style={{ color: '#aa2026' }}>●Min</span>
+                  <span className="px-1 rounded" style={{ border: '1px solid #ddd8d3', background: '#faf9f8', color: '#212224' }}>Min ▾</span>
                 </div>
               </div>
 
-              {/* Plot area */}
-              <div className="flex-1 flex items-center justify-center m-1 rounded" style={{ background: '#faf9f8', border: '1px solid #e8e5e2', color: '#bbb', fontSize: 10, minHeight: 60 }}>
-                Plot Area
+              {/* Plot area — sketch of amplification curves + draggable threshold */}
+              <div className="flex-1 m-1 rounded relative" style={{ background: '#fafafa', border: '1px solid #e8e5e2', minHeight: 64 }}>
+                <svg viewBox="0 0 200 80" preserveAspectRatio="none" style={{ width: '100%', height: '100%', display: 'block' }}>
+                  {[20, 40, 60].map((y) => <line key={y} x1="6" y1={y} x2="196" y2={y} stroke="#efeae3" strokeWidth="0.6" />)}
+                  <line x1="6" y1="40" x2="196" y2="40" stroke="#d32f2f" strokeWidth="0.8" strokeDasharray="4,2.5" />
+                  <path d="M6,72 C70,71 95,68 110,30 C118,12 135,9 196,8" fill="none" stroke="#3a3a3a" strokeWidth="1.2" />
+                  <path d="M6,73 C85,72 108,69 124,36 C132,18 150,15 196,14" fill="none" stroke="#707070" strokeWidth="1.2" />
+                  <path d="M6,74 C95,73 120,70 138,44 C146,28 165,24 196,22" fill="none" stroke="#9a9a9a" strokeWidth="1.2" />
+                  <path d="M6,75 C90,75 150,74 196,74" fill="none" stroke="#c8c8c8" strokeWidth="1" />
+                </svg>
+                <span style={{ position: 'absolute', left: 6, top: 3, fontSize: 7, color: '#bbb' }}>Amplification</span>
+                {/* Reset ("house") button + gesture-hint chip, top-right */}
+                <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2.4"
+                     style={{ position: 'absolute', right: 3, top: 3 }}>
+                  <path d="M3 11l9-8 9 8" /><path d="M5 9v11h14V9" />
+                </svg>
+                <span style={{
+                  position: 'absolute', right: 13, top: 2.5,
+                  fontSize: 5.5, color: '#9a9a9a', lineHeight: 1, whiteSpace: 'nowrap',
+                  background: 'rgba(250,250,250,0.85)', border: '1px solid #ece8e3',
+                  borderRadius: 2, padding: '1px 2.5px',
+                }}>drag: select · pan · zoom · resize · reset</span>
               </div>
 
               {/* Melt deriv mini-plot — only on the Amplification tab when melt data is present */}
-              <div className="flex items-center justify-center mx-1 mb-0.5 rounded" style={{ height: 26, background: '#faf9f8', border: '1px solid #e8e5e2', color: '#bbb', fontSize: 8 }}>
-                Melt derivative mini-plot
+              <div className="mx-1 mb-0.5 rounded relative" style={{ height: 26, background: '#fafafa', border: '1px solid #e8e5e2' }}>
+                <svg viewBox="0 0 200 26" preserveAspectRatio="none" style={{ width: '100%', height: '100%', display: 'block' }}>
+                  <path d="M6,22 L70,21 C95,21 100,4 116,4 C132,4 138,21 160,21 L196,22" fill="none" stroke="#707070" strokeWidth="1.2" />
+                </svg>
+                <span style={{ position: 'absolute', left: 6, top: 2, fontSize: 6.5, color: '#bbb' }}>−dF/dT (melt derivative)</span>
               </div>
 
               {/* Resize handle — between plot area and results table */}
@@ -162,20 +215,31 @@ const sections: Section[] = [
               {/* Results table */}
               <div style={{ fontSize: 7, padding: '3px 6px', color: '#888' }}>
                 <div className="flex" style={{ borderBottom: '1px solid #e8e5e2', paddingBottom: 2, marginBottom: 2, fontWeight: 600, color: '#555' }}>
-                  <span style={{ width: '14%' }}>Well</span>
+                  <span style={{ width: '12%' }}>Well</span>
                   <span className="flex-1">Sample</span>
-                  <span style={{ width: '12%', textAlign: 'right' }}>Tt</span>
-                  <span style={{ width: '12%', textAlign: 'right' }}>Tm</span>
-                  <span style={{ width: '10%', textAlign: 'center' }}>Call</span>
-                  <span style={{ width: '16%', textAlign: 'right' }}>End RFU</span>
+                  <span style={{ width: '12%' }}>Type</span>
+                  <span style={{ width: '11%', textAlign: 'right' }}>Tt</span>
+                  <span style={{ width: '11%', textAlign: 'right' }}>Tm</span>
+                  <span style={{ width: '9%', textAlign: 'center' }}>Call</span>
+                  <span style={{ width: '15%', textAlign: 'right' }}>End RFU</span>
                 </div>
-                <div className="flex" style={{ color: '#999' }}>
-                  <span style={{ width: '14%', color: '#d81f27' }}>A1</span>
+                <div className="flex" style={{ color: '#777' }}>
+                  <span style={{ width: '12%', color: '#4f4f4f' }}>A1</span>
                   <span className="flex-1">Sample 1</span>
-                  <span style={{ width: '12%', textAlign: 'right' }}>12.4</span>
-                  <span style={{ width: '12%', textAlign: 'right' }}>85.3°</span>
-                  <span style={{ width: '10%', textAlign: 'center', color: '#22c55e', fontWeight: 700 }}>+</span>
-                  <span style={{ width: '16%', textAlign: 'right' }}>4,521</span>
+                  <span style={{ width: '12%' }}>Samp</span>
+                  <span style={{ width: '11%', textAlign: 'right' }}>12.4</span>
+                  <span style={{ width: '11%', textAlign: 'right' }}>85.3°</span>
+                  <span style={{ width: '9%', textAlign: 'center', color: '#16a34a', fontWeight: 700 }}>+</span>
+                  <span style={{ width: '15%', textAlign: 'right' }}>4,521</span>
+                </div>
+                <div className="flex" style={{ color: '#777' }}>
+                  <span style={{ width: '12%', color: '#9a9a9a' }}>A2</span>
+                  <span className="flex-1">NTC 1</span>
+                  <span style={{ width: '12%' }}>NTC</span>
+                  <span style={{ width: '11%', textAlign: 'right' }}>—</span>
+                  <span style={{ width: '11%', textAlign: 'right' }}>—</span>
+                  <span style={{ width: '9%', textAlign: 'center', color: '#9e9e9e', fontWeight: 700 }}>−</span>
+                  <span style={{ width: '15%', textAlign: 'right' }}>182</span>
                 </div>
               </div>
             </div>
@@ -189,7 +253,7 @@ const sections: Section[] = [
 
         <ul className="list-disc pl-5 space-y-1">
           <li><strong>Left sidebar</strong> — four tabs: Data, Wells, Analysis, Style (drag the right border to resize, 300–450 px).</li>
-          <li><strong>Centre column</strong> — experiment tab bar (once files are loaded), plot tabs row with Auto Baseline / Log Scale / X-axis selector, the plot, an optional melt-derivative mini-plot below the amplification chart, and the results table at the bottom (drag the horizontal divider to resize).</li>
+          <li><strong>Centre column</strong> — experiment tab bar (once files are loaded); a plot-tabs row with Auto Baseline, Log, Auto-scale, a Fit button, and an X-axis dropdown (plus a per-channel toggle block for multichannel data); the plot; an optional melt-derivative mini-plot below the amplification chart; and the results table at the bottom (drag the horizontal divider to resize).</li>
           <li><strong>Right edge</strong> — collapsible <strong>MENU</strong> panel spanning the full main-area height (quick actions mirroring the right-click context menu).</li>
         </ul>
       </div>
@@ -202,7 +266,7 @@ const sections: Section[] = [
       <div className="space-y-4">
         <div>
           <h4 className="font-semibold text-xs mb-1">Data Tab</h4>
-          <p>Read-only summary of the loaded experiment: ID, protocol, operator, well count, cycle count, melt availability, run notes, and timestamp.</p>
+          <p>A summary of the loaded experiment (ID, type, operator, well count, cycle count, melt availability, run start), an editable <strong>Experiment Notes</strong> box (type and click away to save), and Export / Save / Open buttons.</p>
         </div>
 
         <div>
@@ -214,12 +278,11 @@ const sections: Section[] = [
           <table className="w-full text-xs border border-border rounded mb-2">
             <thead><tr><TH>State</TH><TH>Appearance</TH></tr></thead>
             <tbody>
-              <tr><TD>No data</TD><TD>Light grey</TD></tr>
-              <tr><TD>Hidden</TD><TD>Blue-grey</TD></tr>
-              <tr><TD>Active</TD><TD>Light blue</TD></tr>
-              <tr><TD>Selected</TD><TD>Blue border</TD></tr>
-              <tr><TD>NTC</TD><TD>Red tint</TD></tr>
-              <tr><TD>NPC</TD><TD>Orange tint</TD></tr>
+              <tr><TD>Empty (no data)</TD><TD>Light grey, not selectable</TD></tr>
+              <tr><TD>Populated</TD><TD>Filled with the well's curve colour</TD></tr>
+              <tr><TD>Hidden</TD><TD>Dimmed grey</TD></tr>
+              <tr><TD>Selected</TD><TD>Brand-red border</TD></tr>
+              <tr><TD>Hovered</TD><TD>Brand-red outline</TD></tr>
             </tbody>
           </table>
 
@@ -231,10 +294,10 @@ const sections: Section[] = [
           </ul>
 
           <p className="text-xs font-medium mt-2 mb-1">Selection Toolbar</p>
-          <p>Quick-select buttons: All, Samp, NTC, Std, Shown, Hidden, and a Group dropdown.</p>
+          <p>Quick-select buttons (All, Samp, NTC, Std, Shown, Hidden), a <strong>Group</strong> dropdown, and — for multichannel experiments — a <strong>Fluor</strong> dropdown to select every curve of one dye.</p>
 
           <p className="text-xs font-medium mt-2 mb-1">Well List</p>
-          <p>Scrollable table showing visibility checkbox, colour swatch, well position, sample name, group, and type dropdown.</p>
+          <p>Sortable table with columns <strong>L</strong> (visibility), <strong>Well</strong>, <strong>Sample</strong> (click to edit), <strong>Type</strong> (click to pick), <strong>Fluor</strong> (multichannel only), and <strong>Group</strong>. The Well label is tinted with its curve colour, and every header is click-to-sort. In multichannel view there is one row per sample-channel pair.</p>
         </div>
 
         <div>
@@ -271,11 +334,11 @@ const sections: Section[] = [
             <li>Results table appears below the plot with Tt, Dt, Tm, Call, and End RFU</li>
           </ul>
 
-          <p className="text-xs font-medium mb-1">Doubling Time</p>
+          <p className="text-xs font-medium mb-1">Melt Threshold &amp; Amp Smoothing</p>
           <ul className="list-disc pl-5 space-y-0.5">
-            <li>Enable exponential fitting: RFU(t) = A·exp(kt) + C</li>
-            <li>Start/End fraction spinboxes define the growth region</li>
-            <li>Results appear in the Doubling Time plot tab</li>
+            <li><strong>Melt threshold</strong> — an optional minimum peak height for the −dF/dT derivative; wells with no peak above it are dimmed.</li>
+            <li><strong>Amp smoothing</strong> — an optional Savitzky–Golay smoothing of the amplification curves for display.</li>
+            <li>Doubling-time fitting lives in the <strong>Doubling Time Wizard</strong> (Tools menu) — see that section.</li>
           </ul>
         </div>
 
@@ -284,13 +347,11 @@ const sections: Section[] = [
           <table className="w-full text-xs border border-border rounded">
             <thead><tr><TH>Section</TH><TH>Controls</TH></tr></thead>
             <tbody>
-              <tr><TD>Colours</TD><TD>Global palette selector</TD></tr>
-              <tr><TD>Lines</TD><TD>Line width (0.3–5.0 pt)</TD></tr>
-              <tr><TD>Typography</TD><TD>Font family, title/label/tick/legend sizes</TD></tr>
-              <tr><TD>Legend</TD><TD>Show/hide, content (sample name / well), position, selected-only filter</TD></tr>
-              <tr><TD>Grid</TD><TD>Show/hide, opacity slider</TD></tr>
-              <tr><TD>Figure</TD><TD>Export DPI (72–600)</TD></tr>
-              <tr><TD>Presets</TD><TD>Save / Load / Reset style presets</TD></tr>
+              <tr><TD>Colors &amp; Lines</TD><TD>Palette, reverse, group-colour, assign-by-arrow, clear custom colours/styles, line width (0.3–5.0 pt), line style, plot background. Multichannel adds per-channel colour / line-style controls.</TD></tr>
+              <tr><TD>Typography</TD><TD>Font family; title / labels / ticks / legend sizes (each show-hide-able); text colour (auto / black / white)</TD></tr>
+              <tr><TD>Legend</TD><TD>Show, per-plot toggles, content (sample / well / group), position, "Selected wells only", drag-to-reorder</TD></tr>
+              <tr><TD>Grid &amp; Export</TD><TD>Grid show/opacity and export DPI (72–600)</TD></tr>
+              <tr><TD>Presets</TD><TD>Save / Load / Reset / delete style presets</TD></tr>
             </tbody>
           </table>
         </div>
@@ -316,7 +377,7 @@ const sections: Section[] = [
             <li><strong>Click a trace</strong> — selects that well across grid, list, and table</li>
             <li><strong>Hover</strong> — highlights the corresponding well on the grid and in the sample list</li>
           </ul>
-          <p className="text-xs text-muted-foreground mt-1">Hint: a small mouse-icon legend in the bottom-right corner of each plot summarizes the LMB/MMB/RMB gestures.</p>
+          <p className="text-xs text-muted-foreground mt-1">Hint: a small mouse-icon legend in the top-right corner of the amplification and melt plots — just left of the reset (house) button — summarizes the LMB/MMB/RMB gestures.</p>
         </div>
 
         <div>
@@ -335,27 +396,27 @@ const sections: Section[] = [
 
         <div>
           <h4 className="font-semibold text-xs mb-1">Context Menu (Right-Click)</h4>
+          <p className="mb-1 text-muted-foreground">The menu header shows how many curves are selected. Items:</p>
           <table className="w-full text-xs border border-border rounded">
             <thead><tr><TH>Item</TH><TH>Action</TH></tr></thead>
             <tbody>
-              <tr><TD>Show / Hide</TD><TD>Toggle plot visibility</TD></tr>
+              <tr><TD>Show / Hide</TD><TD>Toggle plot visibility of the selection</TD></tr>
               <tr><TD>Deselect All</TD><TD>Clear the selection</TD></tr>
-              <tr><TD>Sample Type ›</TD><TD>Classify selected wells</TD></tr>
-              <tr><TD>Group… ({mod}+G)</TD><TD>Assign to a named group</TD></tr>
-              <tr><TD>Remove from Group</TD><TD>Ungroup selected wells</TD></tr>
-              <tr><TD>Auto-Group by Sample</TD><TD>Create groups from sample names</TD></tr>
-              <tr><TD>Color…</TD><TD>Pick a colour for selected wells</TD></tr>
-              <tr><TD>Line Style…</TD><TD>Solid, dashed, dash-dot, dotted</TD></tr>
-              <tr><TD>Line Width…</TD><TD>Set thickness for selected wells</TD></tr>
-              <tr><TD>Apply Palette ›</TD><TD>Assign a palette across the selection</TD></tr>
-              <tr><TD>Reverse Palette</TD><TD>Flip the colour order</TD></tr>
+              <tr><TD>Sample Type ›</TD><TD>Classify the selected wells</TD></tr>
+              <tr><TD>Group… / Remove from Group</TD><TD>Assign to, or remove from, a named group</TD></tr>
+              <tr><TD>Auto-Group by Sample</TD><TD>Create groups from matching sample names</TD></tr>
+              <tr><TD>Color › / Line Style ›</TD><TD>Recolour or restyle the selected curves</TD></tr>
+              <tr><TD>Clear Style Overrides</TD><TD>Drop custom colour / line style on the selection</TD></tr>
+              <tr><TD>Palette ›</TD><TD>Apply a palette (with a Gradients submenu, a "Group coloring" option, and Reverse Colors)</TD></tr>
+              <tr><TD>Baseline ›</TD><TD>Set the selection to Auto / Manual / Follow global default</TD></tr>
+              <tr><TD>Add / Remove from Legend</TD><TD>Show or hide the selection in the legend</TD></tr>
             </tbody>
           </table>
         </div>
 
         <div>
           <h4 className="font-semibold text-xs mb-1">Quick-Action Panel</h4>
-          <p>Click the <strong>MENU</strong> tab on the right edge to expand a panel that mirrors every context menu action as clickable buttons. Keyboard shortcut hints are shown next to actions that have them.</p>
+          <p>Click the <strong>MENU</strong> tab on the right edge to expand the <strong>Quick Actions</strong> panel — the same actions as the right-click menu, grouped into Visibility, Sample Type, Grouping, Style, Palette, Baseline, and Legend sections. Keyboard shortcut hints appear next to actions that have them.</p>
         </div>
       </div>
     ),
@@ -401,7 +462,7 @@ const sections: Section[] = [
         <ul className="list-disc pl-5 space-y-1">
           <li><strong>Click a curve</strong> on the plot to select that single (well, dye) pair.</li>
           <li><strong>Click a well</strong> on the plate grid to select all of that well's dyes.</li>
-          <li>The Wells-tab <strong>Select</strong> panel has a <strong>Fluor…</strong> button to select every curve of one dye.</li>
+          <li>The Wells-tab <strong>Select</strong> panel has a <strong>Fluor…</strong> dropdown to select every curve of one dye.</li>
           <li>Right-click any selection to colour, group, style, or hide those specific curves.</li>
         </ul>
 
@@ -433,10 +494,9 @@ const sections: Section[] = [
           <tr><TD><Kbd>{mod}+Shift+Z</Kbd></TD><TD>Redo</TD></tr>
           <tr><TD><Kbd>{mod}+A</Kbd></TD><TD>Select all wells</TD></tr>
           <tr><TD><Kbd>{mod}+H</Kbd></TD><TD>Toggle visibility of selected wells</TD></tr>
-          <tr><TD><Kbd>{mod}+G</Kbd></TD><TD>Group selected wells</TD></tr>
-          <tr><TD><Kbd>{mod}+Shift+G</Kbd></TD><TD>Remove from group</TD></tr>
-          <tr><TD><Kbd>{mod}+Shift+S</Kbd></TD><TD>Quick-export plot (PNG)</TD></tr>
-          <tr><TD><Kbd>{mod}+Shift+E</Kbd></TD><TD>Export plot</TD></tr>
+          <tr><TD><Kbd>{mod}+G</Kbd></TD><TD>Group selected curves</TD></tr>
+          <tr><TD><Kbd>{mod}+Shift+G</Kbd></TD><TD>Ungroup selected</TD></tr>
+          <tr><TD><Kbd>{mod}+Shift+E</Kbd> / <Kbd>{mod}+Shift+S</Kbd></TD><TD>Export the current plot as PNG (Export As Seen)</TD></tr>
         </tbody>
       </table>
     ),
@@ -451,7 +511,7 @@ const sections: Section[] = [
           <p className="mb-2">The Export menu has two ways to produce plot images:</p>
           <ul className="list-disc pl-5 space-y-1.5">
             <li>
-              <strong>Export Wizard…</strong> — Floating dialog for publication-ready figures. Pick a plot type (Amplification, Melt with both RFU and −dF/dT, Melt Derivative only, or Doubling Time), choose a size preset or enter custom width/height in inches, set DPI (default 300), and pick a format (PNG, SVG, or JPEG). A live preview renders the figure at its true target pixel dimensions and scales it visually to fit the preview pane — so fonts, line widths, and margins all appear at their real absolute size. Colors, fonts, legend, and grid come from the Style tab, so tweaks there update the preview live. Click <em>Export…</em> to save.
+              <strong>Export Wizard…</strong> — Floating dialog for publication-ready figures. Pick a plot type (Amplification, Melt with both RFU and −dF/dT, Melt Derivative only, or Doubling Time), choose a size preset or enter custom width/height in inches, set DPI (starts from the Style tab's Figure DPI, default 100), and pick a format (PNG, SVG, or JPEG). A live preview renders the figure at its true target pixel dimensions and scales it visually to fit the preview pane — so fonts, line widths, and margins all appear at their real absolute size. Colors, fonts, legend, and grid come from the Style tab, so tweaks there update the preview live. Click <em>Export…</em> to save.
             </li>
             <li>
               <strong>Export As Seen ▸</strong> — Submenu with PNG/SVG/JPEG options. Captures the currently-displayed plot(s) at the on-screen container size and upscales by the Style tab's Figure DPI setting. On the amplification tab, both the main amp plot and the melt-derivative mini-plot below it are stitched into a single image for PNG/JPEG (SVG exports only the main amp plot). Shortcut: <Kbd>{'Ctrl'}+Shift+E</Kbd> for PNG.
@@ -466,7 +526,7 @@ const sections: Section[] = [
             <tbody>
               <tr><TD>Amplification Data</TD><TD>Cycle/time columns + per-well RFU</TD></tr>
               <tr><TD>Melt Data</TD><TD>Temperature + per-well RFU and −dF/dT</TD></tr>
-              <tr><TD>Results Table</TD><TD>Well, Tt, Dt, Tm, Call, End RFU</TD></tr>
+              <tr><TD>Results Table</TD><TD>Well, Sample, Content, Tt (Ct in cycle mode), Tm, Doubling Time, Call, End RFU</TD></tr>
             </tbody>
           </table>
         </div>
@@ -557,8 +617,8 @@ const sections: Section[] = [
           <tbody>
             <tr><TD>Samp</TD><TD>Sample / Unknown</TD></tr>
             <tr><TD>NTC</TD><TD>Negative control (no template)</TD></tr>
-            <tr><TD>+Ctrl</TD><TD>Positive control</TD></tr>
-            <tr><TD>−Ctrl</TD><TD>Negative control</TD></tr>
+            <tr><TD>+ Ctrl</TD><TD>Positive control</TD></tr>
+            <tr><TD>- Ctrl</TD><TD>Negative control</TD></tr>
             <tr><TD>NPC</TD><TD>No-primer control</TD></tr>
             <tr><TD>Std</TD><TD>Standard</TD></tr>
           </tbody>
@@ -576,7 +636,7 @@ const sections: Section[] = [
         <ol className="list-decimal pl-5 space-y-1">
           <li>Define the series — unit, highest concentration, dilution factor, number of steps</li>
           <li>Assign wells to each dilution level using the plate grid</li>
-          <li>The wizard calculates doubling time, amplification efficiency, and R²</li>
+          <li>The wizard fits Tt vs log₂(concentration) and reports doubling time and R²</li>
         </ol>
         <p>Results appear in the <strong>Doubling Time</strong> plot tab.</p>
       </div>
@@ -589,10 +649,10 @@ const sections: Section[] = [
       <ul className="list-disc pl-5 space-y-1.5">
         <li><strong>Palette ordering</strong> — colours are assigned by ascending detection time (Tt), so the fastest-amplifying wells get the first palette colour.</li>
         <li><strong>Box select</strong> — draw a rectangle on the amplification plot to quickly select wells whose curves pass through that region.</li>
-        <li><strong>Auto-Group</strong> — right-click &gt; Auto-Group by Sample Name to create groups from matching sample names.</li>
+        <li><strong>Auto-Group</strong> — right-click &gt; Auto-Group by Sample to create groups from matching sample names.</li>
         <li><strong>Multiple experiments</strong> — load several at once and switch via the tab bar. Each maintains its own analysis state.</li>
         <li><strong>Sidebar &amp; table resize</strong> — drag the borders between the sidebar/plot and plot/results table to adjust sizes.</li>
-        <li><strong>Theme</strong> — switch between Classic, SHARP, and SHARP Dark themes via View &gt; Theme.</li>
+        <li><strong>Theme</strong> — switch between Classic, SHARP, and SHARP Dark directly under the View menu.</li>
       </ul>
     ),
   },
@@ -672,7 +732,7 @@ export function UserManual({ onClose }: UserManualProps) {
   return (
     <div
       ref={panelRef}
-      className="bg-background border rounded-md shadow-xl flex flex-col"
+      className="bg-background border rounded-lg shadow-xl flex flex-col"
       style={{ ...panelStyle, width: 720, height: '80vh', maxHeight: 700 }}
     >
       {/* Draggable title bar */}
@@ -681,13 +741,7 @@ export function UserManual({ onClose }: UserManualProps) {
         onMouseDown={onTitleMouseDown}
       >
         <h2 className="text-base font-bold">User Manual</h2>
-        <button
-          onClick={onClose}
-          className="text-muted-foreground hover:text-foreground text-lg leading-none px-1"
-          title="Close (Esc)"
-        >
-          ×
-        </button>
+        <DialogCloseButton onClick={onClose} title="Close (Esc)" />
       </div>
 
       {/* Body: nav sidebar + content */}
@@ -698,9 +752,9 @@ export function UserManual({ onClose }: UserManualProps) {
             <button
               key={s.id}
               onClick={() => scrollToSection(s.id)}
-              className={`block w-full text-left text-xs px-2 py-1.5 rounded transition-colors ${
+              className={`block w-full text-left text-xs px-2 py-1.5 rounded transition-colors ${FOCUS_RING} ${
                 activeSection === s.id
-                  ? 'bg-primary/10 text-primary font-medium'
+                  ? 'bg-primary/10 text-[var(--brand-red-dark)] font-medium'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
               }`}
             >
@@ -712,7 +766,7 @@ export function UserManual({ onClose }: UserManualProps) {
         {/* Content */}
         <div
           ref={contentRef}
-          className="flex-1 overflow-y-auto px-5 py-4 text-xs leading-relaxed text-foreground"
+          className="flex-1 overflow-y-auto px-5 py-4 text-xs leading-relaxed text-foreground [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-px [&_code]:font-mono [&_code]:text-[0.92em]"
           onScroll={handleScroll}
         >
           {sections.map((s) => (

@@ -5,6 +5,7 @@ import { useMemo, useState, useCallback, useRef, Fragment } from 'react';
 import { CONTENT_DISPLAY, getPaletteColors } from '@/lib/constants';
 import { effectiveChannelLabel } from '@/lib/channels';
 import { curveKey } from '@/lib/curves';
+import { ChevronUp, ChevronDown } from 'lucide-react';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -12,9 +13,9 @@ import {
 const SEL_BG = 'var(--accent)'; // selection highlight — theme-aware
 
 const CALL_COLORS: Record<string, string> = {
-  positive: '#22c55e',
-  negative: '#9e9e9e',
-  invalid: '#f59e0b',
+  positive: 'var(--call-positive)',
+  negative: 'var(--call-negative)',
+  invalid: 'var(--call-invalid)',
 };
 
 
@@ -96,14 +97,18 @@ function SortableHeader({ label, sortKey, currentKey, currentDir, onSort, classN
   prefix?: React.ReactNode;
 }) {
   const isActive = currentKey === sortKey;
-  const arrow = isActive ? (currentDir === 'asc' ? ' ▲' : ' ▼') : '';
   return (
     <TableHead
       className={`py-1 cursor-pointer select-none hover:text-foreground transition-colors relative ${className ?? ''} ${isActive ? 'text-[var(--brand-red-dark)]' : ''}`}
       style={width ? { width, minWidth: width, maxWidth: width } : undefined}
       onClick={() => onSort(sortKey)}
     >
-      {prefix}{label}{arrow}
+      {prefix}{label}
+      <span className="inline-flex w-3 align-middle justify-center">
+        {isActive && (currentDir === 'asc'
+          ? <ChevronUp className="size-3" />
+          : <ChevronDown className="size-3" />)}
+      </span>
       {onResize && (
         <div
           className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-10 flex items-center justify-center"
@@ -148,6 +153,8 @@ export function ResultsTable() {
   // Per-(well,channel) rows + Fluor column only in the multichannel view; in
   // single view the table is flat per-well for the active channel (v0.1.x look).
   const multiChannel = viewMode === 'multi' && visibleChannelList.length > 1;
+  // Column count for the empty-state row colSpan (extra Fluor column when multichannel).
+  const colCount = multiChannel ? 8 : 7;
 
   /** Tm (temperature at peak -dF/dT) for a well in a specific channel's melt. */
   const tmFor = useCallback((channel: string, well: string): number | null => {
@@ -298,7 +305,7 @@ export function ResultsTable() {
         sample: info?.sample ?? '',
         content: info?.content ?? '',
         displayType: CONTENT_DISPLAY[info?.content ?? ''] ?? info?.content ?? '',
-        color: colorMap.get(well) ?? '#999',
+        color: colorMap.get(well) ?? 'var(--muted-foreground)',
         tt: analysis?.tt ?? null,
         tm: tmMap.get(well) ?? null,
         dt: analysis?.dt ?? null,
@@ -330,7 +337,7 @@ export function ResultsTable() {
       const info = exp.wells[well];
       const chs = visibleChannelList.filter((ch) => !wellChannelHidden.get(well)?.has(ch));
       if (chs.length === 0) continue;
-      const color = colorMap.get(well) ?? '#999';
+      const color = colorMap.get(well) ?? 'var(--muted-foreground)';
       const displayType = CONTENT_DISPLAY[info?.content ?? ''] ?? info?.content ?? '';
       const children: RowData[] = chs.map((ch) => {
         const analysis = allChannelResults.get(ch)?.get(well);
@@ -398,7 +405,7 @@ export function ResultsTable() {
     <>
       <TableCell className="py-0.5 text-right" style={{ backgroundColor: bg }}>{r.tt != null ? r.tt.toFixed(2) : '—'}</TableCell>
       <TableCell className="py-0.5 text-right" style={{ backgroundColor: bg }}>{r.tm != null ? r.tm.toFixed(1) + '°' : '—'}</TableCell>
-      <TableCell className="py-0.5 text-center" style={{ backgroundColor: bg, fontSize: 15, fontWeight: 700, color: CALL_COLORS[r.call] }}>
+      <TableCell className="py-0.5 text-center text-sm font-bold leading-none" style={{ backgroundColor: bg, color: CALL_COLORS[r.call] }}>
         {r.call === 'unset' ? '—' : r.call === 'positive' ? '+' : r.call === 'negative' ? '−' : '?'}
       </TableCell>
       <TableCell className="py-0.5 text-right" style={{ backgroundColor: bg }}>{r.endRfu != null ? Math.round(r.endRfu).toLocaleString() : '—'}</TableCell>
@@ -406,7 +413,7 @@ export function ResultsTable() {
   );
 
   return (
-    <div className="p-2">
+    <div className="p-2 tabular-nums">
       <Table style={{ tableLayout: 'fixed', width: '100%' }}>
         <colgroup>
           <col style={{ width: COL_PCT.well }} />
@@ -429,10 +436,9 @@ export function ResultsTable() {
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => { e.stopPropagation(); toggleExpandAll(); }}
                   title={allExpanded ? 'Collapse all' : 'Expand all'}
+                  aria-label={allExpanded ? 'Collapse all' : 'Expand all'}
                 >
-                  <svg className={`inline w-2.5 h-2.5 transition-transform ${allExpanded ? '' : '-rotate-90'}`} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                    <path d="M3 4.5 L6 7.5 L9 4.5" />
-                  </svg>
+                  <ChevronDown className={`inline w-3 h-3 transition-transform ${allExpanded ? '' : '-rotate-90'}`} />
                 </button>
               ) : undefined}
             />
@@ -449,7 +455,7 @@ export function ResultsTable() {
           {multiChannel ? (
             tree.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center text-muted-foreground text-xs py-2">No data loaded</TableCell>
+                <TableCell colSpan={colCount} className="text-center text-muted-foreground text-xs py-2">No data loaded</TableCell>
               </TableRow>
             ) : (
               tree.map((node, i) => {
@@ -476,10 +482,9 @@ export function ResultsTable() {
                               onMouseDown={(e) => e.stopPropagation()}
                               onClick={(e) => { e.stopPropagation(); toggleExpand(node.well); }}
                               title={isExp ? 'Collapse' : 'Expand'}
+                              aria-label={isExp ? 'Collapse' : 'Expand'}
                             >
-                              <svg className={`w-2.5 h-2.5 transition-transform ${isExp ? '' : '-rotate-90'}`} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                                <path d="M3 4.5 L6 7.5 L9 4.5" />
-                              </svg>
+                              <ChevronDown className={`w-3 h-3 transition-transform ${isExp ? '' : '-rotate-90'}`} />
                             </button>
                           ) : <span className="w-2.5 shrink-0" />}
                           {node.well}
@@ -515,7 +520,7 @@ export function ResultsTable() {
             )
           ) : rows.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={7} className="text-center text-muted-foreground text-xs py-2">No data loaded</TableCell>
+              <TableCell colSpan={colCount} className="text-center text-muted-foreground text-xs py-2">No data loaded</TableCell>
             </TableRow>
           ) : (
             rows.map((row, i) => {

@@ -7,6 +7,9 @@ import { useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppState } from '@/hooks/useAppState';
 import { Button } from '@/components/ui/button';
+import { ColorPicker } from '@/components/ui/color-picker';
+import { DialogCloseButton } from '@/components/ui/DialogCloseButton';
+import { FOCUS_RING } from '@/lib/ui-classes';
 import { COMMON_FLUOROPHORES } from '@/lib/constants';
 import { effectiveChannelLabel, effectiveChannelColor } from '@/lib/channels';
 
@@ -69,7 +72,7 @@ export function FluorophoreWizard({ onClose }: Props) {
         onMouseDown={onHeaderDown}
       >
         <span className="font-medium">Assign Fluorophores</span>
-        <button className="text-muted-foreground hover:text-foreground" onClick={onClose}>✕</button>
+        <DialogCloseButton onClick={onClose} />
       </div>
 
       <div className="p-3 space-y-2 max-h-[60vh] overflow-auto">
@@ -83,20 +86,12 @@ export function FluorophoreWizard({ onClose }: Props) {
               list={`dyes-${ch}`}
               value={labels.get(ch) ?? ''}
               onChange={(e) => setLabel(ch, e.target.value)}
-              className="h-7 border rounded px-1 text-sm bg-background"
+              className={`h-7 border rounded-md px-1 text-sm bg-background ${FOCUS_RING}`}
             />
             <datalist id={`dyes-${ch}`}>
               {dyeOptions.map((d) => <option key={d} value={d} />)}
             </datalist>
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-5 h-5 rounded border" style={{ background: colors.get(ch) }} />
-              <input
-                value={colors.get(ch) ?? ''}
-                onChange={(e) => setColor(ch, e.target.value)}
-                className="h-7 w-20 border rounded px-1 text-xs font-mono bg-background"
-                placeholder="#rrggbb"
-              />
-            </span>
+            <ColorPicker value={colors.get(ch) ?? ''} onChange={(c) => setColor(ch, c)} />
           </div>
         ))}
       </div>

@@ -8,6 +8,9 @@ import { curveKey } from '@/lib/curves';
 import { useAllChannelResults } from '@/hooks/useAnalysisResults';
 import { CollapsibleSection } from './CollapsibleSection';
 import { ColorPicker } from '@/components/ui/color-picker';
+import { FOCUS_RING } from '@/lib/ui-classes';
+import { showAlert, showConfirm, showPrompt, toast } from '@/lib/dialogs';
+import { GripVertical } from 'lucide-react';
 
 /** Line-style options for the per-channel picker (Plotly dash names). */
 const CHANNEL_LINE_STYLES: { value: string; label: string }[] = [
@@ -322,17 +325,18 @@ export function StyleTab() {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [paletteArrowMode, setPaletteArrowMode]);
 
-  const handleSavePreset = useCallback(() => {
-    const name = prompt('Save current style as preset:\n\nEnter a name:');
+  const handleSavePreset = useCallback(async () => {
+    const name = await showPrompt({ title: 'Save style preset', message: 'Enter a name:' });
     if (!name) return;
     const trimmed = name.trim();
     if (!trimmed) return;
     if (isBuiltinPreset(trimmed)) {
-      alert(`"${trimmed}" is a built-in preset name and cannot be overwritten. Please choose a different name.`);
+      await showAlert(`"${trimmed}" is a built-in preset name and cannot be overwritten. Please choose a different name.`, { title: 'Save style preset' });
       return;
     }
     if (presetNames.includes(trimmed)) {
-      if (!confirm(`Preset "${trimmed}" already exists. Overwrite?`)) return;
+      const ok = await showConfirm(`Preset "${trimmed}" already exists. Overwrite?`, { title: 'Overwrite preset', confirmLabel: 'Overwrite' });
+      if (!ok) return;
     }
     const snapshot: StyleSnapshot = {
       palette, paletteReversed, paletteGroupColors,
@@ -351,23 +355,25 @@ export function StyleTab() {
     if (!name) return;
     const snapshot = getStylePreset(name);
     if (!snapshot) {
-      alert(`Preset "${name}" not found.`);
+      toast(`Preset "${name}" not found.`, 'error');
       refreshPresets();
       return;
     }
     applyStyleSnapshot(snapshot);
   }, [applyStyleSnapshot, refreshPresets]);
 
-  const handleDeletePreset = useCallback((name: string) => {
+  const handleDeletePreset = useCallback(async (name: string) => {
     if (!name) return;
     if (isBuiltinPreset(name)) return; // built-ins cannot be deleted
-    if (!confirm(`Delete preset "${name}"?`)) return;
+    const ok = await showConfirm(`Delete preset "${name}"?`, { title: 'Delete preset', confirmLabel: 'Delete' });
+    if (!ok) return;
     deleteStylePreset(name);
     refreshPresets();
   }, [refreshPresets]);
 
-  const handleResetStyle = useCallback(() => {
-    if (!confirm('Reset all style settings to defaults?\n\nThis will change palette, fonts, line width, legend, grid, and DPI.')) return;
+  const handleResetStyle = useCallback(async () => {
+    const ok = await showConfirm('Reset all style settings to defaults?\n\nThis will change palette, fonts, line width, legend, grid, and DPI.', { title: 'Reset style', confirmLabel: 'Reset' });
+    if (!ok) return;
     resetStyle();
   }, [resetStyle]);
 
@@ -381,7 +387,7 @@ export function StyleTab() {
               <select
                 value={styleScope}
                 onChange={(e) => setStyleScope(e.target.value)}
-                className="flex-1 h-7 border rounded px-1 text-sm bg-background"
+                className={`flex-1 h-7 border rounded-md px-1 text-sm bg-background ${FOCUS_RING}`}
                 title="Channel that the colour / line-style controls below apply to"
               >
                 <option value="all">All channels</option>
@@ -434,7 +440,7 @@ export function StyleTab() {
           <select
             value={palette}
             onChange={(e) => setPalette(e.target.value)}
-            className="flex-1 h-7 border rounded px-1 text-sm bg-background"
+            className={`flex-1 h-7 border rounded-md px-1 text-sm bg-background ${FOCUS_RING}`}
           >
             {MAIN_PALETTE_NAMES.map((p) => (
               <option key={p} value={p}>{p}</option>
@@ -477,7 +483,7 @@ export function StyleTab() {
             ? `Draw an arrow to colour ${effectiveChannelLabel(styleScope, channelLabels, activeExp?.channelFluorophore)} curves only`
             : 'Draw an arrow across curves to assign the palette in crossing order'}
         >
-          {paletteArrowMode ? 'Draw arrow on plot...' : 'Assign palette by arrow'}
+          {paletteArrowMode ? 'Draw arrow on plot…' : 'Assign palette by arrow'}
         </Button>
         <Button
           variant="outline"
@@ -510,7 +516,7 @@ export function StyleTab() {
               step={0.1}
               value={lineWidth}
               onChange={(e) => setLineWidth(Number(e.target.value))}
-              className="w-16 h-7 border rounded px-1 text-sm text-center"
+              className={`w-16 h-7 border rounded-md px-1 text-sm text-center ${FOCUS_RING}`}
             />
             <span className="text-muted-foreground">pt</span>
           </div>
@@ -526,7 +532,7 @@ export function StyleTab() {
             <select
               value={scopeLineStyle}
               onChange={(e) => applyLineStyle(e.target.value)}
-              className="flex-1 h-7 border rounded px-1 text-sm bg-background"
+              className={`flex-1 h-7 border rounded-md px-1 text-sm bg-background ${FOCUS_RING}`}
             >
               {scopeLineStyle === '' && <option value="" disabled>(mixed)</option>}
               {CHANNEL_LINE_STYLES.map(({ value, label }) => (
@@ -564,7 +570,7 @@ export function StyleTab() {
           <select
             value={fontFamily}
             onChange={(e) => setFontFamily(e.target.value)}
-            className="flex-1 h-7 border rounded px-1 text-sm bg-background"
+            className={`flex-1 h-7 border rounded-md px-1 text-sm bg-background ${FOCUS_RING}`}
           >
             {FONT_FAMILIES.map((f) => (
               <option key={f} value={f}>{f}</option>
@@ -578,28 +584,28 @@ export function StyleTab() {
             <span className="w-14">Title:</span>
             <input type="number" min={6} max={24} value={titleSize}
               onChange={(e) => setTitleSize(Number(e.target.value))}
-              className="w-12 h-7 border rounded px-1 text-center text-sm" disabled={!showTitle} />
+              className={`w-12 h-7 border rounded-md px-1 text-center text-sm ${FOCUS_RING}`} disabled={!showTitle} />
           </div>
           <div className="flex items-center gap-1.5 text-sm">
             <Checkbox checked={showLabels} onCheckedChange={(v) => setShowLabels(v === true)} />
             <span className="w-14">Labels:</span>
             <input type="number" min={6} max={24} value={labelSize}
               onChange={(e) => setLabelSize(Number(e.target.value))}
-              className="w-12 h-7 border rounded px-1 text-center text-sm" disabled={!showLabels} />
+              className={`w-12 h-7 border rounded-md px-1 text-center text-sm ${FOCUS_RING}`} disabled={!showLabels} />
           </div>
           <div className="flex items-center gap-1.5 text-sm">
             <Checkbox checked={showTicks} onCheckedChange={(v) => setShowTicks(v === true)} />
             <span className="w-14">Ticks:</span>
             <input type="number" min={6} max={20} value={tickSize}
               onChange={(e) => setTickSize(Number(e.target.value))}
-              className="w-12 h-7 border rounded px-1 text-center text-sm" disabled={!showTicks} />
+              className={`w-12 h-7 border rounded-md px-1 text-center text-sm ${FOCUS_RING}`} disabled={!showTicks} />
           </div>
           <div className="flex items-center gap-1.5 text-sm">
             <span className="w-[18px]" /> {/* spacer to align with checkboxes above */}
             <span className="w-14">Legend:</span>
             <input type="number" min={6} max={20} value={legendSize}
               onChange={(e) => setLegendSize(Number(e.target.value))}
-              className="w-12 h-7 border rounded px-1 text-center text-sm" />
+              className={`w-12 h-7 border rounded-md px-1 text-center text-sm ${FOCUS_RING}`} />
           </div>
         </div>
         <div className="flex items-center gap-1.5 text-sm">
@@ -612,7 +618,7 @@ export function StyleTab() {
                 onClick={() => setTextColor(c)}
                 className={`px-2 h-7 text-xs capitalize transition-colors ${
                   textColor === c ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-accent'
-                } ${c !== 'auto' ? 'border-l' : ''}`}
+                } ${c !== 'auto' ? 'border-l' : ''} ${FOCUS_RING}`}
                 title={c === 'auto' ? 'Follow light/dark theme' : `Force ${c}`}
               >
                 {c}
@@ -638,7 +644,7 @@ export function StyleTab() {
           </label>
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <Checkbox checked={showLegendDoubling} onCheckedChange={(v) => setShowLegendDoubling(v === true)} disabled={!showLegend} />
-            Doubling Time
+            Doubling time
           </label>
         </div>
         <div className="flex items-center gap-2 text-sm">
@@ -646,7 +652,7 @@ export function StyleTab() {
           <select
             value={legendContent}
             onChange={(e) => setLegendContent(e.target.value as 'well' | 'sample' | 'group')}
-            className="flex-1 h-7 border rounded px-1 text-sm bg-background"
+            className={`flex-1 h-7 border rounded-md px-1 text-sm bg-background ${FOCUS_RING}`}
           >
             <option value="sample">Sample</option>
             <option value="well">Well</option>
@@ -658,7 +664,7 @@ export function StyleTab() {
           <select
             value={legendPosition}
             onChange={(e) => setLegendPosition(e.target.value)}
-            className="flex-1 h-7 border rounded px-1 text-sm bg-background"
+            className={`flex-1 h-7 border rounded-md px-1 text-sm bg-background ${FOCUS_RING}`}
           >
             {LEGEND_POSITIONS.map((p) => (
               <option key={p} value={p}>{p}</option>
@@ -676,7 +682,7 @@ export function StyleTab() {
               <span className="text-xs text-muted-foreground">Order (drag to reorder)</span>
               {legendOrder.length > 0 && (
                 <button
-                  className="text-[10px] text-muted-foreground hover:text-foreground underline"
+                  className={`text-[10px] text-muted-foreground hover:text-foreground underline ${FOCUS_RING}`}
                   onClick={handleResetLegendOrder}
                   title="Revert to natural order"
                 >
@@ -696,7 +702,7 @@ export function StyleTab() {
                     className={`flex items-center gap-2 px-2 py-1 text-xs select-none cursor-grab active:cursor-grabbing border-b border-border last:border-b-0 touch-none ${isDragging ? 'opacity-40' : ''} ${isOver ? 'bg-accent' : 'hover:bg-muted/40'}`}
                     title={entry.key}
                   >
-                    <span className="text-muted-foreground">⋮⋮</span>
+                    <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
                     <span className="flex-1 truncate">{entry.label}</span>
                   </div>
                 );
@@ -734,7 +740,7 @@ export function StyleTab() {
               step={50}
               value={figureDpi}
               onChange={(e) => setFigureDpi(Number(e.target.value))}
-              className="w-16 h-7 border rounded px-1 text-sm text-center"
+              className={`w-16 h-7 border rounded-md px-1 text-sm text-center ${FOCUS_RING}`}
             />
             <span className="text-xs text-muted-foreground">(for export)</span>
           </div>
@@ -751,7 +757,7 @@ export function StyleTab() {
                 if (v) handleLoadPreset(v);
                 e.target.value = '';
               }}
-              className="flex-1 h-7 border rounded px-1 text-xs bg-background"
+              className={`flex-1 h-7 border rounded-md px-1 text-xs bg-background ${FOCUS_RING}`}
             >
               <option value="">Load preset…</option>
               {presetNames.map((n) => (
@@ -766,7 +772,7 @@ export function StyleTab() {
                   if (v) handleDeletePreset(v);
                   e.target.value = '';
                 }}
-                className="h-7 border rounded px-1 text-xs bg-background"
+                className={`h-7 border rounded-md px-1 text-xs bg-background ${FOCUS_RING}`}
                 title="Delete a preset"
               >
                 <option value="">✕</option>

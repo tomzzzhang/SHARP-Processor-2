@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ChevronRight, Check, CircleDot, Circle } from 'lucide-react';
+import { FOCUS_RING } from '@/lib/ui-classes';
+import { showAlert, showConfirm, showPrompt, toast } from '@/lib/dialogs';
 import { open as dialogOpen } from '@tauri-apps/plugin-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { useAppState } from '@/hooks/useAppState';
@@ -7,7 +10,7 @@ import { checkForUpdates } from '@/lib/update-checker';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { loadSharpFile } from '@/lib/sharp-loader';
 import { isInstrumentFile, isSupportedFile, loadInstrumentFile, loadBioradFolder } from '@/lib/instrument-loader';
-import { exportPlotImage, exportCompositePlotImage, exportDataCsv, exportResultsCsv, exportMeltCsv, exportAsSharp, exportAsSharpx, saveSession } from '@/lib/export';
+import { exportActivePlot, exportDataCsv, exportResultsCsv, exportMeltCsv, exportAsSharp, exportAsSharpx, saveSession } from '@/lib/export';
 import { getRecentFiles, addRecentFile } from '@/lib/recent-files';
 import { getTheme, setTheme, type AppTheme } from '@/lib/theme';
 
@@ -44,11 +47,14 @@ function MenuItemRow({ item, onClose }: { item: MenuItem; onClose: () => void })
         onMouseLeave={() => setHoverOpen(false)}
       >
         <button
-          className="w-full flex items-center justify-between px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-40"
+          className={`w-full flex items-center justify-between px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50 ${FOCUS_RING}`}
           disabled={item.disabled}
         >
-          <span>{item.label}</span>
-          <span className="ml-6 text-muted-foreground">▸</span>
+          <span className="flex items-center">
+            <span className="w-4 flex-shrink-0" aria-hidden />
+            <span>{item.label}</span>
+          </span>
+          <ChevronRight className="size-3.5 text-muted-foreground" />
         </button>
         {hoverOpen && !item.disabled && (
           <div className="absolute top-0 left-full z-50 min-w-[200px] bg-background border rounded-md shadow-lg py-1">
@@ -61,16 +67,34 @@ function MenuItemRow({ item, onClose }: { item: MenuItem; onClose: () => void })
     );
   }
 
+  // The menu data encodes toggle/radio state as a glyph prefix on the label
+  // (✓ for checks, ● / ○ for radios). Parse it out and render a lucide icon
+  // in a fixed-width leading slot so labels align; a same-width invisible
+  // spacer keeps unmarked items flush. Label text is otherwise unchanged.
+  const rawLabel = item.label ?? '';
+  let marker: 'check' | 'on' | 'off' | null = null;
+  let labelText = rawLabel;
+  if (rawLabel.startsWith('✓ ')) { marker = 'check'; labelText = rawLabel.slice(2); }
+  else if (rawLabel.startsWith('● ')) { marker = 'on'; labelText = rawLabel.slice(2); }
+  else if (rawLabel.startsWith('○ ')) { marker = 'off'; labelText = rawLabel.slice(2); }
+
   return (
     <button
-      className="w-full flex items-center justify-between px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-40 disabled:cursor-default"
+      className={`w-full flex items-center justify-between px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-50 disabled:cursor-default ${FOCUS_RING}`}
       disabled={item.disabled}
       onClick={() => {
         item.action?.();
         onClose();
       }}
     >
-      <span>{item.label}</span>
+      <span className="flex items-center">
+        <span className="w-4 flex-shrink-0 flex items-center">
+          {marker === 'check' && <Check className="size-3" />}
+          {marker === 'on' && <CircleDot className="size-3" />}
+          {marker === 'off' && <Circle className="size-3" />}
+        </span>
+        <span>{labelText}</span>
+      </span>
       {item.shortcut && (
         <span className="text-muted-foreground ml-6">{item.shortcut}</span>
       )}
@@ -167,7 +191,7 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
       addRecentFile(filePath, experiment.wellsUsed?.length);
       loadExperiment(experiment, filePath);
     } catch (err) {
-      alert(`Failed to open:\n${filePath}\n\n${err instanceof Error ? err.message : String(err)}`);
+      toast(`Failed to open ${filePath.split(/[/\\]/).pop()}: ${err instanceof Error ? err.message : String(err)}`, 'error');
     }
   }, [loadExperiment]);
 
@@ -200,7 +224,7 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
       addRecentFile(dirPath, experiment.wellsUsed?.length);
       loadExperiment(experiment, dirPath);
     } catch (err) {
-      alert(`Failed to load BioRad folder:\n${err instanceof Error ? err.message : String(err)}`);
+      toast(`Failed to load BioRad folder: ${err instanceof Error ? err.message : String(err)}`, 'error');
     }
   }, [loadExperiment]);
 
@@ -278,45 +302,12 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
     }
   }, [exp, analysisResults, xAxisMode, getActiveSourcePath, handleSaveAsSharp]);
 
-  /**
-   * Export the currently-displayed plot(s) at their on-screen size,
-   * upscaled by the user's configured DPI. On the amplification tab
-   * this includes the melt-derivative mini-plot stacked below the
-   * main plot (composite PNG/JPEG — SVG composites fall back to the
-   * main plot only, since stitching two independent Plotly SVGs is
-   * non-trivial and low-value for v1).
-   */
+  // Export the currently-displayed plot(s) at on-screen size, upscaled by the
+  // configured DPI. Tab-aware resolution + amp/melt-deriv compositing live in
+  // exportActivePlot (shared with the DataTab export buttons).
   const handleExportAsSeen = useCallback(async (format: 'png' | 'svg' | 'jpeg') => {
     if (!exp) return;
-    const name = exp.experimentId;
-
-    // Pick the plot(s) to export based on the active tab.
-    const byId = (id: string) => document.getElementById(id);
-
-    if (plotTab === 'amplification') {
-      const amp = byId('sharp-plot-amp');
-      const deriv = byId('sharp-plot-amp-deriv');
-      if (!amp) return;
-      if (deriv && (format === 'png' || format === 'jpeg')) {
-        await exportCompositePlotImage([amp, deriv], format, figureDpi, name);
-        return;
-      }
-      // No derivative, or SVG requested — single-plot export
-      await exportPlotImage(amp, format, figureDpi, name);
-      return;
-    }
-
-    if (plotTab === 'melt') {
-      const melt = byId('sharp-plot-melt');
-      if (melt) await exportPlotImage(melt, format, figureDpi, name);
-      return;
-    }
-
-    if (plotTab === 'doubling') {
-      const doubling = byId('sharp-plot-doubling');
-      if (doubling) await exportPlotImage(doubling, format, figureDpi, name);
-      return;
-    }
+    await exportActivePlot(plotTab, format, figureDpi, exp.experimentId);
   }, [exp, figureDpi, plotTab]);
 
   const undo = useAppState((s) => s.undo);
@@ -346,9 +337,9 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
     else hideWells(selArray);
   }, [selArray, hiddenWells, showWells, hideWells]);
 
-  const handleGroup = useCallback(() => {
+  const handleGroup = useCallback(async () => {
     if (selCurves.length === 0) return;
-    const name = prompt('Group name:', 'Group 1');
+    const name = await showPrompt({ title: 'Group name', defaultValue: 'Group 1' });
     if (name) setCurveGroup(selCurves, name);
   }, [selCurves, setCurveGroup]);
 
@@ -461,20 +452,19 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
           label: 'Check for Updates...', action: async () => {
             const result = await checkForUpdates();
             if (!result) {
-              alert('Could not check for updates. Please check your internet connection.');
+              await showAlert('Could not check for updates. Please check your internet connection.', { title: 'Check for Updates' });
             } else if (result.updateAvailable) {
-              if (confirm(`Version ${result.latestVersion} is available (you have ${result.currentVersion}).\n\nOpen the download page?`)) {
-                window.open(result.releaseUrl, '_blank');
-              }
+              const ok = await showConfirm(`Version ${result.latestVersion} is available (you have ${result.currentVersion}).\n\nOpen the download page?`, { title: 'Update Available', confirmLabel: 'Download' });
+              if (ok) window.open(result.releaseUrl, '_blank');
             } else {
-              alert(`You're up to date! (v${result.currentVersion})`);
+              await showAlert(`You're up to date! (v${result.currentVersion})`, { title: 'Check for Updates' });
             }
           },
         },
         { separator: true },
         {
           label: 'About SHARP Processor 2', action: () => {
-            alert(`SHARP Processor 2\nVersion ${APP_VERSION}\n\n© 2026 SHARP Diagnostics, Inc.\nAll rights reserved.\n\nDesktop application for qPCR & isothermal amplification data analysis.`);
+            showAlert(`SHARP Processor 2\nVersion ${APP_VERSION}\n\n© 2026 SHARP Diagnostics, Inc.\nAll rights reserved.\n\nDesktop application for qPCR & isothermal amplification data analysis.`, { title: 'About SHARP Processor 2' });
           },
         },
       ],

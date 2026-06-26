@@ -12,11 +12,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Plotly from 'plotly.js-dist-min';
 import _createPlotlyComponent from 'react-plotly.js/factory';
+import { toast } from '@/lib/dialogs';
 import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { buildFigure, type PlotType, type PlotFigureStyle, type BuildFigureInput } from '@/lib/plot-figure';
 import { exportWizardFigure } from '@/lib/export';
 import { Button } from '@/components/ui/button';
+import { DialogCloseButton } from '@/components/ui/DialogCloseButton';
+import { FOCUS_RING } from '@/lib/ui-classes';
 import { getTheme } from '@/lib/theme';
 
 const createPlotlyComponent =
@@ -219,7 +222,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
       await exportWizardFigure(figure, targetW, targetH, format, name);
     } catch (err) {
       console.error('Export failed:', err);
-      alert(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
+      toast(`Export failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
     } finally {
       setExporting(false);
     }
@@ -227,7 +230,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
 
   if (!exp) {
     return (
-      <div ref={panelRef} style={panelStyle} className="bg-background border rounded-md shadow-xl p-6 text-sm">
+      <div ref={panelRef} style={panelStyle} className="bg-background border rounded-lg shadow-xl p-6 text-sm">
         <p>No experiment loaded.</p>
         <Button size="sm" onClick={onClose} className="mt-3">Close</Button>
       </div>
@@ -238,7 +241,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
     <div
       ref={panelRef}
       style={panelStyle}
-      className="bg-background border rounded-md shadow-xl w-[940px] max-w-[96vw] max-h-[92vh] overflow-hidden flex flex-col"
+      className="bg-background border rounded-lg shadow-xl w-[940px] max-w-[96vw] max-h-[92vh] overflow-hidden flex flex-col"
     >
       {/* Title bar */}
       <div
@@ -246,13 +249,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
         onMouseDown={onTitleMouseDown}
       >
         <h2 className="text-base font-bold">Export Wizard</h2>
-        <button
-          onClick={onClose}
-          className="text-muted-foreground hover:text-foreground text-lg leading-none px-1"
-          title="Close"
-        >
-          ×
-        </button>
+        <DialogCloseButton onClick={onClose} />
       </div>
 
       {/* Body: two columns */}
@@ -268,6 +265,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
                   name="export-plot-type"
                   checked={plotType === value}
                   onChange={() => setPlotType(value)}
+                  className={FOCUS_RING}
                   style={{ accentColor: 'var(--brand-red-dark)' }}
                 />
                 {label}
@@ -282,7 +280,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
               <select
                 value={preset}
                 onChange={(e) => applyPreset(e.target.value)}
-                className="w-full h-8 border rounded px-2 bg-background"
+                className={`w-full h-8 border rounded-md px-2 bg-background ${FOCUS_RING}`}
               >
                 {SIZE_PRESETS.map((p) => (
                   <option key={p.label} value={p.label}>{p.label}</option>
@@ -300,7 +298,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
                   step={0.1}
                   value={widthIn}
                   onChange={(e) => onWidthChange(Number(e.target.value))}
-                  className="w-full h-8 border rounded px-2"
+                  className={`w-full h-8 border rounded-md px-2 ${FOCUS_RING}`}
                 />
               </label>
               <label className="space-y-1 block">
@@ -312,7 +310,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
                   step={0.1}
                   value={heightIn}
                   onChange={(e) => onHeightChange(Number(e.target.value))}
-                  className="w-full h-8 border rounded px-2"
+                  className={`w-full h-8 border rounded-md px-2 ${FOCUS_RING}`}
                 />
               </label>
             </div>
@@ -325,7 +323,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
                 step={50}
                 value={dpi}
                 onChange={(e) => setDpi(Number(e.target.value))}
-                className="w-full h-8 border rounded px-2"
+                className={`w-full h-8 border rounded-md px-2 ${FOCUS_RING}`}
               />
             </label>
             <div className="text-[11px] text-muted-foreground">
@@ -343,6 +341,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
                     name="export-format"
                     checked={format === f}
                     onChange={() => setFormat(f)}
+                    className={FOCUS_RING}
                     style={{ accentColor: 'var(--brand-red-dark)' }}
                   />
                   {f.toUpperCase()}
@@ -359,7 +358,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
         {/* Right: preview */}
         <div className="flex-1 min-w-0 p-4 flex flex-col items-center justify-center bg-muted/30 overflow-auto">
           <div
-            className="border shadow-sm bg-white"
+            className="border shadow-sm bg-card"
             style={{
               width: previewScaledW,
               height: previewScaledH,

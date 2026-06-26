@@ -1,26 +1,56 @@
-import { Checkbox as CheckboxPrimitive } from "@base-ui/react/checkbox"
+import { useEffect, useRef, type ComponentProps } from "react"
 
 import { cn } from "@/lib/utils"
-import { CheckIcon } from "lucide-react"
+import { FOCUS_RING } from "@/lib/ui-classes"
 
-function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
+type CheckboxProps = Omit<
+  ComponentProps<"input">,
+  "type" | "checked" | "onChange" | "onClick"
+> & {
+  checked?: boolean
+  indeterminate?: boolean
+  onCheckedChange?: (checked: boolean) => void
+}
+
+// Renders as a NATIVE <input type="checkbox"> with accent-color, so it draws
+// with the exact same OS rendering on both macOS and Windows — a clean red
+// box with a checkmark when on. The `indeterminate` flag (when supplied)
+// shows the "mixed" state for the tri-state per-well controls.
+//
+// We drive the toggle from onClick (which also fires for keyboard Space) and
+// keep onChange a no-op for the controlled input.
+function Checkbox({
+  checked,
+  indeterminate,
+  onCheckedChange,
+  disabled,
+  className,
+  style,
+  ...props
+}: CheckboxProps) {
+  const ref = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = !!indeterminate
+  }, [indeterminate])
+
   return (
-    <CheckboxPrimitive.Root
+    <input
+      ref={ref}
       data-slot="checkbox"
-      className={cn(
-        "peer relative flex size-3.5 shrink-0 items-center justify-center rounded-[3px] border border-input transition-colors outline-none group-has-disabled/field:opacity-50 after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 aria-invalid:aria-checked:border-primary dark:bg-input/30 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 data-checked:border-[var(--brand-red-dark)] data-checked:bg-[var(--brand-red-dark)] data-checked:text-primary-foreground dark:data-checked:bg-[var(--brand-red-dark)]",
-        className
-      )}
       {...props}
-    >
-      <CheckboxPrimitive.Indicator
-        data-slot="checkbox-indicator"
-        className="grid place-content-center text-current transition-none [&>svg]:size-3"
-      >
-        <CheckIcon
-        />
-      </CheckboxPrimitive.Indicator>
-    </CheckboxPrimitive.Root>
+      type="checkbox"
+      checked={!!checked}
+      disabled={disabled}
+      onChange={() => {}}
+      onClick={() => onCheckedChange?.(!checked)}
+      style={{ accentColor: "var(--brand-red-dark)", ...style }}
+      className={cn(
+        "shrink-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50",
+        FOCUS_RING,
+        className,
+      )}
+    />
   )
 }
 
