@@ -46,3 +46,35 @@ export interface FitSeed {
   trough: number;
   startRfu?: number;
 }
+
+// ── v1.1.0 additions: the pure per-curve kinetic surface (onset/landmarks/melt).
+//    Additive — the frozen fit contract (FitKnobs/FitSeed above) is unchanged.
+
+/** A melt −dF/dT peak (temperature + height). Produced by `melt.ts`; each host
+ *  orchestrator mirrors it onto its readout row. */
+export interface MeltPeak {
+  /** Melt temperature at the −dF/dT peak (°C). */
+  tm: number;
+  /** −dF/dT height at the peak. */
+  height: number;
+}
+
+/**
+ * Knob surface for the v1.1.0 kinetic math (onset / landmarks / melt).
+ * Deliberately NARROW — the module only reads these fields — so each host
+ * orchestrator's wider knob object (e.g. the CLI's `EngineKnobs`) satisfies it
+ * structurally without the module depending on any host type.
+ */
+export interface KineticKnobs {
+  /** Fraction of fitted height for the time-to-onset readout `t_onset10`. */
+  onsetFractionForTime: number;
+  /** Fractions of fitted height at which the LOCAL doubling time is reported. */
+  doublingFractions: number[];
+  /** Fraction of fitted height that bounds the σ pre-onset region (reads before
+   *  the fit reaches this fraction). */
+  sigmaPreOnsetFraction: number;
+  /** A melt −dF/dT local max counts as a peak when its height is at least this
+   *  fraction of the well's tallest peak AND at least `meltPeakMinHeight`. */
+  meltPeakMinFractionOfMax: number;
+  meltPeakMinHeight: number;
+}

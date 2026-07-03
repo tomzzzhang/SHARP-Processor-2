@@ -378,6 +378,36 @@ export function fitFreeShoulder(
 export const fitFivePL = fitFreeShoulder;
 
 /**
+ * Covariance of the fit at a KNOWN set of params — the report path's SE source
+ * (v1.2.0, additive).
+ *
+ * Reuses a fit that was solved with `computeCovariance` OFF (e.g. the
+ * processor's saved baseline fit) instead of re-running the multi-start LM
+ * search. It recomputes only the residual sum of squares of `curveAt(·, params)`
+ * against the raw signal — the same `ssRes` the fit forms internally — then runs
+ * the identical numeric-Jacobian + JᵀJ-inversion step the in-fit covariance
+ * uses. The returned `se`/`cov` are therefore bit-for-bit what
+ * `fitFreeShoulder(rfu, timeS, seed, { …, computeCovariance: true })` would have
+ * produced for the same converged `params`. `se`/`cov` come back null when JᵀJ
+ * is singular or there are too few points (n ≤ 6), matching the in-fit path.
+ */
+export function covarianceAtParams(
+  rfu: number[],
+  timeS: number[],
+  params: FivePLParams,
+): { se: FivePLResult['se']; cov: number[][] | null } {
+  const n = Math.min(rfu.length, timeS.length);
+  if (n <= 6) return { se: null, cov: null };
+  let ssRes = 0;
+  for (let i = 0; i < n; i++) {
+    const pred = curveAt(timeS[i], params);
+    if (!Number.isFinite(pred)) return { se: null, cov: null };
+    ssRes += (rfu[i] - pred) ** 2;
+  }
+  return covariance(timeS, params, ssRes, n);
+}
+
+/**
  * Numeric covariance of the fitted parameters. Builds the Jacobian of the
  * fitted curve (`curveAt`) by central finite differences w.r.t. each of the 6
  * real-unit parameters, forms JᵀJ, inverts it, and scales by the residual
