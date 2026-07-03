@@ -320,17 +320,21 @@ const sections: Section[] = [
             <li>Melt tab has its own <strong>Normalize</strong> checkbox doing the analogous HRM-style 1 → 0 rescale on melt RFU. The −dF/dT derivative is always computed from raw signal, so peak heights stay physical.</li>
           </ul>
 
-          <p className="text-xs font-medium mb-1">Threshold &amp; Detection</p>
+          <p className="text-xs font-medium mb-1">Kinetics</p>
           <ul className="list-disc pl-5 space-y-0.5 mb-2">
-            <li>Enable to show a red dashed horizontal line on the amplification plot</li>
-            <li>Set the RFU threshold via spinbox or drag the line directly on the plot</li>
-            <li>Results table appears below the plot with Tt, Dt, Tm, Call, and End RFU</li>
+            <li>Toggle kinetic <strong>landmarks</strong> onto the amplification plot — <strong>t_lod</strong> (limit of detection), <strong>t_onset10</strong> (time to 10% of fitted height), and the <strong>inflection</strong> point. They draw on the displayed curves (for the selected wells) and carry into exported figures.</li>
+            <li>The results table below the plot also gains <strong>t_LoD</strong> and <strong>10%</strong> columns (in the x-axis time unit). Full per-curve readouts with standard errors live in the <strong>Kinetics Report</strong> (Tools menu — see that section).</li>
           </ul>
 
-          <p className="text-xs font-medium mb-1">Melt Threshold &amp; Amp Smoothing</p>
+          <p className="text-xs font-medium mb-1">Thresholds</p>
+          <ul className="list-disc pl-5 space-y-0.5 mb-2">
+            <li><strong>Amplification</strong> — enable to show a red dashed line on the amp plot; set the RFU value by spinbox or by dragging the line. <em>Off by default</em>, so the results-table Tt column reads &ldquo;—&rdquo; until you enable it.</li>
+            <li><strong>Melt</strong> — an optional minimum −dF/dT peak height; wells with no peak above it are dimmed on the melt plots.</li>
+          </ul>
+
+          <p className="text-xs font-medium mb-1">Amp Smoothing</p>
           <ul className="list-disc pl-5 space-y-0.5">
-            <li><strong>Melt threshold</strong> — an optional minimum peak height for the −dF/dT derivative; wells with no peak above it are dimmed.</li>
-            <li><strong>Amp smoothing</strong> — an optional Savitzky–Golay smoothing of the amplification curves for display.</li>
+            <li>Optional Savitzky–Golay smoothing of the amplification curves for display.</li>
             <li>Standard-curve / doubling-time fitting lives in the <strong>Standard Curve Wizard</strong> (Tools menu) — see that section.</li>
           </ul>
         </div>
@@ -366,6 +370,7 @@ const sections: Section[] = [
             <li><strong>Double right-click</strong> — reset the view to auto-range</li>
             <li><strong>Right-click (single, stationary)</strong> — context menu appears on release (see below)</li>
             <li><strong>Threshold drag</strong> — grab the red dashed line and drag up/down</li>
+            <li><strong>Kinetic landmarks</strong> — enable in Analysis → Kinetics to mark t_lod / t_onset10 / inflection on the curves</li>
             <li><strong>Auto Baseline / Log Scale</strong> — checkboxes in the plot tabs bar above the chart</li>
             <li><strong>Click a trace</strong> — selects that well across grid, list, and table</li>
             <li><strong>Hover</strong> — highlights the corresponding well on the grid and in the sample list</li>
@@ -632,6 +637,24 @@ const sections: Section[] = [
           <li>The wizard fits Tt vs log₂(concentration) and reports doubling time and R²</li>
         </ol>
         <p>Results appear in the <strong>Standard Curve</strong> plot tab, which prompts you to open this wizard when no dilution series is configured.</p>
+      </div>
+    ),
+  },
+  {
+    id: 'kinetics-report',
+    title: 'Kinetics Report',
+    content: (
+      <div className="space-y-2">
+        <p>Access via <strong>Tools &gt; Kinetics Report</strong> — a full-screen readout that turns every curve into quantifiable kinetics. It computes once when opened and reuses the analysis fit (no re-fitting), so it stays out of the live analysis path.</p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li><strong>Amplification panel</strong> — each curve (baseline-corrected by default, or raw) with its fitted model and the kinetic landmarks; toggle t_lod / t_onset10 / inflection under the plot.</li>
+          <li><strong>Melt panel</strong> — −dF/dT with de-duplicated Tm labels.</li>
+          <li><strong>Kinetics table</strong> — t_lod, t_onset10, the local doubling-time profile (Td₅/₂₀/₅₀), yield, and melt Tm, each with a shaded ± standard-error column plus baseline-observed / plateau-observed flags. Sortable; click a row to isolate that curve.</li>
+          <li><strong>Curve reconstruction</strong> (collapsed) — the six FreeShoulder fit parameters, kept so a curve can be reconstructed if the raw data is lost.</li>
+          <li><strong>Sample tiles</strong> — one per group; a master checkbox toggles all replicates and tints the tile, and a time-unit selector switches the table between seconds and minutes.</li>
+          <li><strong>Export HTML</strong> — a self-contained, shareable report with the plots, table, and data embedded.</li>
+        </ul>
+        <p className="text-xs text-muted-foreground">The landmarks and readouts are fit-derived and independent of the manual baseline / threshold settings.</p>
       </div>
     ),
   },

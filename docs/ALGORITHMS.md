@@ -1,6 +1,6 @@
 # Algorithms — Active vs Archived
 
-**Last Updated:** 2026-07-03 PST — Claude (Windows, branch `feature/freeshoulder-baseline` v0.2.1 — **the baseline algorithm changed**: the primary Auto baseline is now the fit-first **FreeShoulder** method (fitted lower asymptote `A`, poor-fit rejection via the fit's `baselineObserved` flag, robust-trough fallback), replacing the onset-based flat-window method as the primary — the flat-window method is retained as the fallback + the 500-RFU cross-check + the normalization/drift window. See the Baseline correction table below + CLAUDE.md #52. Prior — 2026-06-26 Mac session, analysis algorithms unchanged; UI/UX branch #48–51 presentation-only.)
+**Last Updated:** 2026-07-03 PST — Claude (Windows, branch `feature/kinetics-report` v0.2.1 — added the **kinetic landmarks & readouts** section below: the fit-first `t_lod` / `t_onset10` / Td-profile / yield readouts from the shared `freeshoulder-fit` module (bumped to v1.2.0 with `covarianceAtParams`), surfaced in the new Kinetics Report and as main-plot landmark toggles + results-table columns. Baseline algorithm unchanged from #52. Prior — branch `feature/freeshoulder-baseline` v0.2.1 — **the baseline algorithm changed**: the primary Auto baseline is now the fit-first **FreeShoulder** method (fitted lower asymptote `A`, poor-fit rejection via the fit's `baselineObserved` flag, robust-trough fallback), replacing the onset-based flat-window method as the primary — the flat-window method is retained as the fallback + the 500-RFU cross-check + the normalization/drift window. See the Baseline correction table below + CLAUDE.md #52. Prior — 2026-06-26 Mac session, analysis algorithms unchanged; UI/UX branch #48–51 presentation-only.)
 
 A single source of truth for which algorithm the app is currently using for
 each analysis step, and which earlier implementations have been retired.
@@ -40,6 +40,12 @@ for reference; nothing in the running app imports from there.
 | | Status | Location | Notes |
 |---|---|---|---|
 | **Log-linear fit over `[fitStartFraction, fitEndFraction]` of the growth region** | **Active** | [`src/lib/analysis.ts`](../src/lib/analysis.ts) `analyzeWell` | Defaults 10%-90% of the exponential region, user-adjustable from Analysis tab. |
+
+## Kinetic landmarks & readouts (Kinetics Report + main-plot landmarks)
+
+| | Status | Location | Notes |
+|---|---|---|---|
+| **Fit-first kinetic landmarks / readouts** | **Active** | shared [`src/lib/curvefit/`](../src/lib/curvefit/) (`onset`, `landmarks`, `melt`) + [`src/lib/report/kinetics-report.ts`](../src/lib/report/kinetics-report.ts) | Read off the **reused** FreeShoulder fit + a pooled run σ (median of the amplifying wells' difference-σ): `t_lod` (LoD departure = baseline + x·σ crossing — **detection only**, computed for every fired curve), `t_onset10` (time to 10% of fitted height), the local doubling-time profile `Td₅/₂₀/₅₀`, `yield` (D−A), inflection, and melt Tm. Same `freeshoulder-fit` module as the Primer-Runs CLI extractor (**v1.2.0, matched across both repos**); the added `covarianceAtParams` yields the report's per-parameter SEs from the saved fit with **no LM re-solve** (numeric Jacobian + one inversion), and landmark SEs are Monte-Carlo-propagated. The fit-derived landmarks gate on `plateauObserved`, so a censored / junk fit (e.g. a flat NTC) emits no garbage value; `t_lod` does not (detection survives censoring). **No role / reference / NTC-reduced-set policy** — every curve gets the same attempt. Full readouts (with SEs) run **lazily** on Kinetics Report open, memoized on `(experiment, channel)`; a light variant `computeChannelLandmarks` (no covariance / MC) feeds the always-on main-plot landmark toggles + the results-table `t_LoD` / `10%` columns. |
 
 ---
 
