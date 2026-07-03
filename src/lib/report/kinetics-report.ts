@@ -169,6 +169,21 @@ function nz(v: number): number | null {
   return Number.isFinite(v) ? v : null;
 }
 
+/**
+ * A fit-derived TIME landmark is only a MEASUREMENT when it lands inside the
+ * observed read window `[t0, tEnd]`. `timeAtFraction` is a closed-form
+ * extrapolation off the warped sigmoid, so a near-flat NTC that the flexible
+ * 6-param model fits as the tail of a heavily-warped curve can place its
+ * %-of-height time far outside the data — e.g. a strongly negative `t_onset10`
+ * for a curve whose fitted sigmoid centre sits before the run started. Such a
+ * value is a warp artifact, not a reading; the fit-derived kinetics are
+ * censored when it falls outside the window (this is the gap `plateauObserved`
+ * alone does not close — a flat NTC's plateau IS observed, its rise is not).
+ */
+function withinWindow(t: number, timeS: number[]): boolean {
+  return Number.isFinite(t) && t >= timeS[0] && t <= timeS[timeS.length - 1];
+}
+
 /** Mean of a slice [s, e) of an array. */
 function meanSlice(a: number[], s: number, e: number): number {
   let sum = 0;
@@ -322,7 +337,12 @@ function buildRow(
     row.fit_C = fit.C;
     row.fit_C_se = cse?.C ?? null;
 
-    if (fit.plateauObserved) {
+    // The %-of-height kinetics are trustworthy only when the upper shoulder is
+    // real (plateauObserved) AND the fitted transition actually lies within the
+    // measured data — a flat NTC can pass plateauObserved yet place its rise
+    // (10%-of-height time) outside the run, giving a nonsense t_onset10.
+    const onset10 = timeAtFraction(params, K.onsetFractionForTime);
+    if (fit.plateauObserved && withinWindow(onset10, timeS)) {
       // The upper shoulder is real → D / foot / shoulder / yield and the
       // %-of-height kinetics are trustworthy.
       row.fit_D = fit.D;
@@ -334,7 +354,7 @@ function buildRow(
       row.yield_raw = fit.D! - fit.A!;
       row.yield_raw_se = dse?.yieldRawSe ?? null;
 
-      row.t_onset10 = nz(timeAtFraction(params, K.onsetFractionForTime));
+      row.t_onset10 = nz(onset10);
       row.t_onset10_se = dse?.tOnset10Se ?? null;
       const [f5, f20, f50] = K.doublingFractions;
       row.td_5 = nz(doublingTimeAtFraction(params, f5));
@@ -492,8 +512,13 @@ export function computeChannelLandmarks(amp: AmplificationData, wells: string[])
     let inflectionT: number | null = null;
     if (f.plateauObserved && f.A !== null && f.B !== null && f.C !== null && f.D !== null && f.foot !== null && f.shoulder !== null) {
       const params: FivePLParams = { A: f.A, B: f.B, C: f.C, D: f.D, foot: f.foot, shoulder: f.shoulder };
-      tOnset10 = nz(timeAtFraction(params, K.onsetFractionForTime));
-      inflectionT = f.inflectionT;
+      // Same window gate as the report: a fitted 10%-height time outside the
+      // measured data is a warp extrapolation (flat NTC), not a landmark.
+      const t10 = timeAtFraction(params, K.onsetFractionForTime);
+      if (withinWindow(t10, timeS)) {
+        tOnset10 = nz(t10);
+        inflectionT = f.inflectionT;
+      }
     }
     out.set(p.well, { tLod: onset.tLod, tOnset10, inflectionT, fired: onset.fired });
   }

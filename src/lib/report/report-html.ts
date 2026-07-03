@@ -167,7 +167,7 @@ export function buildReportHtml(input: ReportHtmlInput): string {
     `<td class="num">${fmt(v)}</td><td class="num sesh">${esc(se(s))}</td>`;
   const tableRows = curves.map((c) => {
     const r = c.row;
-    return `<tr data-key="${esc(c.key)}"><td><span class="sw" style="background:${c.color}"></span>${esc(c.label)}</td>
+    return `<tr data-key="${esc(c.key)}"><td>${esc(r.well)}</td><td><span class="sw" style="background:${c.color}"></span>${esc(c.label)}</td>
       ${cell(r.t_lod, r.t_lod_se, r1)}
       ${cell(r.t_onset10, r.t_onset10_se, r1)}
       ${cell(r.td_5, r.td_5_se, r1)}
@@ -183,7 +183,7 @@ export function buildReportHtml(input: ReportHtmlInput): string {
   // ── Reconstruction table (6 params) ──
   const reconRows = curves.map((c) => {
     const r = c.row;
-    return `<tr data-key="${esc(c.key)}"><td><span class="sw" style="background:${c.color}"></span>${esc(c.label)}</td>
+    return `<tr data-key="${esc(c.key)}"><td>${esc(r.well)}</td><td><span class="sw" style="background:${c.color}"></span>${esc(c.label)}</td>
       ${cell(r.fit_A, r.fit_A_se, r1)}${cell(r.fit_B, r.fit_B_se, (x) => (x === null ? '—' : x.toFixed(4)))}
       ${cell(r.fit_C, r.fit_C_se, r1)}${cell(r.fit_D, r.fit_D_se, r1)}
       ${cell(r.fit_foot, r.fit_foot_se, r2)}${cell(r.fit_shoulder, r.fit_shoulder_se, r2)}
@@ -248,7 +248,7 @@ ${meltSvg ? `<section><h2>Melt — −dF/dT</h2><div class="plotwrap">${meltSvg}
   <h2>Kinetics</h2>
   <div class="tblwrap"><table>
     <thead><tr>
-      <th>Sample</th><th class="num">t_lod</th><th class="num">±</th><th class="num">t_onset10</th><th class="num">±</th>
+      <th>Well</th><th>Sample</th><th class="num">t_lod</th><th class="num">±</th><th class="num">t_onset10</th><th class="num">±</th>
       <th class="num">Td₅</th><th class="num">±</th><th class="num">Td₂₀</th><th class="num">±</th><th class="num">Td₅₀</th><th class="num">±</th>
       <th class="num">Yield</th><th class="num">±</th><th class="num">Tm</th><th class="num">±</th>
       <th class="ctr">base</th><th class="ctr">plat</th><th class="ctr">call</th>
@@ -261,7 +261,7 @@ ${meltSvg ? `<section><h2>Melt — −dF/dT</h2><div class="plotwrap">${meltSvg}
 <section>
   <h2>Curve reconstruction (FreeShoulder parameters)</h2>
   <div class="tblwrap"><table>
-    <thead><tr><th>Sample</th><th class="num">A</th><th class="num">±</th><th class="num">B</th><th class="num">±</th><th class="num">C</th><th class="num">±</th><th class="num">D</th><th class="num">±</th><th class="num">foot</th><th class="num">±</th><th class="num">shoulder</th><th class="num">±</th><th class="num">r²</th><th class="num">rmse</th></tr></thead>
+    <thead><tr><th>Well</th><th>Sample</th><th class="num">A</th><th class="num">±</th><th class="num">B</th><th class="num">±</th><th class="num">C</th><th class="num">±</th><th class="num">D</th><th class="num">±</th><th class="num">foot</th><th class="num">±</th><th class="num">shoulder</th><th class="num">±</th><th class="num">r²</th><th class="num">rmse</th></tr></thead>
     <tbody>${reconRows}</tbody>
   </table></div>
 </section>

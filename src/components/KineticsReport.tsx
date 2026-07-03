@@ -10,6 +10,7 @@ import { buildReportHtml, type ReportHtmlCurve } from '@/lib/report/report-html'
 import { exportReportHtml } from '@/lib/export';
 import { curveAt, type FivePLParams } from '@/lib/curvefit';
 import { getPaletteColors } from '@/lib/constants';
+import { wellSortKey } from '@/lib/parsers/utils';
 import { effectiveChannelLabel } from '@/lib/channels';
 import { toast } from '@/lib/dialogs';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -41,7 +42,14 @@ function useIsDark() {
   return isDark;
 }
 
-type SortKey = 'label' | 't_lod' | 't_onset10' | 'td_5' | 'td_20' | 'td_50' | 'yield_raw' | 'melt_tm';
+type SortKey = 'well' | 'label' | 't_lod' | 't_onset10' | 'td_5' | 'td_20' | 'td_50' | 'yield_raw' | 'melt_tm';
+
+/** Natural well order (row letter, then numeric column): A1 < A2 < A10 < B1. */
+const compareWell = (a: string, b: string): number => {
+  const [ar, ac] = wellSortKey(a);
+  const [br, bc] = wellSortKey(b);
+  return ar === br ? ac - bc : ar < br ? -1 : 1;
+};
 const fitParams = (r: ReportRow): FivePLParams | null =>
   r.fit_A !== null && r.fit_B !== null && r.fit_C !== null && r.fit_D !== null && r.fit_foot !== null && r.fit_shoulder !== null
     ? { A: r.fit_A, B: r.fit_B, C: r.fit_C, D: r.fit_D, foot: r.fit_foot, shoulder: r.fit_shoulder }
@@ -292,8 +300,14 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
     const val = (r: ReportRow): number | string =>
       sortKey === 'label' ? label(r) : (r[sortKey] ?? Infinity);
     const arr = [...rows].sort((a, b) => {
-      const va = val(a), vb = val(b);
-      const cmp = typeof va === 'string' ? va.localeCompare(vb as string) : (va as number) - (vb as number);
+      let cmp: number;
+      if (sortKey === 'well') cmp = compareWell(a.well, b.well);
+      else {
+        const va = val(a), vb = val(b);
+        cmp = typeof va === 'string' ? va.localeCompare(vb as string) : (va as number) - (vb as number);
+      }
+      // Stable, meaningful tiebreak so equal values (e.g. shared t_lod) group by well.
+      if (cmp === 0 && sortKey !== 'well') cmp = compareWell(a.well, b.well);
       return sortDir === 'desc' ? -cmp : cmp;
     });
     return arr;
@@ -567,6 +581,7 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
               <table className="text-xs w-full">
                 <thead>
                   <tr className="border-b border-border" style={{ background: 'color-mix(in srgb, var(--brand-red-mid) 5%, transparent)' }}>
+                    <SortTh k="well" className="text-left">Well</SortTh>
                     <SortTh k="label" className="text-left">Sample</SortTh>
                     <SortTh k="t_lod" className="text-right">t_lod ({timeUnit})</SortTh><th className="bg-muted/50" />
                     <SortTh k="t_onset10" className="text-right">t_onset10 ({timeUnit})</SortTh><th className="bg-muted/50" />
@@ -590,6 +605,7 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
                         style={{ background: sel ? 'var(--accent)' : undefined, borderLeft: sel ? '2.5px solid var(--brand-red-mid)' : undefined }}
                         onClick={() => setSelected(sel ? null : r.curveKey)}
                       >
+                        <td className="px-2 py-0.5 font-mono text-muted-foreground whitespace-nowrap tabular-nums">{r.well}</td>
                         <td className="px-2 py-0.5 font-medium whitespace-nowrap" style={{ color: colorMap.get(r.curveKey) }}>{label(r)}</td>
                         <SeCells v={r.t_lod} s={r.t_lod_se} mul={tScale} />
                         <SeCells v={r.t_onset10} s={r.t_onset10_se} mul={tScale} />
@@ -610,7 +626,7 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
               </table>
             </div>
             <div className="text-[11px] text-muted-foreground mt-1">
-              Shaded ± columns are standard errors. <b>plat</b> unchecked ⇒ right-censored (D / foot / shoulder / yield extrapolated, kinetics nulled).
+              Shaded ± columns are standard errors. Fit-derived kinetics are nulled when the plateau is not observed (<b>plat</b> unchecked ⇒ right-censored) or the fitted transition falls outside the measured time window.
             </div>
           </div>
 
@@ -628,6 +644,7 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
                 <table className="text-xs w-full">
                   <thead>
                     <tr className="border-b border-border text-muted-foreground">
+                      <th className="px-2 py-1 text-left">Well</th>
                       <th className="px-2 py-1 text-left">Sample</th>
                       {['A', 'B', 'C', 'D', 'foot', 'shoulder'].map((h) => (
                         <th key={h} className="px-2 py-1 text-right" colSpan={2}>{h}</th>
@@ -638,6 +655,7 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
                   <tbody>
                     {sortedRows.map((r) => (
                       <tr key={r.curveKey} className="border-b border-border/60">
+                        <td className="px-2 py-0.5 font-mono text-muted-foreground whitespace-nowrap tabular-nums">{r.well}</td>
                         <td className="px-2 py-0.5 font-medium whitespace-nowrap" style={{ color: colorMap.get(r.curveKey) }}>{label(r)}</td>
                         <SeCells v={r.fit_A} s={r.fit_A_se} />
                         <SeCells v={r.fit_B} s={r.fit_B_se} d={4} />
