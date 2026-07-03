@@ -591,7 +591,7 @@ export function DilutionWizard({ onClose }: DilutionWizardProps) {
         className="flex items-center justify-between px-5 pt-4 pb-2 cursor-move select-none"
         onMouseDown={onTitleMouseDown}
       >
-        <h2 className="text-base font-bold">Doubling Time Wizard</h2>
+        <h2 className="text-base font-bold">Standard Curve Wizard</h2>
         <DialogCloseButton onClick={onClose} />
       </div>
       <div className="px-5 pb-5">

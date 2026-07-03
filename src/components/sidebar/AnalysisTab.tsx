@@ -150,6 +150,11 @@ export function AnalysisTab() {
   const channels = exp?.channels ?? [];
   const viewMode = useAppState((s) => s.viewMode);
 
+  // Drift correction is hidden for now (the underlying state/action and
+  // `computeDriftSlope`/`useGlobalDrift` are kept intact — flip this to bring
+  // the section back). Default is off, so nothing applies drift.
+  const SHOW_DRIFT_UI = false;
+
   return (
     <div className="space-y-3">
       {channels.length > 1 && viewMode === 'multi' && (
@@ -175,6 +180,7 @@ export function AnalysisTab() {
         </div>
       )}
 
+      {SHOW_DRIFT_UI && (
       <CollapsibleSection title="Drift Correction" defaultOpen={false}>
         <label className="flex items-center gap-2 text-sm">
           <Checkbox
@@ -202,6 +208,7 @@ export function AnalysisTab() {
           correction. Per-well baseline offset is handled separately.
         </p>
       </CollapsibleSection>
+      )}
 
       <CollapsibleSection title="Baseline Correction">
         <label className="flex items-center gap-2 text-sm">

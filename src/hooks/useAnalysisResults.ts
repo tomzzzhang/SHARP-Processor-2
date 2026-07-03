@@ -1,8 +1,9 @@
 import { createContext, createElement, useContext, useMemo, type ReactNode } from 'react';
 import { useAppState, type ChannelAnalysisState } from './useAppState';
 import {
-  analyzeWell, applyBaseline, computeDriftSlope, findFlatBaselineWindow,
-  findFlatPlateauWindow, savitzkyGolaySmooth, type WellAnalysisResult,
+  analyzeWell, applyBaseline, computeAutoFitBaseline, computeDriftSlope,
+  findFlatBaselineWindow, findFlatPlateauWindow, savitzkyGolaySmooth,
+  type WellAnalysisResult,
 } from '@/lib/analysis';
 import type { AmplificationData, XAxisMode } from '@/types/experiment';
 
@@ -79,6 +80,11 @@ export function computeChannelResults(
     xAxisMode === 'time_s' ? amp.timeS :
     amp.timeMin;
 
+  // The FreeShoulder fit runs in seconds (cross-run comparability); the fitted
+  // baseline `A` is x-unit independent, so this is unaffected by xAxisMode. Fall
+  // back to cycle indices if the run carries no time axis.
+  const fitTimeS = amp.timeS && amp.timeS.length >= 2 ? amp.timeS : amp.cycle;
+
   const globalOptions = {
     baselineEnabled: cs.baselineEnabled,
     baselineMethod: cs.baselineMethod,
@@ -96,8 +102,9 @@ export function computeChannelResults(
   const normScratch = new Map<string, NormScratch>();
 
   for (const well of wellsUsed) {
-    let rawRfu = amp.wells[well];
-    if (!rawRfu) continue;
+    const originalRaw = amp.wells[well];
+    if (!originalRaw) continue;
+    let rawRfu = originalRaw;
 
     if (cs.smoothingEnabled) {
       rawRfu = savitzkyGolaySmooth(rawRfu, cs.smoothingWindow);
@@ -120,19 +127,35 @@ export function computeChannelResults(
         }
       : globalOptions;
 
+    // Fit-first auto baseline: fit FreeShoulder to the ORIGINAL raw signal and
+    // subtract the fitted `A` (robust-trough fallback, 500-RFU cross-check).
+    // Fitting the original (not the smoothed / drift-processed) curve keys the
+    // fit on a stable array reference, so toggling smoothing or drift reuses the
+    // cached fit instead of re-solving every well — the baseline level `A` is a
+    // property of the raw curve and is unchanged (<1 RFU) by smoothing. The
+    // fitted offset is subtracted from the PROCESSED curve so the corrected
+    // series still reflects smoothing/drift. Falls back to the legacy flat-window
+    // method only when the fit yields no usable level.
+    let autoFit: { corrected: number[]; offset: number | null } | null = null;
     if (effectiveAuto && options.baselineEnabled) {
-      const flat = findFlatBaselineWindow(rawRfu);
-      if (flat) {
-        options = {
-          ...options,
-          baselineMethod: 'horizontal',
-          baselineStart: flat.start,
-          baselineEnd: flat.end,
-        };
+      const fitBase = computeAutoFitBaseline(originalRaw, fitTimeS);
+      if (fitBase && fitBase.offset != null) {
+        const off = fitBase.offset;
+        autoFit = { corrected: rawRfu.map((v) => v - off), offset: off };
+      } else {
+        const flat = findFlatBaselineWindow(rawRfu);
+        if (flat) {
+          options = {
+            ...options,
+            baselineMethod: 'horizontal',
+            baselineStart: flat.start,
+            baselineEnd: flat.end,
+          };
+        }
       }
     }
 
-    const base = analyzeWell(rawRfu, xData, options);
+    const base = analyzeWell(rawRfu, xData, { ...options, autoFit });
     // displayRfu defaults to corrected (if baseline on) else raw; normalized
     // resolved in the second pass.
     const displayRfu = (cs.baselineEnabled && base.correctedRfu) || rawRfu;

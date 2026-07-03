@@ -390,7 +390,7 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
       items: [
         { label: 'Amplification', action: () => setPlotTab('amplification') },
         { label: 'Melt', action: () => setPlotTab('melt') },
-        { label: 'Doubling Time', action: () => setPlotTab('doubling') },
+        { label: 'Standard Curve', action: () => setPlotTab('doubling') },
         { separator: true },
         { label: `${logScale ? '✓ ' : ''}Log Scale`, action: () => setLogScale(!logScale) },
         { separator: true },
@@ -416,7 +416,7 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
     {
       label: 'Tools',
       items: [
-        { label: 'Doubling Time Wizard...', action: () => onOpenWizard?.(), disabled: !hasData },
+        { label: 'Standard Curve Wizard...', action: () => onOpenWizard?.(), disabled: !hasData },
         { label: 'Assign Fluorophores...', action: () => setShowFluorophoreWizard(true), disabled: !hasData || (exp?.channels.length ?? 0) <= 1 },
       ],
     },

@@ -33,7 +33,7 @@ const sections: Section[] = [
       <p>
         SHARP Processor 2 is a desktop application for analysing real-time amplification (qPCR / isothermal) data.
         It reads data from multiple instrument formats, displays amplification and melt curves, and provides
-        baseline correction, threshold detection, doubling-time analysis, and flexible export options.
+        baseline correction, threshold detection, standard-curve analysis, and flexible export options.
         Experiments with multiple fluorophores are fully supported — each dye is detected and analysed
         independently (see <strong>Multiple Fluorophores (Channels)</strong>).
       </p>
@@ -153,7 +153,7 @@ const sections: Section[] = [
 
               {/* Plot tabs + Auto Baseline + Log + X-axis on same row */}
               <div className="flex items-center" style={{ borderBottom: '1px solid #ddd8d3' }}>
-                {['Amplification', 'Melt', 'Doubling Time'].map((t, i) => (
+                {['Amplification', 'Melt', 'Standard Curve'].map((t, i) => (
                   <div key={t} className="px-1.5 py-1" style={{
                     fontSize: 7.5, color: i === 0 ? '#aa2026' : '#999',
                     fontWeight: i === 0 ? 600 : 400,
@@ -305,17 +305,10 @@ const sections: Section[] = [
           <p className="text-xs font-medium mb-1">Baseline Correction</p>
           <ul className="list-disc pl-5 space-y-0.5 mb-2">
             <li>Enable/disable globally with the checkbox</li>
-            <li><strong>Auto baseline</strong> (on by default): finds the first flat region of each well (before amplification starts) and uses it as a horizontal baseline. Handles early signal dips (helicase warm-up) and different amplification timings automatically.</li>
+            <li><strong>Auto baseline</strong> (on by default): fits each well's amplification curve and uses the fitted baseline level. This follows the true pre-amplification baseline even through early signal dips (helicase warm-up) and handles wells that amplify at different times, with no manual tuning. If a curve is too irregular to fit cleanly (e.g. a noisy non-amplifying control), it automatically falls back to a robust low-level estimate rather than trusting a bad fit.</li>
             <li>Method &amp; Zone (Horizontal/Linear + Start/End): used only when Auto baseline is off globally, or for individual wells opted out of auto. Start/End values are entered in whatever x-axis unit you're viewing (cycle / sec / min) and snap to the nearest cycle on commit.</li>
             <li>Per-well opt-out: select wells, right-click → <em>Baseline → Manual</em> (or use the Analysis panel's per-well override section). Opted-out wells fall back to the global manual Method/Zone settings.</li>
             <li>Show raw overlay: draws faint dotted raw curves behind corrected curves</li>
-          </ul>
-
-          <p className="text-xs font-medium mb-1">Drift Correction</p>
-          <ul className="list-disc pl-5 space-y-0.5 mb-2">
-            <li>Toggle <strong>Drift Correction</strong> for runs where the baseline visibly slopes across the plate.</li>
-            <li>The app fits a single run-level drift slope by pooling the pre-amplification baseline regions of every well — within-well centering keeps genuine per-well offsets from biasing the result — and subtracts it before per-well baseline correction.</li>
-            <li>Fitted slope is shown next to the toggle (e.g. <em>Fitted drift: +0.04 RFU/min · 84 wells</em>) so you can report it in a methods section.</li>
           </ul>
 
           <p className="text-xs font-medium mb-1">Normalization</p>
@@ -338,7 +331,7 @@ const sections: Section[] = [
           <ul className="list-disc pl-5 space-y-0.5">
             <li><strong>Melt threshold</strong> — an optional minimum peak height for the −dF/dT derivative; wells with no peak above it are dimmed.</li>
             <li><strong>Amp smoothing</strong> — an optional Savitzky–Golay smoothing of the amplification curves for display.</li>
-            <li>Doubling-time fitting lives in the <strong>Doubling Time Wizard</strong> (Tools menu) — see that section.</li>
+            <li>Standard-curve / doubling-time fitting lives in the <strong>Standard Curve Wizard</strong> (Tools menu) — see that section.</li>
           </ul>
         </div>
 
@@ -629,16 +622,16 @@ const sections: Section[] = [
   },
   {
     id: 'wizard',
-    title: 'Doubling Time Wizard',
+    title: 'Standard Curve Wizard',
     content: (
       <div className="space-y-2">
-        <p>Access via <strong>Tools &gt; Doubling Time Wizard</strong>.</p>
+        <p>Access via <strong>Tools &gt; Standard Curve Wizard</strong>.</p>
         <ol className="list-decimal pl-5 space-y-1">
           <li>Define the series — unit, highest concentration, dilution factor, number of steps</li>
           <li>Assign wells to each dilution level using the plate grid</li>
           <li>The wizard fits Tt vs log₂(concentration) and reports doubling time and R²</li>
         </ol>
-        <p>Results appear in the <strong>Doubling Time</strong> plot tab.</p>
+        <p>Results appear in the <strong>Standard Curve</strong> plot tab, which prompts you to open this wizard when no dilution series is configured.</p>
       </div>
     ),
   },

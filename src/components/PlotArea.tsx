@@ -2117,7 +2117,7 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
   );
 }
 
-// ── Doubling Time / Standard Curve Tab ────────────────────────────────
+// ── Standard Curve Tab ────────────────────────────────────────────────
 
 function formatConc(value: number): string {
   if (value >= 1e6) return `${(value / 1e6).toFixed(2)}×10⁶`;
@@ -2226,10 +2226,20 @@ function DilutionPlot() {
 
   if (!result) {
     return (
-      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-        {!dilutionConfig
-          ? 'Use Tools → Doubling Time Wizard to configure a dilution series'
-          : 'Not enough data — assign wells with valid Tt values to at least 2 steps'}
+      <div className="flex flex-col items-center justify-center gap-3 h-full text-muted-foreground text-sm px-6 text-center">
+        {!dilutionConfig ? (
+          <>
+            <p>Build a standard curve from a dilution series to estimate the doubling time.</p>
+            <button
+              onClick={() => useAppState.getState().setShowDilutionWizard(true)}
+              className="px-3 py-1.5 text-sm border rounded-md bg-background hover:bg-accent text-foreground"
+            >
+              Open Standard Curve Wizard
+            </button>
+          </>
+        ) : (
+          <p>Not enough data — assign wells with valid {xLabel} values to at least 2 steps.</p>
+        )}
       </div>
     );
   }
@@ -2323,108 +2333,6 @@ function DilutionPlot() {
       </div>
     </div>
   );
-}
-
-/** Per-well Tt vs Dt scatter (fallback when no dilution config) */
-function PerWellDoublingPlot() {
-  const doublingRef = useRef<HTMLDivElement>(null);
-  useMiddleMousePan(doublingRef);
-  const autoScalePulse = useAppState((s) => s._autoScalePulse);
-  useEffect(() => {
-    if (autoScalePulse === 0) return;
-    const div = doublingRef.current?.querySelector('.js-plotly-plot') as HTMLElement | null;
-    if (div) Plotly.relayout(div, { 'xaxis.autorange': true, 'yaxis.autorange': true });
-  }, [autoScalePulse]);
-  const { plotBg, isDark, textColor } = usePlotTheme();
-  const experiments = useAppState((s) => s.experiments);
-  const idx = useAppState((s) => s.activeExperimentIndex);
-  const hiddenWells = useAppState((s) => s.hiddenWells);
-  const xAxisMode = useAppState((s) => s.xAxisMode);
-  const showLegendDoubling = useAppState((s) => s.showLegendDoubling);
-  const paletteReversed = useAppState((s) => s.paletteReversed);
-  const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
-  const style = usePlotStyle();
-  const fontScale = usePlotFontScale(doublingRef);
-  const sstyle = useScaledStyle(style, fontScale);
-  const analysisResults = useAnalysisResults();
-  const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
-  const wellGroups = useAppState((s) => s.wellGroups);
-
-  const exp = experiments[idx];
-
-  const dtVisibleWells = useMemo(() => {
-    if (!exp) return [];
-    return exp.wellsUsed.filter((w) => !hiddenWells.has(w));
-  }, [exp, hiddenWells]);
-
-  const colorMap = useGroupedColors(
-    exp?.wellsUsed ?? [], dtVisibleWells, style.palette, wellGroups, wellStyleOverrides,
-    analysisResults as Map<string, { tt?: number | null }>, paletteReversed,
-    paletteGroupColors
-  );
-
-  const data = useMemo(() => {
-    if (!exp) return { wells: [] as string[], tts: [] as number[], dts: [] as number[], colors: [] as string[] };
-    const wells: string[] = [], tts: number[] = [], dts: number[] = [], cs: string[] = [];
-    for (const well of dtVisibleWells) {
-      const r = analysisResults.get(well);
-      if (!r || r.tt == null || r.dt == null) continue;
-      wells.push(well); tts.push(r.tt); dts.push(r.dt);
-      cs.push(colorMap.get(well) ?? '#999');
-    }
-    return { wells, tts, dts, colors: cs };
-  }, [exp, dtVisibleWells, analysisResults, colorMap]);
-
-  const xLabel = xAxisMode === 'cycle' ? 'Ct' : 'Tt';
-
-  const traces = useMemo((): Data[] => {
-    if (data.wells.length === 0) return [];
-    return [{ x: data.tts, y: data.dts, type: 'scatter' as const, mode: 'text+markers' as const,
-      text: data.wells, textposition: 'top center' as const,
-      textfont: { size: 9, family: style.fontFamily },
-      marker: { color: data.colors, size: 8 }, hoverinfo: 'text' as const, showlegend: false }];
-  }, [data, style.fontFamily]);
-
-  const dataRevRef = useRef(0);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const dataRevision = useMemo(() => ++dataRevRef.current, [data]);
-
-  const layout = useMemo((): Partial<Layout> => {
-    const title = exp?.experimentId ? `${exp.experimentId} — Doubling Time` : 'Doubling Time';
-    return {
-      title: titleField(title, sstyle),
-      xaxis: { title: axisLabel(`${xLabel} (${X_AXIS_LABELS[xAxisMode]})`, sstyle), ...tickProps(sstyle), ...gridStyle(sstyle, isDark) },
-      yaxis: { title: axisLabel('Doubling Time', sstyle), ...tickProps(sstyle), ...gridStyle(sstyle, isDark) },
-      autosize: true, margin: computeMargins(sstyle),
-      plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) }, ...legendLayout(sstyle, showLegendDoubling, traces, isDark),
-      datarevision: dataRevision,
-    };
-  }, [exp, xAxisMode, xLabel, sstyle, fontScale, traces, showLegendDoubling, dataRevision]);
-
-  if (data.wells.length === 0) {
-    return <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-      {!exp ? 'No data loaded' : 'Enable threshold detection to calculate doubling times'}
-    </div>;
-  }
-
-  return (
-    <div
-      ref={doublingRef}
-      id="sharp-plot-doubling"
-      data-sharp-plot="doubling"
-      style={{ width: '100%', height: '100%' }}
-    >
-      <Plot data={traces} layout={layout}
-        useResizeHandler style={{ width: '100%', height: '100%' }}
-        config={PLOT_CONFIG} />
-    </div>
-  );
-}
-
-/** Routes between dilution standard curve and per-well scatter */
-function DoublingTimePlot() {
-  const dilutionConfig = useAppState((s) => s.dilutionConfig);
-  return dilutionConfig ? <DilutionPlot /> : <PerWellDoublingPlot />;
 }
 
 // ── Drag Resize Divider ──────────────────────────────────────────────
@@ -2589,7 +2497,7 @@ export function PlotArea() {
         )}
         {plotTab === 'doubling' && (
           <div className="flex-1 min-h-0">
-            <DoublingTimePlot />
+            <DilutionPlot />
           </div>
         )}
       </PlotErrorBoundary>
