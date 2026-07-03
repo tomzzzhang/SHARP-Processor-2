@@ -14,8 +14,8 @@
     <img src="https://img.shields.io/github/v/release/tomzzzhang/SHARP-Processor-2?label=Download&style=for-the-badge&color=c42a30" alt="Download latest release" />
   </a>
   &nbsp;&nbsp;
-  <a href="https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.0">
-    <img src="https://img.shields.io/badge/Beta-v0.2.0%20(multichannel)-d29922?style=for-the-badge" alt="v0.2.0 beta (multichannel)" />
+  <a href="https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.2">
+    <img src="https://img.shields.io/badge/Beta-v0.2.2%20(multichannel%20%2B%20kinetics)-d29922?style=for-the-badge" alt="v0.2.2 beta (multichannel + kinetics)" />
   </a>
 </p>
 
@@ -28,9 +28,9 @@
 | Version | What it is | Download |
 |---|---|---|
 | **v0.1.13** | Single-channel support | **[v0.1.13 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest)** |
-| **v0.2.0** | Multichannel support (beta) | **[v0.2.0 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.0)** |
+| **v0.2.2** | Multichannel support + kinetics report (beta) | **[v0.2.2 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.2)** |
 
-v0.1.13 is the current "Latest" release; v0.2.0 is a pre-release. See *What's New in v0.2.0* below.
+v0.1.13 is the current "Latest" release; v0.2.2 is the newest pre-release (the 0.2.x beta line). See *What's New in v0.2.2* below.
 
 ### Windows
 
@@ -54,6 +54,19 @@ v0.1.13 is the current "Latest" release; v0.2.0 is a pre-release. See *What's Ne
    - Alternatively: right-click the app in Applications → **Open** → click **Open** in the dialog
 
 > macOS builds are ad-hoc signed (not notarized with Apple). After you allow it once via the steps above, subsequent launches work normally. This is standard for open-source Tauri apps distributed outside the Mac App Store.
+
+---
+
+## What's New in v0.2.2
+
+Builds on the v0.2.0 multichannel release with a better automatic baseline and a new per-curve kinetics readout. (Everything below is new since v0.2.0.)
+
+- **Smarter automatic baseline.** Auto baseline now fits each curve and uses the fitted floor as the baseline level — this handles slowly drifting and noisy baselines more reliably than the previous flat-region method, and it is the new default. Curves that can't be fit cleanly (junk wells, no-template controls) fall back to a robust estimate, and the manual baseline options are unchanged.
+- **Kinetics Report** (**Tools → Kinetics Report**). A per-curve readout that turns each amplification curve into numbers: time to limit of detection, time to 10% of the fitted height, a doubling-time profile, yield, and melt temperature — each reported with an error estimate. It draws the fitted model on every curve, shows a melt −dF/dT panel, lists everything in a sortable table, and exports as a single self-contained HTML file you can share.
+- **Kinetic landmarks on the plot.** Turn on markers under **Analysis → Kinetics** to show the limit-of-detection point, the 10% onset, and the inflection point directly on your amplification curves — they carry through into exported figures. New **t_LoD** and **10%** columns appear in the results table.
+- **Thresholds are off by default.** Threshold detection now lives under **Analysis → Thresholds** and is off unless you switch it on; the **Tt** column reads "—" until you do.
+- **Standard Curve.** The panel and wizard formerly called "Doubling Time" are now called **Standard Curve**. Per-well doubling time is still listed in the results table.
+- **Report polish.** The Kinetics Report reuses the curve colors you set in the main app, groups replicates by color, offers a baseline-corrected or raw view, a seconds/minutes time unit, and streamlined per-sample toggles.
 
 ---
 
