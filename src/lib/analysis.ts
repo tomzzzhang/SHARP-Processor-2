@@ -1,4 +1,5 @@
 import type { WellCall, XAxisMode, AmplificationData } from '@/types/experiment';
+import { fitFreeShoulder, robustTrough, DEFAULT_FIT_KNOBS, type FivePLResult } from './curvefit';
 
 // ── X-axis unit conversion ───────────────────────────────────────────
 
@@ -189,6 +190,147 @@ export function findFlatBaselineWindow(rfu: number[]): { start: number; end: num
   if (end - start < MIN_FLAT_RUN) return null;
 
   return { start: start + 1, end };
+}
+
+// ── Fit-first auto baseline (FreeShoulder) ───────────────────────────
+
+/** Fitted-A vs simple-baseline cross-check tolerance (RFU). Accept the fitted
+ *  `A` over the simple baseline when they agree within this; on curves with
+ *  early drift the fit is the slightly better estimate, so this only catches a
+ *  gross fit blow-up (shared_module_freeshoulder-fit.md §1.1 — validated ≤225
+ *  RFU worst case on the private validation run, so 500 is safe and generous). */
+const FIT_BASELINE_TOLERANCE_RFU = 500;
+
+/** Fit knobs for the interactive auto-baseline path: the shared-module defaults
+ *  with a lower LM iteration cap (120 vs the module default 200). Verified on
+ *  the private validation plate: the fitted `A` is unchanged to <0.05 RFU across all 42
+ *  wells while total fit time drops ~40%. Every SHARP well converges well before
+ *  120 iterations; the extra headroom to 200 only matters for pathological
+ *  non-converging fits, which fail the accept test and fall back to the trough
+ *  anyway. Covariance stays off — the baseline needs only `A`. */
+const AUTO_BASELINE_KNOBS = { ...DEFAULT_FIT_KNOBS, fivePLMaxIterations: 120 };
+
+/** Fit-first auto baseline result for one well. `offset` is the subtracted
+ *  level; `corrected = raw − offset`. `fromFit` true ⇒ the level is the fitted
+ *  `A`, false ⇒ the robust-trough / simple fallback. */
+export interface AutoFitBaseline {
+  corrected: number[];
+  offset: number | null;
+  fromFit: boolean;
+  /** Fitted lower asymptote `A` (RFU), or null when the fit failed. */
+  fittedA: number | null;
+  /** Simple-method baseline (flat-window mean), or null (fast firers). */
+  simple: number | null;
+  converged: boolean;
+  baselineObserved: boolean;
+  /** The full FreeShoulder fit for this well. The baseline path runs with
+   *  `computeCovariance` OFF, so `fit.se` / `fit.cov` are null here — the
+   *  kinetics report reuses `fit`'s params (and `curveAt`) and derives the SEs
+   *  on demand via `covarianceAtParams`, so it never re-solves the LM. Cached on
+   *  the raw-array identity alongside the rest of this result. */
+  fit: FivePLResult;
+}
+
+/** Simple (non-fitting) baseline level = mean over the auto-detected flat
+ *  pre-amplification window, or null when no such window exists. This is the
+ *  §1.1 cross-check estimate, NOT the ground-truth value — the fit corrects its
+ *  known early-drift bias; the check only guards against gross fit failure. */
+function simpleBaselineLevel(rfu: number[]): number | null {
+  const w = findFlatBaselineWindow(rfu);
+  if (!w) return null;
+  const s = Math.max(0, w.start - 1);
+  const e = Math.min(rfu.length, w.end);
+  if (e <= s) return null;
+  let sum = 0;
+  for (let i = s; i < e; i++) sum += rfu[i];
+  return sum / (e - s);
+}
+
+/** Mean of the first `k` reads — the "starting RFU" anchor for the fit's `A`
+ *  seed (§1.1: seed `A` near the start, not just the trough, so the fit begins
+ *  in the true baseline region and is less likely to diverge). */
+function startRfuEstimate(rfu: number[], k = 3): number {
+  const m = Math.min(k, rfu.length);
+  if (m === 0) return NaN;
+  let sum = 0;
+  for (let i = 0; i < m; i++) sum += rfu[i];
+  return sum / m;
+}
+
+/** Cache keyed on the exact input array reference. `computeAutoFitBaseline` is
+ *  a pure function of (rawRfu, timeS); timeS is stable per experiment/channel,
+ *  so keying on the rawRfu identity is sufficient and always correct. When
+ *  smoothing/drift are off the caller passes the stable `amp.wells[well]`
+ *  reference, so a threshold-line drag (which re-runs the whole per-well
+ *  pipeline) reuses the fit instead of re-solving 8 LM starts per well. */
+const autoFitCache = new WeakMap<number[], AutoFitBaseline | null>();
+
+/**
+ * Fit-first auto baseline: fit the FreeShoulder curve to the raw signal and use
+ * the fitted lower asymptote `A` as the baseline level, with a robust-trough
+ * fallback and a cross-check against the simple baseline (shared_module §1.1).
+ *
+ * Fit on `timeS` (seconds) for cross-run comparability; `A` is x-unit
+ * independent, so the corrected curve is the same in any display unit.
+ *
+ * POOR-FIT REJECTION. The fitted `A` is trusted only when the fit REPORTS it as
+ * anchored (`baselineObserved` — r² ≥ 0.9 AND ≥8 reads sitting below the
+ * pre-onset level, i.e. a real flat baseline the curve rose out of). A curve the
+ * single FreeShoulder logistic can't represent — a non-amplifying / junk NTC, or
+ * one with two shoulders (a shelf then a second rise) — reports
+ * `baselineObserved = false`: there the fit extrapolates `A` off the true
+ * baseline (e.g. private validation F6, whose `A` lands ~80 RFU BELOW the observed
+ * minimum), so we fall back to the robust trough instead of subtracting a bad
+ * level. The 500-RFU cross-check against the simple baseline is a further
+ * guard: even an anchored fit is rejected if it disagrees with the simple
+ * estimate by more than the tolerance (a blow-up that still flagged anchored).
+ * Returns null only when no usable level can be produced, so the caller can fall
+ * back to the legacy flat-window method.
+ */
+export function computeAutoFitBaseline(rawRfu: number[], timeS: number[]): AutoFitBaseline | null {
+  const cached = autoFitCache.get(rawRfu);
+  if (cached !== undefined) return cached;
+
+  const trough = robustTrough(rawRfu);
+  const startRfu = startRfuEstimate(rawRfu);
+  const fit = fitFreeShoulder(rawRfu, timeS, { trough, startRfu }, AUTO_BASELINE_KNOBS);
+  const simple = simpleBaselineLevel(rawRfu);
+  const fittedA = fit.A;
+
+  const accept =
+    fittedA !== null && Number.isFinite(fittedA) &&
+    fit.baselineObserved &&
+    (simple === null || Math.abs(fittedA - simple) <= FIT_BASELINE_TOLERANCE_RFU);
+
+  let offset: number | null;
+  let fromFit: boolean;
+  if (accept) {
+    offset = fittedA as number;
+    fromFit = true;
+  } else if (Number.isFinite(trough)) {
+    offset = trough;
+    fromFit = false;
+  } else if (simple !== null) {
+    offset = simple;
+    fromFit = false;
+  } else {
+    autoFitCache.set(rawRfu, null);
+    return null; // nothing usable — caller falls back to the flat-window method
+  }
+
+  const off = offset as number;
+  const result: AutoFitBaseline = {
+    corrected: rawRfu.map((v) => v - off),
+    offset,
+    fromFit,
+    fittedA,
+    simple,
+    converged: fit.converged,
+    baselineObserved: fit.baselineObserved,
+    fit,
+  };
+  autoFitCache.set(rawRfu, result);
+  return result;
 }
 
 /**
@@ -557,15 +699,28 @@ export function analyzeWell(
     fittingEnabled: boolean;
     fitStartFraction: number;
     fitEndFraction: number;
+    /** Precomputed fit-first auto baseline. When set (and baselineEnabled), the
+     *  fitted-A correction is used instead of the window method; the fit has no
+     *  zone, so `baselineWindow` comes back null (zone shading is already hidden
+     *  for auto). See `computeAutoFitBaseline`. */
+    autoFit?: { corrected: number[]; offset: number | null } | null;
   },
 ): WellAnalysisResult {
   // Step 1: Baseline correction
   let rfu = rawRfu;
   let correctedRfu: number[] | null = null;
+  let baselineWindow: { start: number; end: number } | null = null;
   if (options.baselineEnabled) {
-    const bl = applyBaseline(rawRfu, xData, options.baselineMethod, options.baselineStart, options.baselineEnd);
-    rfu = bl.corrected;
-    correctedRfu = bl.corrected;
+    if (options.autoFit) {
+      rfu = options.autoFit.corrected;
+      correctedRfu = options.autoFit.corrected;
+      baselineWindow = null; // fit-based baseline is a level, not a zone
+    } else {
+      const bl = applyBaseline(rawRfu, xData, options.baselineMethod, options.baselineStart, options.baselineEnd);
+      rfu = bl.corrected;
+      correctedRfu = bl.corrected;
+      baselineWindow = { start: options.baselineStart, end: options.baselineEnd };
+    }
   }
 
   const endRfu = rfu[rfu.length - 1] ?? 0;
@@ -585,10 +740,6 @@ export function analyzeWell(
     const fit = fitDoublingTime(xData, rfu, options.thresholdRfu, options.fitStartFraction, options.fitEndFraction);
     dt = fit.doublingTime;
   }
-
-  const baselineWindow = options.baselineEnabled
-    ? { start: options.baselineStart, end: options.baselineEnd }
-    : null;
 
   return {
     correctedRfu, tt, dt, call, endRfu, baselineWindow, normalizedRfu: null, plateauWindow: null,

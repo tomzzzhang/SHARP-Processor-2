@@ -644,7 +644,7 @@ export function StyleTab() {
           </label>
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <Checkbox checked={showLegendDoubling} onCheckedChange={(v) => setShowLegendDoubling(v === true)} disabled={!showLegend} />
-            Doubling time
+            Standard Curve
           </label>
         </div>
         <div className="flex items-center gap-2 text-sm">

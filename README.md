@@ -117,21 +117,21 @@ Selecting a well highlights it everywhere — on the grid, in the well list, on 
 **Hover to preview.** Moving the mouse over any curve, grid cell, legend entry, or sample list row highlights the same well across all of them. The legend defaults to showing sample names; switch to well names via **Style > Legend > Content**.
 
 ### Correct baselines
-Turn on **Baseline Correction** in the Analysis panel. **Auto baseline** is on by default — the app finds the first flat region of each well (before amplification starts) and uses it as a horizontal baseline. This handles early signal dips (helicase warm-up on SHARP curves) and wells that amplify at different times without any manual tuning.
+Turn on **Baseline Correction** in the Analysis panel. **Auto baseline** is on by default — the app fits each well's amplification curve and uses the fitted baseline level. This follows the true pre-amplification baseline even through early signal dips (helicase warm-up on SHARP curves) and handles wells that amplify at different times, with no manual tuning. When a curve is too irregular to fit cleanly (for example a noisy non-amplifying control), the app automatically falls back to a robust low-level estimate rather than trusting a bad fit.
 
 Need to override? Turn **Auto baseline** off for a global manual range (Horizontal or Linear fit over a cycle window you choose), or right-click specific wells → **Baseline → Manual** to opt just those wells out of auto while everyone else stays auto. Baseline Start/End inputs are entered in whatever x-axis unit you're viewing (cycle / seconds / minutes); they snap to the nearest cycle on commit.
-
-### Correct instrument drift
-Enable **Drift Correction** in the Analysis panel for runs where the baseline visibly slopes across the plate. The app estimates a single run-level drift slope by pooling the pre-amplification baseline regions of every well (using a within-well fit so genuine per-well baseline offsets don't bias the result) and subtracts it before per-well baseline correction. The detected slope appears as a small readout (e.g. *Fitted drift: +0.04 RFU/min, 84 wells*) so you can report it in a methods section.
 
 ### Normalize curves
 Turn on **Normalize selected** in the Analysis panel to rescale every visible amp curve from 0 → 1 between its baseline and its plateau — a common preparation for visual comparison across plates. Non-amplifying wells (NTCs, failed reactions) are detected by SNR and divided by the median amplifying-well plateau, so they render as a small flat curve near 0 instead of blowing up the shared y-axis. The Melt tab has its own **Normalize** checkbox that does the analogous HRM-style 1 → 0 rescale on melt curves; the −dF/dT derivative is always computed from the raw signal, so peak heights stay physically meaningful.
 
 ### Set a detection threshold
-Enable **Threshold Detection** to see a red dashed line on your amplification plot. Drag it up or down to set your threshold level. The app calculates **Tt** (time-to-threshold), **Tm** (melt temperature), **doubling time**, and a **positive/negative call** for each well.
+Enable the amplification threshold under **Analysis → Thresholds** to see a red dashed line on your plot — drag it up or down to set the level. The app then reports **Tt** (time-to-threshold) and a **positive/negative call** for each well. Thresholds are **off by default**, so the **Tt** column reads "—" until you enable them.
 
-### Measure doubling time
-Switch to the **Doubling Time** tab for exponential growth fitting results. The app fits the log-linear growth region of each curve and reports the doubling time with confidence intervals.
+### Read reaction kinetics
+Turn on landmarks in **Analysis → Kinetics** to mark **t_lod** (limit of detection), **t_onset10** (time to 10% of the fitted height), and the **inflection** point on the amplification curves — they draw on the displayed curves and carry straight into exported figures, and **t_LoD** / **10%** columns appear in the results table. For the full picture, open **Tools → Kinetics Report**: a per-curve readout with each curve's fitted model, the local doubling-time profile, yield, and melt Tm — each with a standard error — plus a self-contained HTML export you can share.
+
+### Build a standard curve
+Open **Tools → Standard Curve Wizard** to build a standard curve from a dilution series: define the dilution (unit, top concentration, fold-dilution, number of steps), assign wells to each level on the plate grid, and the app fits Tt vs log₂(concentration) and reports the **doubling time** with confidence intervals and fit statistics. The result appears on the **Standard Curve** plot tab, which prompts you to open the wizard when no series is configured. (Per-well doubling time is also listed in the results table.)
 
 ### Change colors and styles
 - Right-click any well or curve to change its **color**, **line style**, or **line width**
@@ -146,7 +146,7 @@ Switch to the **Doubling Time** tab for exponential growth fitting results. The 
 ### Export your results
 Go to **Export** in the menu bar. There are two ways to export plots:
 
-**Export Wizard** — A configuration dialog for publication-ready figures. Pick the plot type (amplification, melt, melt derivative, or doubling time), choose a size preset (single/double column, slide, square, or custom), set DPI and format (PNG/SVG/JPEG), and see a live preview that reflects your Style tab settings at the true target size. Click **Export…** and save.
+**Export Wizard** — A configuration dialog for publication-ready figures. Pick the plot type (amplification, melt, or melt derivative), choose a size preset (single/double column, slide, square, or custom), set DPI and format (PNG/SVG/JPEG), and see a live preview that reflects your Style tab settings at the true target size. Click **Export…** and save.
 
 **Export As Seen** — A quick submenu (PNG/SVG/JPEG) that exports the currently-displayed plot exactly as it appears on screen, upscaled by your configured DPI. On the amplification tab this includes the melt-derivative mini-plot stacked below the main plot, so the exported image matches the on-screen layout one-to-one.
 

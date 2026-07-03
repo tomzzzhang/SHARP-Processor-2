@@ -1,7 +1,7 @@
 {
   "name": "sharp-processor-2",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -22,6 +22,7 @@
     "fflate": "^0.8.2",
     "jszip": "^3.10.1",
     "lucide-react": "^0.577.0",
+    "ml-levenberg-marquardt": "^5.0.1",
     "openpgp": "^6.3.0",
     "plotly.js": "^3.4.0",
     "plotly.js-dist-min": "^3.4.0",

@@ -1,5 +1,5 @@
 import { useAppState } from '@/hooks/useAppState';
-import { useAnalysisResults, useAllChannelResults } from '@/hooks/useAnalysisResults';
+import { useAnalysisResults, useAllChannelResults, useAllChannelLandmarks } from '@/hooks/useAnalysisResults';
 import { useDragSelect } from '@/hooks/useDragSelect';
 import { useMemo, useState, useCallback, useRef, Fragment } from 'react';
 import { CONTENT_DISPLAY, getPaletteColors } from '@/lib/constants';
@@ -19,7 +19,7 @@ const CALL_COLORS: Record<string, string> = {
 };
 
 
-type SortKey = 'well' | 'sample' | 'content' | 'tt' | 'tm' | 'call' | 'endRfu';
+type SortKey = 'well' | 'sample' | 'content' | 'tt' | 'tlod' | 'tonset' | 'tm' | 'call' | 'endRfu';
 type SortDir = 'asc' | 'desc';
 
 interface RowData {
@@ -28,6 +28,9 @@ interface RowData {
   content: string;
   displayType: string;
   tt: number | null;
+  /** Kinetic landmarks in seconds (converted for display). */
+  tLod: number | null;
+  tOnset10: number | null;
   tm: number | null;
   dt: number | null;
   call: string;
@@ -71,6 +74,12 @@ function compareRows(a: RowData, b: RowData, key: SortKey, dir: SortDir): number
       break;
     case 'tt':
       cmp = (a.tt ?? Infinity) - (b.tt ?? Infinity);
+      break;
+    case 'tlod':
+      cmp = (a.tLod ?? Infinity) - (b.tLod ?? Infinity);
+      break;
+    case 'tonset':
+      cmp = (a.tOnset10 ?? Infinity) - (b.tOnset10 ?? Infinity);
       break;
     case 'tm':
       cmp = (a.tm ?? Infinity) - (b.tm ?? Infinity);
@@ -145,6 +154,9 @@ export function ResultsTable() {
   const melt = exp?.melt;
   const analysisResults = useAnalysisResults();
   const allChannelResults = useAllChannelResults();
+  const allChannelLandmarks = useAllChannelLandmarks();
+  const thresholdEnabled = useAppState((s) => s.thresholdEnabled);
+  const activeChannel = useAppState((s) => s.activeChannel);
 
   const visibleChannelList = useMemo(
     () => (exp?.channels ?? []).filter((c) => visibleChannels.has(c)),
@@ -154,7 +166,7 @@ export function ResultsTable() {
   // single view the table is flat per-well for the active channel (v0.1.x look).
   const multiChannel = viewMode === 'multi' && visibleChannelList.length > 1;
   // Column count for the empty-state row colSpan (extra Fluor column when multichannel).
-  const colCount = multiChannel ? 8 : 7;
+  const colCount = multiChannel ? 10 : 9;
 
   /** Tm (temperature at peak -dF/dT) for a well in a specific channel's melt. */
   const tmFor = useCallback((channel: string, well: string): number | null => {
@@ -192,11 +204,11 @@ export function ResultsTable() {
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   // Column resize state
-  const COL_ORDER: SortKey[] = ['well', 'sample', 'content', 'tt', 'tm', 'call', 'endRfu'];
+  const COL_ORDER: SortKey[] = ['well', 'sample', 'content', 'tt', 'tlod', 'tonset', 'tm', 'call', 'endRfu'];
   const MIN_COL_WIDTH = 32;
   // Percentage-based widths for even distribution (sample gets remainder)
-  const COL_PCT: Record<SortKey, string> = { well: '8%', sample: '', content: '10%', tt: '10%', tm: '10%', call: '8%', endRfu: '12%' };
-  const DEFAULT_WIDTHS: Record<SortKey, number> = { well: 52, sample: 120, content: 60, tt: 56, tm: 56, call: 48, endRfu: 72 };
+  const COL_PCT: Record<SortKey, string> = { well: '7%', sample: '', content: '8%', tt: '9%', tlod: '9%', tonset: '9%', tm: '9%', call: '6%', endRfu: '10%' };
+  const DEFAULT_WIDTHS: Record<SortKey, number> = { well: 50, sample: 100, content: 54, tt: 50, tlod: 52, tonset: 54, tm: 50, call: 42, endRfu: 66 };
   const [colWidths, setColWidths] = useState<Record<SortKey, number>>(DEFAULT_WIDTHS);
   const resizingCol = useRef<SortKey | null>(null);
   const resizeStartX = useRef(0);
@@ -295,11 +307,13 @@ export function ResultsTable() {
   // built separately below.
   const rows = useMemo((): RowData[] => {
     if (!exp) return [];
+    const activeLandmarks = allChannelLandmarks.get(activeChannel);
     const result: RowData[] = [];
     for (const well of exp.wellsUsed) {
       if (hiddenWells.has(well)) continue;
       const info = exp.wells[well];
       const analysis = analysisResults.get(well);
+      const lm = activeLandmarks?.get(well);
       result.push({
         well,
         sample: info?.sample ?? '',
@@ -307,6 +321,8 @@ export function ResultsTable() {
         displayType: CONTENT_DISPLAY[info?.content ?? ''] ?? info?.content ?? '',
         color: colorMap.get(well) ?? 'var(--muted-foreground)',
         tt: analysis?.tt ?? null,
+        tLod: lm?.tLod ?? null,
+        tOnset10: lm?.tOnset10 ?? null,
         tm: tmMap.get(well) ?? null,
         dt: analysis?.dt ?? null,
         call: analysis?.call ?? 'unset',
@@ -315,7 +331,7 @@ export function ResultsTable() {
     }
     result.sort((a, b) => compareRows(a, b, sortKey, sortDir));
     return result;
-  }, [exp, hiddenWells, analysisResults, colorMap, sortKey, sortDir, tmMap]);
+  }, [exp, hiddenWells, analysisResults, colorMap, sortKey, sortDir, tmMap, allChannelLandmarks, activeChannel]);
 
   // Multichannel collapsible tree: one parent row per visible well + a child
   // row per visible channel (S-C pair). A well with a single visible channel
@@ -341,9 +357,11 @@ export function ResultsTable() {
       const displayType = CONTENT_DISPLAY[info?.content ?? ''] ?? info?.content ?? '';
       const children: RowData[] = chs.map((ch) => {
         const analysis = allChannelResults.get(ch)?.get(well);
+        const lm = allChannelLandmarks.get(ch)?.get(well);
         return {
           well, sample: info?.sample ?? '', content: info?.content ?? '', displayType, color,
-          tt: analysis?.tt ?? null, tm: tmFor(ch, well), dt: analysis?.dt ?? null,
+          tt: analysis?.tt ?? null, tLod: lm?.tLod ?? null, tOnset10: lm?.tOnset10 ?? null,
+          tm: tmFor(ch, well), dt: analysis?.dt ?? null,
           call: analysis?.call ?? 'unset', endRfu: analysis?.endRfu ?? undefined,
           channel: ch, fluor: effectiveChannelLabel(ch, channelLabels, exp.channelFluorophore),
         };
@@ -354,14 +372,15 @@ export function ResultsTable() {
         : calls.includes('invalid') ? 'invalid' : 'unset';
       const sortRow: RowData = {
         well, sample: info?.sample ?? '', content: info?.content ?? '', displayType, color,
-        tt: minOf(children.map((c) => c.tt)), tm: minOf(children.map((c) => c.tm)),
+        tt: minOf(children.map((c) => c.tt)), tLod: minOf(children.map((c) => c.tLod)),
+        tOnset10: minOf(children.map((c) => c.tOnset10)), tm: minOf(children.map((c) => c.tm)),
         dt: null, call: aggCall, endRfu: maxOf(children.map((c) => c.endRfu)),
       };
       nodes.push({ well, sample: info?.sample ?? '', displayType, color, children, sortRow });
     }
     nodes.sort((a, b) => compareRows(a.sortRow, b.sortRow, sortKey, sortDir));
     return nodes;
-  }, [exp, multiChannel, hiddenWells, visibleChannelList, wellChannelHidden, allChannelResults, colorMap, tmFor, channelLabels, sortKey, sortDir]);
+  }, [exp, multiChannel, hiddenWells, visibleChannelList, wellChannelHidden, allChannelResults, allChannelLandmarks, colorMap, tmFor, channelLabels, sortKey, sortDir]);
 
   // Expand/collapse per parent well (multichannel tree). Default collapsed.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -399,11 +418,22 @@ export function ResultsTable() {
   });
 
   const ttLabel = xAxisMode === 'cycle' ? 'Ct' : 'Tt';
+  // Landmark times are computed in seconds; show them in min when the x-axis is
+  // in minutes, else seconds (cycle mode shows seconds).
+  const tUnit = xAxisMode === 'time_min' ? 'min' : 's';
+  const tScale = xAxisMode === 'time_min' ? 1 / 60 : 1;
+  const fmtT = (v: number | null | undefined) => (v == null || !Number.isFinite(v) ? '—' : (v * tScale).toFixed(tUnit === 'min' ? 1 : 0));
 
-  /** The four channel-dependent metric cells (Tt / Tm / Call / End RFU). */
-  const renderMetrics = (r: { tt: number | null; tm: number | null; call: string; endRfu: number | undefined }, bg?: string) => (
+  /** The channel-dependent metric cells (Tt / t_LoD / 10% / Tm / Call / End RFU).
+   *  Tt reads "—" unless threshold detection is enabled. */
+  const renderMetrics = (
+    r: { tt: number | null; tLod: number | null; tOnset10: number | null; tm: number | null; call: string; endRfu: number | undefined },
+    bg?: string,
+  ) => (
     <>
-      <TableCell className="py-0.5 text-right" style={{ backgroundColor: bg }}>{r.tt != null ? r.tt.toFixed(2) : '—'}</TableCell>
+      <TableCell className="py-0.5 text-right" style={{ backgroundColor: bg }}>{thresholdEnabled && r.tt != null ? r.tt.toFixed(2) : '—'}</TableCell>
+      <TableCell className="py-0.5 text-right" style={{ backgroundColor: bg }}>{fmtT(r.tLod)}</TableCell>
+      <TableCell className="py-0.5 text-right" style={{ backgroundColor: bg }}>{fmtT(r.tOnset10)}</TableCell>
       <TableCell className="py-0.5 text-right" style={{ backgroundColor: bg }}>{r.tm != null ? r.tm.toFixed(1) + '°' : '—'}</TableCell>
       <TableCell className="py-0.5 text-center text-sm font-bold leading-none" style={{ backgroundColor: bg, color: CALL_COLORS[r.call] }}>
         {r.call === 'unset' ? '—' : r.call === 'positive' ? '+' : r.call === 'negative' ? '−' : '?'}
@@ -421,6 +451,8 @@ export function ResultsTable() {
           <col style={{ width: COL_PCT.content }} />
           {multiChannel && <col style={{ width: '12%' }} />}
           <col style={{ width: COL_PCT.tt }} />
+          <col style={{ width: COL_PCT.tlod }} />
+          <col style={{ width: COL_PCT.tonset }} />
           <col style={{ width: COL_PCT.tm }} />
           <col style={{ width: COL_PCT.call }} />
           <col style={{ width: COL_PCT.endRfu }} />
@@ -446,6 +478,8 @@ export function ResultsTable() {
             <SortableHeader label="Content" sortKey="content" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} onResize={startResize('content')} />
             {multiChannel && <TableHead className="py-1">Fluor</TableHead>}
             <SortableHeader label={ttLabel} sortKey="tt" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="text-right" onResize={startResize('tt')} />
+            <SortableHeader label={`t_LoD (${tUnit})`} sortKey="tlod" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="text-right" onResize={startResize('tlod')} />
+            <SortableHeader label={`10% (${tUnit})`} sortKey="tonset" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="text-right" onResize={startResize('tonset')} />
             <SortableHeader label="Tm" sortKey="tm" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="text-right" onResize={startResize('tm')} />
             <SortableHeader label="Call" sortKey="call" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="text-center" onResize={startResize('call')} />
             <SortableHeader label="End RFU" sortKey="endRfu" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="text-right" />
@@ -466,7 +500,7 @@ export function ResultsTable() {
                 // Single visible channel → show its values inline; otherwise the
                 // parent's metric cells are blank (the channel values live on the
                 // child rows).
-                const pMetrics = single ? node.children[0] : { tt: null, tm: null, call: 'unset', endRfu: undefined };
+                const pMetrics = single ? node.children[0] : { tt: null, tLod: null, tOnset10: null, tm: null, call: 'unset', endRfu: undefined };
                 return (
                   <Fragment key={node.well}>
                     <TableRow

@@ -526,6 +526,10 @@ interface AppState extends ExperimentViewState, ChannelAnalysisState {
   showDilutionWizard: boolean;
   showExportWizard: boolean;
   showFluorophoreWizard: boolean;
+  /** The native kinetics report overlay (lazy per-curve readouts). */
+  showKineticsReport: boolean;
+  /** Which kinetic landmarks are drawn on the main amp plot (session-global). */
+  landmarks: { lod: boolean; onset: boolean; infl: boolean };
   /** Bumped by `triggerAutoScale()` — PlotArea plots watch it to relayout to
    *  autorange. Transient (not persisted, not per-experiment). */
   _autoScalePulse: number;
@@ -703,6 +707,8 @@ interface AppState extends ExperimentViewState, ChannelAnalysisState {
   setShowDilutionWizard: (show: boolean) => void;
   setShowExportWizard: (show: boolean) => void;
   setShowFluorophoreWizard: (show: boolean) => void;
+  setShowKineticsReport: (show: boolean) => void;
+  setLandmark: (kind: 'lod' | 'onset' | 'infl', on: boolean) => void;
   /** Apply user fluorophore labels + colours per channel (one undoable action). */
   setChannelMeta: (labels: Map<string, string>, colors: Map<string, string>) => void;
   resetStyle: () => void;
@@ -724,6 +730,8 @@ export const useAppState = create<AppState>((set, get) => ({
   showDilutionWizard: false,
   showExportWizard: false,
   showFluorophoreWizard: false,
+  showKineticsReport: false,
+  landmarks: { lod: false, onset: false, infl: false },
   _autoScalePulse: 0,
   analysisScopeAll: false,
 
@@ -1613,6 +1621,8 @@ export const useAppState = create<AppState>((set, get) => ({
   setShowDilutionWizard: (show) => set({ showDilutionWizard: show }),
   setShowExportWizard: (show) => set({ showExportWizard: show }),
   setShowFluorophoreWizard: (show) => set({ showFluorophoreWizard: show }),
+  setShowKineticsReport: (show) => set({ showKineticsReport: show }),
+  setLandmark: (kind, on) => set((s) => ({ landmarks: { ...s.landmarks, [kind]: on } })),
   setChannelMeta: (labels, colors) => {
     get().pushUndo('Assign fluorophores');
     set({ channelLabels: new Map(labels), channelColors: new Map(colors) });

@@ -512,3 +512,18 @@ export async function exportAsSharpx(
   await writeFile(filePath, zipData);
   return filePath;
 }
+
+/**
+ * Save a standalone kinetics-report HTML (the shareable fallback artifact) via
+ * the Tauri save dialog. The HTML is fully self-contained (see
+ * `lib/report/report-html.ts`).
+ */
+export async function exportReportHtml(html: string, defaultName: string): Promise<string | null> {
+  const filePath = await save({
+    defaultPath: `${defaultName}.html`,
+    filters: [{ name: 'HTML Report', extensions: ['html'] }],
+  });
+  if (!filePath) return null;
+  await writeTextFile(filePath, html);
+  return filePath;
+}

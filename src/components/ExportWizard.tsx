@@ -47,11 +47,14 @@ const SIZE_PRESETS: SizePreset[] = [
   { label: 'Square', widthIn: 5.0, heightIn: 5.0 },
 ];
 
+// The Standard Curve tab is not offered here: it is a specialized plot with a
+// stats panel + step table, exportable at its on-screen size via Export → As
+// Seen (which captures the live plot). The parametric wizard covers the curve
+// plots below.
 const PLOT_TYPES: { value: PlotType; label: string }[] = [
   { value: 'amp', label: 'Amplification' },
   { value: 'melt', label: 'Melt (RFU + dF)' },
   { value: 'melt_deriv', label: 'Melt Derivative only' },
-  { value: 'doubling', label: 'Doubling Time' },
 ];
 
 const MAX_PREVIEW_W = 560;
@@ -103,12 +106,9 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
 
   const analysisResults = useAnalysisResults();
 
-  // Initial plot type: the active tab, mapped into PlotType values.
-  const initialPlotType: PlotType = (() => {
-    if (plotTab === 'melt') return 'melt';
-    if (plotTab === 'doubling') return 'doubling';
-    return 'amp';
-  })();
+  // Initial plot type: the active tab, mapped into PlotType values. The Standard
+  // Curve tab has no parametric option here, so it falls back to amplification.
+  const initialPlotType: PlotType = plotTab === 'melt' ? 'melt' : 'amp';
 
   const [plotType, setPlotType] = useState<PlotType>(initialPlotType);
   const [preset, setPreset] = useState<string>('Double column');

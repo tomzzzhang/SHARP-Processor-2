@@ -2,11 +2,12 @@ import { Component, type ReactNode, useCallback, useEffect, useMemo, useRef, use
 import Plotly from 'plotly.js-dist-min';
 import _createPlotlyComponent from 'react-plotly.js/factory';
 import { useAppState } from '@/hooks/useAppState';
-import { useAnalysisResults, useAllChannelResults } from '@/hooks/useAnalysisResults';
+import { useAnalysisResults, useAllChannelResults, useAllChannelLandmarks } from '@/hooks/useAnalysisResults';
 import { analyzeDilutionSeries, normalizeMeltCurves } from '@/lib/analysis';
 import { THRESHOLD_LINE_COLOR, MOD_KEY, getPaletteColors, monochromeRamp } from '@/lib/constants';
 import { effectiveChannelLabel, effectiveChannelColor } from '@/lib/channels';
 import { curveKey } from '@/lib/curves';
+import { buildColorMap, resolveCurveColorWidth } from '@/lib/curve-colors';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useBoxSelect, BOX_SELECT_OVERLAY_STYLE, RESIZE_OVERLAY_STYLE } from '@/hooks/useBoxSelect';
 import { ContextMenu, useContextMenu } from './ContextMenu';
@@ -340,17 +341,6 @@ function segmentIntersectT(
 
 /** Resolved per-curve colour + line width: a per-curve override (right-click /
  *  quick-style menu on the selected curve) wins over the per-well override. */
-function resolveCurveColorWidth(
-  well: string,
-  ch: string,
-  curveStyleOverrides: Map<string, unknown>,
-  wellStyleOverrides: Map<string, unknown>,
-): { color?: string; width?: number } {
-  const wellOv = wellStyleOverrides.get(well) as { color?: string; lineWidth?: number } | undefined;
-  const curveOv = curveStyleOverrides.get(curveKey(well, ch)) as { color?: string; lineWidth?: number } | undefined;
-  return { color: curveOv?.color ?? wellOv?.color, width: curveOv?.lineWidth ?? wellOv?.lineWidth };
-}
-
 /**
  * Compute per-well legend info for a given `legendContent` mode.
  *
@@ -441,83 +431,6 @@ function computeCurveLegendInfo(
  * - Per-well style overrides take highest priority.
  * - paletteReversed flips the color assignment order.
  */
-/** Pure color-map builder: groups → Tt-sorted units → colors drawn from
- *  `colorsFor(n)`, then per-well color overrides applied last (highest
- *  priority). Shared by the active-channel palette map and, in colour-
- *  separation mode, each channel's monochrome ramp. */
-function buildColorMap(
-  visibleWells: string[],
-  colorsFor: (n: number) => string[],
-  wellGroups: Map<string, string>,
-  wellStyleOverrides: Map<string, unknown>,
-  analysisResults?: Map<string, { tt?: number | null }>,
-  paletteReversed?: boolean,
-  groupColors?: boolean,
-): Map<string, string> {
-  const colorMap = new Map<string, string>();
-  if (visibleWells.length === 0) return colorMap;
-
-  // Build palette units
-  const units: [number, string[]][] = [];
-
-  if (groupColors) {
-    // Grouped mode: each group = 1 unit, ungrouped wells = individual units
-    const groupMembers = new Map<string, string[]>();
-    const ungrouped: string[] = [];
-    const seenGroups = new Set<string>();
-    for (const well of visibleWells) {
-      const group = wellGroups.get(well);
-      if (group) {
-        if (!seenGroups.has(group)) { seenGroups.add(group); groupMembers.set(group, []); }
-        groupMembers.get(group)!.push(well);
-      } else {
-        ungrouped.push(well);
-      }
-    }
-    for (const [, members] of groupMembers) {
-      let sum = 0, count = 0;
-      for (const w of members) {
-        const tt = analysisResults?.get(w)?.tt;
-        if (tt != null) { sum += tt; count++; }
-      }
-      units.push([count > 0 ? sum / count : Infinity, members]);
-    }
-    for (const well of ungrouped) {
-      const tt = analysisResults?.get(well)?.tt;
-      units.push([tt ?? Infinity, [well]]);
-    }
-  } else {
-    // Individual mode: one color per well
-    for (const well of visibleWells) {
-      const tt = analysisResults?.get(well)?.tt ?? Infinity;
-      units.push([tt, [well]]);
-    }
-  }
-
-  // Sort by Tt ascending
-  if (analysisResults && analysisResults.size > 0) {
-    units.sort((a, b) => a[0] - b[0]);
-  }
-
-  let colors = colorsFor(units.length);
-  if (paletteReversed) colors = [...colors].reverse();
-
-  for (let i = 0; i < units.length; i++) {
-    const color = colors[i % colors.length];
-    for (const well of units[i][1]) {
-      colorMap.set(well, color);
-    }
-  }
-
-  // Apply per-well style overrides (highest priority)
-  for (const [well, ov] of wellStyleOverrides.entries()) {
-    const override = ov as { color?: string } | undefined;
-    if (override?.color) colorMap.set(well, override.color);
-  }
-
-  return colorMap;
-}
-
 function useGroupedColors(
   _wellsUsed: string[],
   visibleWells: string[],
@@ -937,10 +850,39 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
       ? visibleWells.length : 0;
 
   const dash6 = (d: string | undefined) => d as 'solid' | 'dash' | 'dot' | 'dashdot' | 'longdash' | 'longdashdot' | undefined;
+  const landmarks = useAppState((s) => s.landmarks);
+  const allChannelLandmarks = useAllChannelLandmarks();
 
   const traces = useMemo((): Data[] => {
     if (visibleChannelList.length === 0) return [];
     const result: Data[] = [];
+    // Kinetic-landmark points, collected across curves then emitted as one
+    // marker trace per landmark type (t_lod / t_onset10 / inflection), placed on
+    // the displayed curve. Toggled in Analysis → Kinetics.
+    const anyLandmark = landmarks.lod || landmarks.onset || landmarks.infl;
+    const lodX: number[] = [], lodY: number[] = [], lodC: string[] = [];
+    const onsX: number[] = [], onsY: number[] = [], onsC: string[] = [];
+    const infX: number[] = [], infY: number[] = [], infC: string[] = [];
+    const pointAtSec = (tSec: number | null, cAmp: { timeS: number[] }, cX: number[], yD: number[]): { x: number; y: number } | null => {
+      if (tSec == null || !Number.isFinite(tSec)) return null;
+      const ts = cAmp.timeS;
+      const n = Math.min(ts?.length ?? 0, cX.length, yD.length);
+      if (n < 2) return null;
+      if (tSec <= ts[0]) return { x: cX[0], y: yD[0] };
+      if (tSec >= ts[n - 1]) return { x: cX[n - 1], y: yD[n - 1] };
+      for (let i = 1; i < n; i++) {
+        if (ts[i] >= tSec) {
+          const d = ts[i] - ts[i - 1];
+          const f = d ? (tSec - ts[i - 1]) / d : 0;
+          return { x: cX[i - 1] + f * (cX[i] - cX[i - 1]), y: yD[i - 1] + f * (yD[i] - yD[i - 1]) };
+        }
+      }
+      return { x: cX[n - 1], y: yD[n - 1] };
+    };
+    const pushLm = (tSec: number | null, X: number[], Y: number[], C: string[], col: string, cAmp: { timeS: number[] }, cX: number[], yD: number[]) => {
+      const p = pointAtSec(tSec, cAmp, cX, yD);
+      if (p) { X.push(p.x); Y.push(p.y); C.push(col); }
+    };
     // Show the "| fluorophore" hover suffix only when ≥2 channels overlay; a
     // single visible channel (including every single-dye file, whose channel
     // is named e.g. 'SYBR' rather than 'default') stays sample-only, matching
@@ -1011,16 +953,37 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
           hoverinfo: 'text' as const,
           showlegend: showLegAmp,
         });
+
+        // Kinetic landmark markers on the displayed curve (Analysis → Kinetics),
+        // only for emphasized (selected) curves; collected here, emitted below.
+        if (isSelected && anyLandmark) {
+          const lm = allChannelLandmarks.get(ch)?.get(well);
+          if (lm) {
+            if (landmarks.lod) pushLm(lm.tLod, lodX, lodY, lodC, color, chAmp, chX, yData);
+            if (landmarks.onset) pushLm(lm.tOnset10, onsX, onsY, onsC, color, chAmp, chX, yData);
+            if (landmarks.infl) pushLm(lm.inflectionT, infX, infY, infC, color, chAmp, chX, yData);
+          }
+        }
       }
     }
     // (Channels are keyed by the FAM/HEX toggles in the plot-tabs bar, so no
     // separate per-channel legend block is added here.)
+    // Landmark legend entries at the END of the legend (high legendrank).
+    const lmTrace = (x: number[], y: number[], c: string[], sym: string, name: string, rank: number): Data => ({
+      x, y, type: 'scatter' as const, mode: 'markers' as const, name,
+      legendgroup: `lm:${name}`, legendrank: rank,
+      marker: { symbol: sym, size: 9, color: c, line: { color: isDark ? '#000' : '#fff', width: 1 } },
+      hoverinfo: 'skip' as const, showlegend: showLegendAmp,
+    } as Data);
+    if (landmarks.lod && lodX.length) result.push(lmTrace(lodX, lodY, lodC, 'triangle-up', 't_lod', 10001));
+    if (landmarks.onset && onsX.length) result.push(lmTrace(onsX, onsY, onsC, 'diamond', 't_onset10', 10002));
+    if (landmarks.infl && infX.length) result.push(lmTrace(infX, infY, infC, 'circle', 'inflection', 10003));
     return result;
   }, [exp, xAxisMode, selectedCurves, style.lineWidth, visibleWells, visibleChannelList, multiChannel,
       singleVisibleChannel, baselineEnabled, normalizeEnabled, showRawOverlay, allChannelResults,
       wellChannelHidden, channelLabels, channelColors, channelLineStyles,
       wellStyleOverrides, curveStyleOverrides, colorMap, channelColorMaps, hoveredWell, dragPreviewCurves,
-      legendInfo, legendRanks, showLegendAmp, isDark]);
+      legendInfo, legendRanks, showLegendAmp, isDark, landmarks, allChannelLandmarks]);
 
   // Compute baseline zone x-axis boundaries. Only shown when at least one
   // visible well is in manual baseline mode (auto mode uses per-well windows,
@@ -1054,7 +1017,7 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
   // replot — the difference between janky and smooth on a dense plate.
   const dataRevRef = useRef(0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const dataRevision = useMemo(() => ++dataRevRef.current, [exp, xAxisMode, allChannelResults]);
+  const dataRevision = useMemo(() => ++dataRevRef.current, [exp, xAxisMode, allChannelResults, landmarks]);
 
   const layout = useMemo((): Partial<Layout> => {
     const title = exp?.experimentId ?? 'Amplification Plot';
@@ -1434,7 +1397,7 @@ function MeltDerivMini({ openContextMenu }: { openContextMenu: (x: number, y: nu
       for (const well of visibleWells) {
         const derData = m.derivative[well];
         if (!derData) continue;
-        peaks.set(`${ch} ${well}`, Math.max(...derData));
+        peaks.set(`${ch}${well}`, Math.max(...derData));
       }
     }
     return peaks;
@@ -2117,7 +2080,7 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
   );
 }
 
-// ── Doubling Time / Standard Curve Tab ────────────────────────────────
+// ── Standard Curve Tab ────────────────────────────────────────────────
 
 function formatConc(value: number): string {
   if (value >= 1e6) return `${(value / 1e6).toFixed(2)}×10⁶`;
@@ -2226,10 +2189,20 @@ function DilutionPlot() {
 
   if (!result) {
     return (
-      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-        {!dilutionConfig
-          ? 'Use Tools → Doubling Time Wizard to configure a dilution series'
-          : 'Not enough data — assign wells with valid Tt values to at least 2 steps'}
+      <div className="flex flex-col items-center justify-center gap-3 h-full text-muted-foreground text-sm px-6 text-center">
+        {!dilutionConfig ? (
+          <>
+            <p>Build a standard curve from a dilution series to estimate the doubling time.</p>
+            <button
+              onClick={() => useAppState.getState().setShowDilutionWizard(true)}
+              className="px-3 py-1.5 text-sm border rounded-md bg-background hover:bg-accent text-foreground"
+            >
+              Open Standard Curve Wizard
+            </button>
+          </>
+        ) : (
+          <p>Not enough data — assign wells with valid {xLabel} values to at least 2 steps.</p>
+        )}
       </div>
     );
   }
@@ -2323,108 +2296,6 @@ function DilutionPlot() {
       </div>
     </div>
   );
-}
-
-/** Per-well Tt vs Dt scatter (fallback when no dilution config) */
-function PerWellDoublingPlot() {
-  const doublingRef = useRef<HTMLDivElement>(null);
-  useMiddleMousePan(doublingRef);
-  const autoScalePulse = useAppState((s) => s._autoScalePulse);
-  useEffect(() => {
-    if (autoScalePulse === 0) return;
-    const div = doublingRef.current?.querySelector('.js-plotly-plot') as HTMLElement | null;
-    if (div) Plotly.relayout(div, { 'xaxis.autorange': true, 'yaxis.autorange': true });
-  }, [autoScalePulse]);
-  const { plotBg, isDark, textColor } = usePlotTheme();
-  const experiments = useAppState((s) => s.experiments);
-  const idx = useAppState((s) => s.activeExperimentIndex);
-  const hiddenWells = useAppState((s) => s.hiddenWells);
-  const xAxisMode = useAppState((s) => s.xAxisMode);
-  const showLegendDoubling = useAppState((s) => s.showLegendDoubling);
-  const paletteReversed = useAppState((s) => s.paletteReversed);
-  const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
-  const style = usePlotStyle();
-  const fontScale = usePlotFontScale(doublingRef);
-  const sstyle = useScaledStyle(style, fontScale);
-  const analysisResults = useAnalysisResults();
-  const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
-  const wellGroups = useAppState((s) => s.wellGroups);
-
-  const exp = experiments[idx];
-
-  const dtVisibleWells = useMemo(() => {
-    if (!exp) return [];
-    return exp.wellsUsed.filter((w) => !hiddenWells.has(w));
-  }, [exp, hiddenWells]);
-
-  const colorMap = useGroupedColors(
-    exp?.wellsUsed ?? [], dtVisibleWells, style.palette, wellGroups, wellStyleOverrides,
-    analysisResults as Map<string, { tt?: number | null }>, paletteReversed,
-    paletteGroupColors
-  );
-
-  const data = useMemo(() => {
-    if (!exp) return { wells: [] as string[], tts: [] as number[], dts: [] as number[], colors: [] as string[] };
-    const wells: string[] = [], tts: number[] = [], dts: number[] = [], cs: string[] = [];
-    for (const well of dtVisibleWells) {
-      const r = analysisResults.get(well);
-      if (!r || r.tt == null || r.dt == null) continue;
-      wells.push(well); tts.push(r.tt); dts.push(r.dt);
-      cs.push(colorMap.get(well) ?? '#999');
-    }
-    return { wells, tts, dts, colors: cs };
-  }, [exp, dtVisibleWells, analysisResults, colorMap]);
-
-  const xLabel = xAxisMode === 'cycle' ? 'Ct' : 'Tt';
-
-  const traces = useMemo((): Data[] => {
-    if (data.wells.length === 0) return [];
-    return [{ x: data.tts, y: data.dts, type: 'scatter' as const, mode: 'text+markers' as const,
-      text: data.wells, textposition: 'top center' as const,
-      textfont: { size: 9, family: style.fontFamily },
-      marker: { color: data.colors, size: 8 }, hoverinfo: 'text' as const, showlegend: false }];
-  }, [data, style.fontFamily]);
-
-  const dataRevRef = useRef(0);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const dataRevision = useMemo(() => ++dataRevRef.current, [data]);
-
-  const layout = useMemo((): Partial<Layout> => {
-    const title = exp?.experimentId ? `${exp.experimentId} — Doubling Time` : 'Doubling Time';
-    return {
-      title: titleField(title, sstyle),
-      xaxis: { title: axisLabel(`${xLabel} (${X_AXIS_LABELS[xAxisMode]})`, sstyle), ...tickProps(sstyle), ...gridStyle(sstyle, isDark) },
-      yaxis: { title: axisLabel('Doubling Time', sstyle), ...tickProps(sstyle), ...gridStyle(sstyle, isDark) },
-      autosize: true, margin: computeMargins(sstyle),
-      plot_bgcolor: plotBg, paper_bgcolor: plotBg, font: { color: plotFontColor(isDark, textColor) }, ...legendLayout(sstyle, showLegendDoubling, traces, isDark),
-      datarevision: dataRevision,
-    };
-  }, [exp, xAxisMode, xLabel, sstyle, fontScale, traces, showLegendDoubling, dataRevision]);
-
-  if (data.wells.length === 0) {
-    return <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-      {!exp ? 'No data loaded' : 'Enable threshold detection to calculate doubling times'}
-    </div>;
-  }
-
-  return (
-    <div
-      ref={doublingRef}
-      id="sharp-plot-doubling"
-      data-sharp-plot="doubling"
-      style={{ width: '100%', height: '100%' }}
-    >
-      <Plot data={traces} layout={layout}
-        useResizeHandler style={{ width: '100%', height: '100%' }}
-        config={PLOT_CONFIG} />
-    </div>
-  );
-}
-
-/** Routes between dilution standard curve and per-well scatter */
-function DoublingTimePlot() {
-  const dilutionConfig = useAppState((s) => s.dilutionConfig);
-  return dilutionConfig ? <DilutionPlot /> : <PerWellDoublingPlot />;
 }
 
 // ── Drag Resize Divider ──────────────────────────────────────────────
@@ -2589,7 +2460,7 @@ export function PlotArea() {
         )}
         {plotTab === 'doubling' && (
           <div className="flex-1 min-h-0">
-            <DoublingTimePlot />
+            <DilutionPlot />
           </div>
         )}
       </PlotErrorBoundary>

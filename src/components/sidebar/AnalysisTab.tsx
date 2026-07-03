@@ -109,6 +109,8 @@ export function AnalysisTab() {
   const analysisScopeAll = useAppState((s) => s.analysisScopeAll);
   const setAnalysisScopeAll = useAppState((s) => s.setAnalysisScopeAll);
   const channelLabels = useAppState((s) => s.channelLabels);
+  const landmarks = useAppState((s) => s.landmarks);
+  const setLandmark = useAppState((s) => s.setLandmark);
   const analysisResults = useAnalysisResults();
   const { slope: driftSlope, nWells: driftWells } = useGlobalDrift();
 
@@ -150,6 +152,11 @@ export function AnalysisTab() {
   const channels = exp?.channels ?? [];
   const viewMode = useAppState((s) => s.viewMode);
 
+  // Drift correction is hidden for now (the underlying state/action and
+  // `computeDriftSlope`/`useGlobalDrift` are kept intact — flip this to bring
+  // the section back). Default is off, so nothing applies drift.
+  const SHOW_DRIFT_UI = false;
+
   return (
     <div className="space-y-3">
       {channels.length > 1 && viewMode === 'multi' && (
@@ -175,6 +182,7 @@ export function AnalysisTab() {
         </div>
       )}
 
+      {SHOW_DRIFT_UI && (
       <CollapsibleSection title="Drift Correction" defaultOpen={false}>
         <label className="flex items-center gap-2 text-sm">
           <Checkbox
@@ -202,6 +210,7 @@ export function AnalysisTab() {
           correction. Per-well baseline offset is handled separately.
         </p>
       </CollapsibleSection>
+      )}
 
       <CollapsibleSection title="Baseline Correction">
         <label className="flex items-center gap-2 text-sm">
@@ -476,7 +485,27 @@ export function AnalysisTab() {
         )}
       </CollapsibleSection>
 
-      <CollapsibleSection title="Threshold Detection">
+      <CollapsibleSection title="Kinetics" defaultOpen={false}>
+        <p className="text-[11px] text-muted-foreground italic">
+          Draw kinetic landmarks on the amplification plot so they carry into exported figures.
+          Full readouts with standard errors live in the Kinetics Report (Tools menu).
+        </p>
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox checked={landmarks.lod} onCheckedChange={(v) => setLandmark('lod', v === true)} />
+          <span>▲ Limit of detection (t_lod)</span>
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox checked={landmarks.onset} onCheckedChange={(v) => setLandmark('onset', v === true)} />
+          <span>◆ Time to 10% (t_onset10)</span>
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox checked={landmarks.infl} onCheckedChange={(v) => setLandmark('infl', v === true)} />
+          <span>● Inflection</span>
+        </label>
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Thresholds" defaultOpen={false}>
+        <span className="text-xs font-medium text-muted-foreground">Amplification</span>
         <label className="flex items-center gap-2 text-sm">
           <Checkbox
             checked={thresholdEnabled}
@@ -494,43 +523,46 @@ export function AnalysisTab() {
             step={100}
             value={thresholdRfu}
             onChange={(e) => setThresholdRfu(Number(e.target.value))}
-            className={`w-24 h-7 border rounded-md px-1 text-sm ${FOCUS_RING}`}
+            disabled={!thresholdEnabled}
+            className={`w-24 h-7 border rounded-md px-1 text-sm bg-background disabled:opacity-50 ${FOCUS_RING}`}
           />
           <span className="text-muted-foreground">RFU</span>
         </div>
 
         <p className="text-xs text-muted-foreground italic">
-          Drag the red dashed line on the plot to adjust
+          Drag the red dashed line on the plot to adjust. Off by default — the Tt column reads
+          &ldquo;—&rdquo; until enabled.
         </p>
-      </CollapsibleSection>
 
-      <CollapsibleSection title="Melt Threshold" defaultOpen={false}>
-        <label className="flex items-center gap-2 text-sm">
-          <Checkbox
-            checked={meltThresholdEnabled}
-            onCheckedChange={(v) => setMeltThresholdEnabled(v === true)}
-          />
-          Enable melt threshold
-        </label>
+        <div className="border-t pt-2 mt-1 space-y-2">
+          <span className="text-xs font-medium text-muted-foreground">Melt</span>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={meltThresholdEnabled}
+              onCheckedChange={(v) => setMeltThresholdEnabled(v === true)}
+            />
+            Enable melt threshold
+          </label>
 
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">Threshold:</span>
-          <input
-            type="number"
-            min={0}
-            max={100000}
-            step={0.1}
-            value={meltThresholdValue}
-            onChange={(e) => setMeltThresholdValue(Number(e.target.value))}
-            disabled={!meltThresholdEnabled}
-            className={`w-24 h-7 border rounded-md px-1 text-sm bg-background disabled:opacity-50 ${FOCUS_RING}`}
-          />
-          <span className="text-muted-foreground">-dF/dT</span>
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Threshold:</span>
+            <input
+              type="number"
+              min={0}
+              max={100000}
+              step={0.1}
+              value={meltThresholdValue}
+              onChange={(e) => setMeltThresholdValue(Number(e.target.value))}
+              disabled={!meltThresholdEnabled}
+              className={`w-24 h-7 border rounded-md px-1 text-sm bg-background disabled:opacity-50 ${FOCUS_RING}`}
+            />
+            <span className="text-muted-foreground">-dF/dT</span>
+          </div>
+
+          <p className="text-xs text-muted-foreground italic">
+            Wells with peak -dF/dT below this value are dimmed on melt plots
+          </p>
         </div>
-
-        <p className="text-xs text-muted-foreground italic">
-          Wells with peak -dF/dT below this value are dimmed on melt plots
-        </p>
       </CollapsibleSection>
 
       <CollapsibleSection title="Amp smoothing" defaultOpen={false}>

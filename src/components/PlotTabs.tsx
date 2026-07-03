@@ -7,7 +7,7 @@ import { FOCUS_RING } from '@/lib/ui-classes';
 const TABS: { value: PlotTab; label: string }[] = [
   { value: 'amplification', label: 'Amplification' },
   { value: 'melt', label: 'Melt' },
-  { value: 'doubling', label: 'Doubling Time' },
+  { value: 'doubling', label: 'Standard Curve' },
 ];
 
 const MODES: { value: XAxisMode; label: string }[] = [
