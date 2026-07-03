@@ -163,6 +163,7 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
   const plotTab = useAppState((s) => s.plotTab);
   const setShowExportWizard = useAppState((s) => s.setShowExportWizard);
   const setShowFluorophoreWizard = useAppState((s) => s.setShowFluorophoreWizard);
+  const setShowKineticsReport = useAppState((s) => s.setShowKineticsReport);
   const logScale = useAppState((s) => s.logScale);
   const setLogScale = useAppState((s) => s.setLogScale);
   const viewMode = useAppState((s) => s.viewMode);
@@ -416,6 +417,7 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
     {
       label: 'Tools',
       items: [
+        { label: 'Kinetics Report...', action: () => setShowKineticsReport(true), disabled: !hasData },
         { label: 'Standard Curve Wizard...', action: () => onOpenWizard?.(), disabled: !hasData },
         { label: 'Assign Fluorophores...', action: () => setShowFluorophoreWizard(true), disabled: !hasData || (exp?.channels.length ?? 0) <= 1 },
       ],

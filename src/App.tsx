@@ -13,6 +13,7 @@ import { ResultsTable } from './components/ResultsTable';
 import { DilutionWizard } from './components/DilutionWizard';
 import { ExportWizard } from './components/ExportWizard';
 import { FluorophoreWizard } from './components/FluorophoreWizard';
+import { KineticsReport } from './components/KineticsReport';
 import { UserManual } from './components/UserManual';
 import { DialogHost } from './components/DialogHost';
 import { PlotTabs } from './components/PlotTabs';
@@ -34,6 +35,8 @@ function App() {
   const setShowExportWizard = useAppState((s) => s.setShowExportWizard);
   const showFluorophoreWizard = useAppState((s) => s.showFluorophoreWizard);
   const setShowFluorophoreWizard = useAppState((s) => s.setShowFluorophoreWizard);
+  const showKineticsReport = useAppState((s) => s.showKineticsReport);
+  const setShowKineticsReport = useAppState((s) => s.setShowKineticsReport);
   const [showManual, setShowManual] = useState(false);
   const [updateBanner, setUpdateBanner] = useState<{ version: string; url: string } | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(280);
@@ -302,6 +305,7 @@ function App() {
       {showWizard && <DilutionWizard onClose={() => setShowWizard(false)} />}
       {showExportWizard && <ExportWizard onClose={() => setShowExportWizard(false)} />}
       {showFluorophoreWizard && <FluorophoreWizard onClose={() => setShowFluorophoreWizard(false)} />}
+      {showKineticsReport && <KineticsReport onClose={() => setShowKineticsReport(false)} />}
       {showManual && <UserManual onClose={() => setShowManual(false)} />}
       <DialogHost />
     </div>

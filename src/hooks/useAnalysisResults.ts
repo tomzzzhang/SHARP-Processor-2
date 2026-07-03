@@ -6,6 +6,7 @@ import {
   type WellAnalysisResult,
 } from '@/lib/analysis';
 import type { AmplificationData, XAxisMode } from '@/types/experiment';
+import { computeChannelLandmarks, type WellLandmark } from '@/lib/report/kinetics-report';
 
 /**
  * Estimate the active experiment's global instrument drift slope
@@ -308,17 +309,48 @@ function useComputeAllChannelResults(): Map<string, Map<string, WellAnalysisResu
 
 const AllChannelResultsContext =
   createContext<Map<string, Map<string, WellAnalysisResult>> | null>(null);
+const AllChannelLandmarksContext =
+  createContext<Map<string, Map<string, WellLandmark>> | null>(null);
+
+const EMPTY_ALL_LANDMARKS: Map<string, Map<string, WellLandmark>> = new Map();
+const EMPTY_LANDMARKS: Map<string, WellLandmark> = new Map();
 
 /**
- * Computes every channel's analysis ONCE and shares it through context. Wrap the
- * app in this so the many components that read analysis results become cheap
- * context reads instead of N independent recomputations of the same pipeline.
+ * Per-channel kinetic landmarks (t_lod / t_onset10 / inflection) for the active
+ * experiment, memoized on the experiment. Fit-first + pooled run σ (reusing the
+ * baseline pass's cached fits), WITHOUT the report's covariance / MC SEs, so it's
+ * cheap enough for the always-on analysis path. Pure on the raw data (the
+ * fit-derived baseline is used, independent of the UI baseline settings).
+ */
+function useComputeAllChannelLandmarks(): Map<string, Map<string, WellLandmark>> {
+  const experiments = useAppState((s) => s.experiments);
+  const idx = useAppState((s) => s.activeExperimentIndex);
+  const exp = experiments[idx];
+  return useMemo(() => {
+    const out = new Map<string, Map<string, WellLandmark>>();
+    if (!exp) return out;
+    for (const ch of exp.channels) {
+      const amp = exp.amplificationByChannel[ch] ?? null;
+      out.set(ch, amp ? computeChannelLandmarks(amp, exp.wellsUsed) : new Map());
+    }
+    return out;
+  }, [exp]);
+}
+
+/**
+ * Computes every channel's analysis + landmarks ONCE and shares them through
+ * context. Wrap the app in this so the many components that read analysis
+ * results become cheap context reads instead of N independent recomputations.
  * `children` is passed through untouched, so a recompute here only re-renders
  * the components that actually consume the context.
  */
 export function AnalysisResultsProvider({ children }: { children: ReactNode }) {
-  const value = useComputeAllChannelResults();
-  return createElement(AllChannelResultsContext.Provider, { value }, children);
+  const results = useComputeAllChannelResults();
+  const landmarks = useComputeAllChannelLandmarks();
+  return createElement(
+    AllChannelResultsContext.Provider, { value: results },
+    createElement(AllChannelLandmarksContext.Provider, { value: landmarks }, children),
+  );
 }
 
 /**
@@ -327,6 +359,18 @@ export function AnalysisResultsProvider({ children }: { children: ReactNode }) {
  */
 export function useAllChannelResults(): Map<string, Map<string, WellAnalysisResult>> {
   return useContext(AllChannelResultsContext) ?? EMPTY_ALL_RESULTS;
+}
+
+/** Per-channel kinetic landmarks for the active experiment (shared via context). */
+export function useAllChannelLandmarks(): Map<string, Map<string, WellLandmark>> {
+  return useContext(AllChannelLandmarksContext) ?? EMPTY_ALL_LANDMARKS;
+}
+
+/** Kinetic landmarks for the ACTIVE channel's wells. */
+export function useChannelLandmarks(): Map<string, WellLandmark> {
+  const all = useAllChannelLandmarks();
+  const activeChannel = useAppState((s) => s.activeChannel);
+  return useMemo(() => all.get(activeChannel) ?? EMPTY_LANDMARKS, [all, activeChannel]);
 }
 
 /**

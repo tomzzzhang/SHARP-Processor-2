@@ -1,5 +1,5 @@
 import type { WellCall, XAxisMode, AmplificationData } from '@/types/experiment';
-import { fitFreeShoulder, robustTrough, DEFAULT_FIT_KNOBS } from './curvefit';
+import { fitFreeShoulder, robustTrough, DEFAULT_FIT_KNOBS, type FivePLResult } from './curvefit';
 
 // ── X-axis unit conversion ───────────────────────────────────────────
 
@@ -223,6 +223,12 @@ export interface AutoFitBaseline {
   simple: number | null;
   converged: boolean;
   baselineObserved: boolean;
+  /** The full FreeShoulder fit for this well. The baseline path runs with
+   *  `computeCovariance` OFF, so `fit.se` / `fit.cov` are null here — the
+   *  kinetics report reuses `fit`'s params (and `curveAt`) and derives the SEs
+   *  on demand via `covarianceAtParams`, so it never re-solves the LM. Cached on
+   *  the raw-array identity alongside the rest of this result. */
+  fit: FivePLResult;
 }
 
 /** Simple (non-fitting) baseline level = mean over the auto-detected flat
@@ -321,6 +327,7 @@ export function computeAutoFitBaseline(rawRfu: number[], timeS: number[]): AutoF
     simple,
     converged: fit.converged,
     baselineObserved: fit.baselineObserved,
+    fit,
   };
   autoFitCache.set(rawRfu, result);
   return result;
