@@ -192,3 +192,56 @@ matching PR #9/#10). Branch kept (not deleted), matching prior convention.
 - `src/lib/export.ts` — `exportReportHtml`
 - `src/components/UserManual.tsx`, `README.md`, `CLAUDE.md`, `docs/ALGORITHMS.md` — docs
 - 5 version-source files (§2)
+
+---
+
+## 8. Post-release fix — `5bd70d0` (on `main`, beta refreshed in place)
+
+Live use of the Kinetics Report on `a private kinetics fixture`
+(a 42-well plate with ~19 wells all named "NTC") surfaced two problems.
+
+**Bug — nonsensical NTC onset times.** Two flat NTC wells reported fit-derived
+onset times *before the run started*: **F4** `t_onset10 = −78.8 min`, **A5**
+`−3.2 min`. Root cause: `timeAtFraction` (t_onset10 + the Td profile) is a
+closed-form extrapolation off the warped FreeShoulder sigmoid
+(`t(f) = C + ln(S_f/(1−S_f))/B`). A near-flat NTC that the flexible 6-param
+model fits as the tail of a heavily-warped curve (F4: fitted yield 172 RFU vs
+~5000 real; `foot=0.05`, `shoulder=0.31`, `C=28 min`) places its 10%-of-height
+time far outside the data. The fit-kinetics gate was `plateauObserved` alone —
+a flat NTC's plateau IS observed, its rise is not, so the extrapolation slipped
+through. (`inflectionT` is an argmax over the data window, so it is always
+in-range and is NOT a useful discriminator — the closed-form `timeAtFraction`
+is.)
+
+**Fix.** A fit-derived TIME landmark is a measurement only when it lands inside
+the observed window `[t0, tEnd]`. New `withinWindow` gate in
+`kinetics-report.ts` on the fit-kinetics block (`buildRow`) AND on
+`computeChannelLandmarks` (the always-on main-app path → on-plot `t_onset10`
+markers + results-table `t_LoD`/`10%`), so the censoring is identical
+everywhere. Verified on the fixture with a headless harness: F4 + A5
+`t_onset10`/`Td`/inflection now null; **every real amplifier and every
+genuinely-late NTC is byte-for-byte unchanged** (0 rows left with an
+out-of-window `t_onset10`). `t_lod` (a data-threshold crossing, not
+fit-derived) is retained. The report footnote now names the second censoring
+reason.
+
+**Well column.** The report keyed rows by sample name only, so ~19 "NTC" rows
+were indistinguishable. Added a sortable **Well** column (natural A1<A2<A10 via
+`wellSortKey`) left of Sample in both the kinetics table and the 6-param
+reconstruction table, and in the standalone-HTML export; Well is also a stable
+tiebreak for the other sort columns.
+
+**Scope.** App-side report layer only — `src/lib/report/kinetics-report.ts`,
+`src/lib/report/report-html.ts`, `src/components/KineticsReport.tsx`. The shared
+`src/lib/curvefit/` module (`FREESHOULDER_FIT_VERSION 1.2.0`) is **untouched**.
+`tsc -b` + `vite build` clean, codex 12/12, eslint 49 (zero new).
+
+**Rollout.** Committed straight to `main` (post-release beta line, per #47). The
+v0.2.2 **Windows installers were rebuilt from `5bd70d0` and re-uploaded in
+place** (`gh release upload v0.2.2 … --clobber`); the `v0.2.2` tag stays frozen
+at the release commit `0ee94fc`, and **v0.1.13 remains "Latest."** The Mac DMG
+is to be rebuilt from `main` (see `MAC_BUILD_HANDOFF.md`).
+
+**Noted, not fixed (separate item):** the standalone-HTML export renders times in
+raw **seconds** under unit-less headers, while the in-app table honours the
+s/min selector.
