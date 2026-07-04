@@ -7,7 +7,8 @@ import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { buildColorMap, resolveCurveColorWidth } from '@/lib/curve-colors';
 import { computeExperimentReport, type KineticsReport as Report, type ReportRow } from '@/lib/report/kinetics-report';
 import { buildReportHtml, type ReportHtmlCurve } from '@/lib/report/report-html';
-import { exportReportHtml } from '@/lib/export';
+import { exportReportBundle } from '@/lib/export';
+import { buildReportCsv } from '@/lib/report/report-csv';
 import { curveAt, type FivePLParams } from '@/lib/curvefit';
 import { getPaletteColors } from '@/lib/constants';
 import { wellSortKey } from '@/lib/parsers/utils';
@@ -56,6 +57,20 @@ const fitParams = (r: ReportRow): FivePLParams | null =>
     : null;
 const num = (v: number | null, d = 1) => (v === null || !Number.isFinite(v) ? '—' : v.toFixed(d));
 const seTxt = (v: number | null) => (v === null || !Number.isFinite(v) ? '' : `±${v < 100 ? v.toFixed(1) : Math.round(v)}`);
+
+/** `metadata.instrument` is `{ manufacturer, model, ... }`, so `String(obj)`
+ *  yields "[object Object]" — format it as "manufacturer model" instead. */
+const instrumentLabel = (exp: { metadata?: Record<string, unknown>; protocolType?: string } | null | undefined): string => {
+  const inst = exp?.metadata?.['instrument'];
+  if (inst && typeof inst === 'object') {
+    const o = inst as { manufacturer?: string; model?: string };
+    const s = [o.manufacturer, o.model].filter(Boolean).join(' ').trim();
+    if (s) return s;
+  } else if (typeof inst === 'string' && inst.trim()) {
+    return inst.trim();
+  }
+  return exp?.protocolType || '—';
+};
 
 /** Linear interpolation of a raw series on its time grid at time `t` — used to
  *  place the `t_lod` marker on the raw curve (it's a detection landmark that
@@ -342,7 +357,7 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
         corrected: ampMode === 'corrected',
         poi: showPoi,
         condition: [
-          { label: 'Instrument', value: String(exp.metadata?.['instrument'] ?? exp.protocolType ?? '—') },
+          { label: 'Instrument', value: instrumentLabel(exp) },
           { label: 'Channel', value: fluor },
           { label: 'Wells', value: String(rows.length) },
           { label: 'Operator', value: exp.operator || '—' },
@@ -350,8 +365,9 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
         ],
         timeS, temperatureC: melt?.temperatureC ?? null, curves: htmlCurves,
       });
-      const path = await exportReportHtml(html, `${exp.experimentId || 'report'}_kinetics`);
-      if (path) toast(`Report exported to ${path.split(/[\\/]/).pop()}`);
+      const csv = buildReportCsv(sortedRows, { experiment: exp.experimentId || 'Experiment' });
+      const res = await exportReportBundle(html, csv, `${exp.experimentId || 'report'}_kinetics`);
+      if (res) toast(`Exported ${res.htmlPath.split(/[\\/]/).pop()} + ${res.csvPath.split(/[\\/]/).pop()}`);
     } catch (e) {
       toast(`Export failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -384,7 +400,7 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
           <h2 className="text-sm font-semibold truncate">{exp?.experimentId || 'Kinetics report'}</h2>
           <div className="flex flex-wrap gap-1.5 mt-1">
             {[
-              ['Instrument', String(exp?.metadata?.['instrument'] ?? exp?.protocolType ?? '—')],
+              ['Instrument', instrumentLabel(exp)],
               ['Channel', fluor],
               ['Wells', String(rows.length)],
               ['Operator', exp?.operator || '—'],
@@ -401,7 +417,7 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
             className={`inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs hover:bg-accent disabled:opacity-50 ${FOCUS_RING}`}
             onClick={doExport} disabled={exporting || computing || !report}
           >
-            {exporting ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />} Export HTML
+            {exporting ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />} Export HTML + CSV
           </button>
           <button className={`p-1 rounded-md hover:bg-accent ${FOCUS_RING}`} onClick={onClose} title="Close report">
             <X className="size-4" />
