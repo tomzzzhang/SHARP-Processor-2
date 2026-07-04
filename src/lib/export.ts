@@ -514,16 +514,23 @@ export async function exportAsSharpx(
 }
 
 /**
- * Save a standalone kinetics-report HTML (the shareable fallback artifact) via
- * the Tauri save dialog. The HTML is fully self-contained (see
- * `lib/report/report-html.ts`).
+ * Save a kinetics report as a pair: the self-contained human-readable HTML
+ * (`lib/report/report-html.ts`) and a machine-readable CSV sibling of every
+ * parameter + uncertainty (`lib/report/report-csv.ts`). One save dialog picks
+ * the HTML path; the CSV is written alongside it with the same base name.
  */
-export async function exportReportHtml(html: string, defaultName: string): Promise<string | null> {
+export async function exportReportBundle(
+  html: string,
+  csv: string,
+  defaultName: string,
+): Promise<{ htmlPath: string; csvPath: string } | null> {
   const filePath = await save({
     defaultPath: `${defaultName}.html`,
     filters: [{ name: 'HTML Report', extensions: ['html'] }],
   });
   if (!filePath) return null;
   await writeTextFile(filePath, html);
-  return filePath;
+  const csvPath = filePath.replace(/\.html?$/i, '') + '.csv';
+  await writeTextFile(csvPath, csv);
+  return { htmlPath: filePath, csvPath };
 }

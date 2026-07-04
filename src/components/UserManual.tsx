@@ -652,7 +652,7 @@ const sections: Section[] = [
           <li><strong>Kinetics table</strong> — t_lod, t_onset10, the local doubling-time profile (Td₅/₂₀/₅₀), yield, and melt Tm, each with a shaded ± standard-error column plus baseline-observed / plateau-observed flags. Sortable; click a row to isolate that curve.</li>
           <li><strong>Curve reconstruction</strong> (collapsed) — the six FreeShoulder fit parameters, kept so a curve can be reconstructed if the raw data is lost.</li>
           <li><strong>Sample tiles</strong> — one per group; a master checkbox toggles all replicates and tints the tile, and a time-unit selector switches the table between seconds and minutes.</li>
-          <li><strong>Export HTML</strong> — a self-contained, shareable report with the plots, table, and data embedded.</li>
+          <li><strong>Export HTML + CSV</strong> — one click writes two files: a self-contained, shareable <strong>HTML report</strong> (interactive — sortable columns, a show/hide toggle for the ± uncertainties, checkboxes to toggle the raw data / fit / landmark markers, and click-a-row to highlight its curve on the plots) for people, plus a machine-readable <strong>CSV</strong> of every parameter and its standard error for downstream analysis (Excel, R, Python).</li>
         </ul>
         <p className="text-xs text-muted-foreground">The landmarks and readouts are fit-derived and independent of the manual baseline / threshold settings.</p>
       </div>
