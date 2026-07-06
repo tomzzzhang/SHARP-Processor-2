@@ -184,6 +184,22 @@ function withinWindow(t: number, timeS: number[]): boolean {
   return Number.isFinite(t) && t >= timeS[0] && t <= timeS[timeS.length - 1];
 }
 
+/**
+ * Human explanation of WHY a curve has no reported fit — so the report can flag
+ * it (e.g. on the residual strip) instead of silently showing nothing. Mirrors
+ * the gates in `buildRow`: `fit_A === null` ⇒ the multi-start LM found no
+ * solution; `!plateau_observed` ⇒ right-censored (no confident plateau — the
+ * common "looks perfect but still rising" case); otherwise the fitted transition
+ * landed outside the measured window (a flat / non-amplifying warp artifact).
+ */
+export function fitCensorReason(row: ReportRow): string {
+  if (row.fit_A === null)
+    return 'The FreeShoulder fit did not converge for this curve, so no fit or residuals are shown.';
+  if (!row.plateau_observed)
+    return 'No plateau observed — the curve has not leveled off into a clear plateau by the end of the run, so its ceiling and the %-of-height kinetics cannot be pinned down. No fit or residuals are reported for it.';
+  return 'The fitted transition falls outside the measured time window (typical of a flat / non-amplifying curve), so no fit or residuals are shown.';
+}
+
 /** Mean of a slice [s, e) of an array. */
 function meanSlice(a: number[], s: number, e: number): number {
   let sum = 0;

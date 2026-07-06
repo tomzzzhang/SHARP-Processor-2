@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Plotly from 'plotly.js-dist-min';
 import _createPlotlyComponent from 'react-plotly.js/factory';
-import { X, Download, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
+import { X, Download, ChevronDown, ChevronUp, Loader2, TriangleAlert } from 'lucide-react';
 import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { buildColorMap, resolveCurveColorWidth } from '@/lib/curve-colors';
-import { computeExperimentReport, type KineticsReport as Report, type ReportRow } from '@/lib/report/kinetics-report';
+import { computeExperimentReport, fitCensorReason, type KineticsReport as Report, type ReportRow } from '@/lib/report/kinetics-report';
 import { buildReportHtml, type ReportHtmlCurve } from '@/lib/report/report-html';
 import { exportReportBundle } from '@/lib/export';
 import { buildReportCsv } from '@/lib/report/report-csv';
@@ -16,7 +16,7 @@ import { effectiveChannelLabel } from '@/lib/channels';
 import { toast } from '@/lib/dialogs';
 import { Checkbox } from '@/components/ui/checkbox';
 import { FOCUS_RING } from '@/lib/ui-classes';
-import type { Data, Layout } from 'plotly.js';
+import type { Data, Layout, PlotHoverEvent } from 'plotly.js';
 
 // CJS interop (mirrors PlotArea).
 const createPlotlyComponent =
@@ -90,6 +90,9 @@ function interpAt(rfu: number[], timeS: number[], t: number): number {
   return rfu[n - 1];
 }
 
+/** One melt curve's peak (for the on-hover Tm callout). */
+interface MeltTm { tm: number; peak: number | null; color: string; label: string }
+
 export function KineticsReport({ onClose }: { onClose: () => void }) {
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
@@ -131,8 +134,14 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
   // defaults to the app's current x-axis preference.
   const [timeUnit, setTimeUnit] = useState<'s' | 'min'>(() => (useAppState.getState().xAxisMode === 'time_min' ? 'min' : 's'));
   const [selected, setSelected] = useState<string | null>(null);
+  // Curve currently hovered on the melt panel (curveKey) → highlight + Tm callout.
+  const [meltHover, setMeltHover] = useState<string | null>(null);
   // Points-of-interest (landmark) visibility on the amp plot.
   const [showPoi, setShowPoi] = useState({ lod: true, onset: true, infl: true });
+  // Raw-data / fitted-model line visibility on the amp panel (data is the truth,
+  // drawn bold; the fit is a fainter, thinner overlay — both toggleable).
+  const [showData, setShowData] = useState(true);
+  const [showFit, setShowFit] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>('t_lod');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [showRecon, setShowRecon] = useState(false);
@@ -234,10 +243,11 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
       // the measured signal. Same offset applies to the curve, fit, and marks.
       const off = ampMode === 'corrected' ? (r.baseline_offset ?? 0) : 0;
       const disp = off !== 0 ? rfu.map((v) => v - off) : rfu;
+      // Data is the ground truth → drawn bold and solid.
       data.push({
         x: xT, y: disp, type: 'scatter', mode: 'lines', name: label(r),
-        legendgroup: r.curveKey, showlegend: false, opacity: 0.35 * op,
-        line: { color, width: 1 }, hoverinfo: 'skip',
+        legendgroup: r.curveKey, showlegend: false, visible: showData, opacity: op,
+        line: { color, width: 1.8 }, hoverinfo: 'skip',
       } as Data);
       const showLm = !selected || selected === r.curveKey;
       // t_lod is a DETECTION landmark — computed from the raw curve + run σ,
@@ -248,11 +258,12 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
       }
       const p = fitParams(r);
       if (p) {
+        // The fit is a model, not data → a fainter, thinner overlay on the truth.
         data.push({
           x: xT, y: timeS.map((t) => curveAt(t, p) - off), type: 'scatter', mode: 'lines',
-          name: label(r), legendgroup: r.curveKey, opacity: op,
-          line: { color, width: 2 },
-          hovertemplate: `${label(r)}<br>%{x:${xfmt}} ${timeUnit} · %{y:.0f} RFU<extra></extra>`,
+          name: label(r), legendgroup: r.curveKey, visible: showFit, opacity: 0.5 * op,
+          line: { color, width: 1 },
+          hovertemplate: `${label(r)} (fit)<br>%{x:${xfmt}} ${timeUnit} · %{y:.0f} RFU<extra></extra>`,
         } as Data);
         // t_onset10 / inflection are fit-derived — only defined when the fit is
         // usable, so they stay on the fitted curve.
@@ -272,27 +283,152 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
     data.push(lm(onsX, onsY, onsC, 'diamond', 't_onset10', showPoi.onset));
     data.push(lm(infX, infY, infC, 'circle', 'inflection', showPoi.infl));
     return data;
-  }, [visibleRows, amp, timeS, colorMap, dimOf, selected, isDark, label, ampMode, tScale, xfmt, timeUnit, showPoi]);
+  }, [visibleRows, amp, timeS, colorMap, dimOf, selected, isDark, label, ampMode, tScale, xfmt, timeUnit, showPoi, showData, showFit]);
 
-  // ── Melt figure: −dF/dT + deduped Tm labels ──
+  // Curve keys in melt-trace order (stable — independent of hover), so a
+  // plotly_hover `curveNumber` resolves back to the curve without churning the
+  // hover handler on every mouse move.
+  const meltKeys = useMemo(() => {
+    if (!melt) return [] as string[];
+    const keys: string[] = [];
+    for (const r of visibleRows) {
+      const d = melt.derivative[r.well];
+      if (d && d.length >= 2) keys.push(r.curveKey);
+    }
+    return keys;
+  }, [melt, visibleRows]);
+
+  // ── Melt figure: −dF/dT traces. The highlighted melt curve is the hovered one,
+  //    or — when nothing is hovered — the row selected in the table, so clicking a
+  //    sample highlights its melt curve and shows its Tm at the peak, mirroring the
+  //    amp-curve isolation (each sample has exactly one melt curve). This replaces
+  //    the always-on Tm labels that overlapped when melt temperatures clustered. ──
   const meltFig = useMemo(() => {
-    if (!melt) return { data: [] as Data[], tms: [] as number[] };
+    if (!melt) return { data: [] as Data[], activeTm: null as MeltTm | null };
+    const active = meltHover ?? selected;
+    const emph = active !== null;
     const data: Data[] = [];
-    const tmSet = new Set<number>();
+    let activeTm: MeltTm | null = null;
     for (const r of visibleRows) {
       const d = melt.derivative[r.well];
       if (!d || d.length < 2) continue;
       const color = colorMap.get(r.curveKey) ?? '#888';
+      const isActive = active === r.curveKey;
       data.push({
         x: melt.temperatureC, y: d, type: 'scatter', mode: 'lines', name: label(r),
-        legendgroup: r.curveKey, showlegend: false, opacity: dimOf(r.curveKey),
-        line: { color, width: 1.4 },
+        legendgroup: r.curveKey, showlegend: false,
+        opacity: emph ? (isActive ? 1 : 0.12) : 1,
+        line: { color, width: isActive ? 2.6 : 1.4 },
         hovertemplate: `${label(r)}<br>%{x:.1f}°C · %{y:.0f}<extra></extra>`,
       } as Data);
-      if (r.melt_tm !== null) tmSet.add(Math.round(r.melt_tm * 2) / 2);
+      if (isActive && r.melt_tm !== null && Number.isFinite(r.melt_tm)) {
+        activeTm = { tm: r.melt_tm, peak: r.melt_peak_height, color, label: label(r) };
+      }
     }
-    return { data, tms: [...tmSet].sort((a, b) => a - b) };
-  }, [melt, visibleRows, colorMap, dimOf, label]);
+    return { data, activeTm };
+  }, [melt, visibleRows, colorMap, label, meltHover, selected]);
+
+  // Hover is a transient peek; the CLICKED row is the reliable driver (mirrors the
+  // amp isolation). Plotly can fire a spurious `unhover` when the emphasis/callout
+  // re-renders the plot under the cursor, which made the Tm callout flicker /
+  // "not always show" — so debounce the clear (a re-hover within the window
+  // cancels it), and clear any stale hover on row-click so a selection always wins.
+  const meltUnhoverTimer = useRef<number | null>(null);
+  const handleMeltHover = useCallback((e: Readonly<PlotHoverEvent>) => {
+    if (meltUnhoverTimer.current !== null) { clearTimeout(meltUnhoverTimer.current); meltUnhoverTimer.current = null; }
+    const cn = e.points?.[0]?.curveNumber;
+    if (cn === undefined) return;
+    const key = meltKeys[cn];
+    if (key) setMeltHover((prev) => (prev === key ? prev : key));
+  }, [meltKeys]);
+  const handleMeltUnhover = useCallback(() => {
+    if (meltUnhoverTimer.current !== null) clearTimeout(meltUnhoverTimer.current);
+    meltUnhoverTimer.current = window.setTimeout(() => { setMeltHover(null); meltUnhoverTimer.current = null; }, 120);
+  }, []);
+
+  // `Plotly.react` (what react-plotly runs on prop change) DROPS a 1→1 annotation
+  // change when the trace data also changes — so switching the selected/hovered
+  // melt curve updated the emphasis but silently lost the Tm callout (verified
+  // against a raw Plotly.react repro). Build the callout here and RE-APPLY it via
+  // an explicit `Plotly.relayout` in a layout-effect (which runs after the child's
+  // Plotly.react), which reliably repaints it on every switch.
+  const meltGdRef = useRef<HTMLElement | null>(null);
+  const meltAnns = useMemo<Partial<Layout>['annotations']>(() => {
+    const h = meltFig.activeTm;
+    if (!h) return [];
+    const hasPeak = h.peak !== null && Number.isFinite(h.peak);
+    return [{
+      x: h.tm,
+      y: hasPeak ? (h.peak as number) : 1,
+      yref: (hasPeak ? 'y' : 'paper') as 'y' | 'paper',
+      text: `${h.label} · Tm ${h.tm.toFixed(1)}°C`,
+      showarrow: hasPeak, arrowhead: 0, arrowcolor: h.color, ax: 0, ay: -30,
+      font: { size: 11, color: h.color },
+      bgcolor: isDark ? 'rgba(28,28,30,0.92)' : 'rgba(255,255,255,0.92)',
+      bordercolor: h.color, borderwidth: 1, borderpad: 3,
+      yanchor: 'bottom' as const, xanchor: 'center' as const,
+      captureevents: false,
+    }];
+  }, [meltFig.activeTm, isDark]);
+  useLayoutEffect(() => {
+    const gd = meltGdRef.current;
+    if (gd && meltFig.data.length > 0) void Plotly.relayout(gd, { annotations: meltAnns } as Partial<Layout>);
+  }, [meltAnns, meltFig.data.length]);
+
+  // ── Residual strip: observed − fit for the row selected in the table. The
+  //    residual is display-invariant (the baseline offset cancels on both terms),
+  //    so it's simply raw − curveAt. Only curves with a usable fit have residuals
+  //    — the same gate as the drawn fit line — otherwise `hasFit` is false and the
+  //    strip shows a short note instead. The ±band is the run σ (noise floor). ──
+  const residStrip = useMemo(() => {
+    if (!selected) return null;
+    const r = rows.find((x) => x.curveKey === selected);
+    if (!r) return null;
+    const runSigma = report?.runSigma ?? NaN;
+    const color = colorMap.get(r.curveKey) ?? '#888';
+    const p = fitParams(r);
+    const rfu = amp?.wells[r.well];
+    if (!p || !rfu) {
+      const reason = !rfu ? 'No amplification data for this curve.' : fitCensorReason(r);
+      return { hasFit: false as const, label: label(r), color, runSigma, reason };
+    }
+    const xT: number[] = [], resid: number[] = [];
+    let maxAbs = 0;
+    for (let i = 0; i < timeS.length; i++) {
+      const rv = rfu[i] - curveAt(timeS[i], p);
+      if (!Number.isFinite(rv)) continue;
+      xT.push(timeS[i] * tScale);
+      resid.push(rv);
+      if (Math.abs(rv) > maxAbs) maxAbs = Math.abs(rv);
+    }
+    const R = Math.max(4 * (Number.isFinite(runSigma) ? runSigma : 0), 1.1 * maxAbs) || 1;
+    const data: Data[] = [{
+      x: xT, y: resid, type: 'scatter', mode: 'lines+markers',
+      line: { color, width: 1.2 }, marker: { color, size: 3 }, showlegend: false,
+      hovertemplate: `%{x:${xfmt}} ${timeUnit} · %{y:.0f} RFU<extra></extra>`, name: 'residual',
+    } as Data];
+    return { hasFit: true as const, label: label(r), color, runSigma, data, R };
+  }, [selected, rows, amp, timeS, tScale, colorMap, label, report, xfmt, timeUnit]);
+
+  const residLayout = useMemo<Partial<Layout> | null>(() => {
+    if (!residStrip || !residStrip.hasFit) return null;
+    const { R, runSigma, color } = residStrip;
+    const band = Number.isFinite(runSigma) ? runSigma : 0;
+    return {
+      margin: { l: 62, r: 12, t: 6, b: 34 },
+      paper_bgcolor: isDark ? '#1e1e1e' : '#ffffff',
+      plot_bgcolor: isDark ? '#1e1e1e' : '#ffffff',
+      font: { color: isDark ? '#e5e5e5' : '#1a1a1a', size: 11 },
+      xaxis: { title: { text: `Time (${timeUnit})` }, gridcolor: isDark ? '#333' : '#f0f0f0', zeroline: false },
+      yaxis: { title: { text: 'Residual (RFU)' }, gridcolor: isDark ? '#333' : '#f0f0f0', zeroline: false, range: [-R, R] },
+      showlegend: false,
+      hovermode: 'closest',
+      shapes: [
+        { type: 'rect', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: -band, y1: band, fillcolor: color, opacity: 0.1, line: { width: 0 }, layer: 'below' },
+        { type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: 0, y1: 0, line: { color: isDark ? '#555' : '#c9ccd3', width: 1 } },
+      ],
+    } as Partial<Layout>;
+  }, [residStrip, isDark, timeUnit]);
 
   const baseLayout = useCallback((title: string, xt: string, yt: string): Partial<Layout> => ({
     margin: { l: 62, r: 12, t: 28, b: 42 },
@@ -363,7 +499,7 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
           { label: 'Operator', value: exp.operator || '—' },
           { label: 'Run', value: exp.runStarted || '—' },
         ],
-        timeS, temperatureC: melt?.temperatureC ?? null, curves: htmlCurves,
+        timeS, temperatureC: melt?.temperatureC ?? null, runSigma: report.runSigma, curves: htmlCurves,
       });
       const csv = buildReportCsv(sortedRows, { experiment: exp.experimentId || 'Experiment' });
       const res = await exportReportBundle(html, csv, `${exp.experimentId || 'report'}_kinetics`);
@@ -541,39 +677,72 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
               )}
               config={PLOT_CONFIG} style={{ width: '100%', height: 340 }} useResizeHandler
             />
-            <div className="flex flex-wrap gap-x-2 gap-y-1 items-center text-[11px] text-muted-foreground mt-1 px-1">
+            <div className="flex flex-wrap gap-x-3 gap-y-1 items-center text-[11px] text-muted-foreground mt-1.5 px-1">
+              {/* Data (bold, the truth) / Fit (faint overlay) line toggles */}
+              <label className="inline-flex items-center gap-1.5 cursor-pointer" title="Show or hide the raw data curves">
+                <Checkbox checked={showData} onCheckedChange={() => setShowData((v) => !v)} className="size-3" />
+                <span className="inline-block w-4 h-[2px] bg-current rounded-full align-middle" />Data
+              </label>
+              <label className="inline-flex items-center gap-1.5 cursor-pointer" title="Show or hide the fitted model curves">
+                <Checkbox checked={showFit} onCheckedChange={() => setShowFit((v) => !v)} className="size-3" />
+                <span className="inline-block w-4 h-px bg-current opacity-50 align-middle" />Fit
+              </label>
+              <span className="w-px h-4 bg-border" />
+              {/* Landmark marker toggles — a checkbox to the left of each */}
               {([
-                ['lod', '▲ t_lod', 'the limit-of-detection (t_lod)'],
-                ['onset', '◆ t_onset10', 'the time-to-10% (t_onset10)'],
-                ['infl', '● inflection', 'the inflection point'],
-              ] as const).map(([k, txt, desc]) => (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => setShowPoi((p) => ({ ...p, [k]: !p[k] }))}
-                  className={`inline-flex items-center rounded px-1 py-0.5 hover:text-foreground hover:bg-accent ${FOCUS_RING} ${showPoi[k] ? '' : 'opacity-40 line-through'}`}
-                  title={`Show or hide ${desc} markers`}
-                  aria-pressed={showPoi[k]}
-                >{txt}</button>
+                ['lod', '▲', 't_lod', 'the limit-of-detection (t_lod)'],
+                ['onset', '◆', 't_onset10', 'the time-to-10% (t_onset10)'],
+                ['infl', '●', 'inflection', 'the inflection point'],
+              ] as const).map(([k, glyph, txt, desc]) => (
+                <label key={k} className="inline-flex items-center gap-1.5 cursor-pointer" title={`Show or hide ${desc} markers`}>
+                  <Checkbox checked={showPoi[k]} onCheckedChange={() => setShowPoi((p) => ({ ...p, [k]: !p[k] }))} className="size-3" />
+                  <span aria-hidden>{glyph}</span>{txt}
+                </label>
               ))}
-              <span className="ml-auto">thin = data · bold = fit · click a table row to isolate</span>
+              <span className="ml-auto">click a table row to isolate</span>
             </div>
           </div>
+
+          {/* Residual strip — appears when a table row is selected */}
+          {residStrip && (
+            <div>
+              {residStrip.hasFit && residLayout ? (
+                <>
+                  <div className="text-[11px] text-muted-foreground px-1 mb-0.5">
+                    <span className="font-medium" style={{ color: residStrip.color }}>{residStrip.label}</span>
+                    {' '}residuals (observed − fit) · shaded band = ±1 run σ ({Number.isFinite(residStrip.runSigma) ? Math.round(residStrip.runSigma) : '—'} RFU, the noise floor)
+                  </div>
+                  <Plot
+                    data={residStrip.data}
+                    layout={residLayout}
+                    config={PLOT_CONFIG} style={{ width: '100%', height: 150 }} useResizeHandler
+                  />
+                </>
+              ) : (
+                <div className="flex items-start gap-2 text-[11px] px-3 py-2 border border-dashed border-border rounded-md bg-muted/30">
+                  <TriangleAlert className="size-3.5 shrink-0 mt-px text-[var(--brand-red-dark)]" />
+                  <div>
+                    <span className="font-medium" style={{ color: residStrip.color }}>{residStrip.label}</span>
+                    {' — '}<span className="text-muted-foreground">{residStrip.reason}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Melt panel */}
           {meltFig.data.length > 0 && (
             <div>
               <Plot
                 data={meltFig.data}
-                layout={{
-                  ...baseLayout('Melt — −dF/dT', 'Temperature (°C)', '−dF/dT'),
-                  annotations: meltFig.tms.map((t) => ({
-                    x: t, y: 1, yref: 'paper', text: `${t.toFixed(1)}°`, showarrow: false,
-                    font: { size: 9, color: isDark ? '#aaa' : '#666' }, yanchor: 'bottom',
-                  })),
-                }}
+                layout={{ ...baseLayout('Melt — −dF/dT', 'Temperature (°C)', '−dF/dT'), annotations: meltAnns } as Partial<Layout>}
+                onInitialized={(_fig, gd) => { meltGdRef.current = gd as HTMLElement; }}
+                onUpdate={(_fig, gd) => { meltGdRef.current = gd as HTMLElement; }}
+                onHover={handleMeltHover}
+                onUnhover={handleMeltUnhover}
                 config={PLOT_CONFIG} style={{ width: '100%', height: 240 }} useResizeHandler
               />
+              <div className="text-[11px] text-muted-foreground mt-1 px-1">Hover a curve — or click its row in the table — to highlight it and show its melt temperature.</div>
             </div>
           )}
 
@@ -619,7 +788,7 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
                         key={r.curveKey}
                         className="border-b border-border/60 cursor-pointer hover:bg-accent"
                         style={{ background: sel ? 'var(--accent)' : undefined, borderLeft: sel ? '2.5px solid var(--brand-red-mid)' : undefined }}
-                        onClick={() => setSelected(sel ? null : r.curveKey)}
+                        onClick={() => { setMeltHover(null); setSelected(sel ? null : r.curveKey); }}
                       >
                         <td className="px-2 py-0.5 font-mono text-muted-foreground whitespace-nowrap tabular-nums">{r.well}</td>
                         <td className="px-2 py-0.5 font-medium whitespace-nowrap" style={{ color: colorMap.get(r.curveKey) }}>{label(r)}</td>

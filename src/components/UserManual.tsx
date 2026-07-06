@@ -647,14 +647,151 @@ const sections: Section[] = [
       <div className="space-y-2">
         <p>Access via <strong>Tools &gt; Kinetics Report</strong> — a full-screen readout that turns every curve into quantifiable kinetics. It computes once when opened and reuses the analysis fit (no re-fitting), so it stays out of the live analysis path.</p>
         <ul className="list-disc pl-5 space-y-1">
-          <li><strong>Amplification panel</strong> — each curve (baseline-corrected by default, or raw) with its fitted model and the kinetic landmarks; toggle t_lod / t_onset10 / inflection under the plot.</li>
-          <li><strong>Melt panel</strong> — −dF/dT with de-duplicated Tm labels.</li>
+          <li><strong>Amplification panel</strong> — each curve (baseline-corrected by default, or raw) with its fitted model overlaid. The raw <strong>data is drawn bold</strong> (it's the ground truth); the <strong>fit is a fainter, thinner overlay</strong>. Checkboxes under the plot toggle the <strong>Data</strong> lines, the <strong>Fit</strong> lines, and each landmark (<strong>t_lod</strong> / <strong>t_onset10</strong> / <strong>inflection</strong>).</li>
+          <li><strong>Melt panel</strong> — −dF/dT curves; hover a curve (or click its row in the table) to highlight it (the others dim) and show its melt temperature (Tm) at the peak.</li>
           <li><strong>Kinetics table</strong> — t_lod, t_onset10, the local doubling-time profile (Td₅/₂₀/₅₀), yield, and melt Tm, each with a shaded ± standard-error column plus baseline-observed / plateau-observed flags. Sortable; click a row to isolate that curve.</li>
           <li><strong>Curve reconstruction</strong> (collapsed) — the six FreeShoulder fit parameters, kept so a curve can be reconstructed if the raw data is lost.</li>
           <li><strong>Sample tiles</strong> — one per group; a master checkbox toggles all replicates and tints the tile, and a time-unit selector switches the table between seconds and minutes.</li>
           <li><strong>Export HTML + CSV</strong> — one click writes two files: a self-contained, shareable <strong>HTML report</strong> (interactive — sortable columns, a show/hide toggle for the ± uncertainties, checkboxes to toggle the raw data / fit / landmark markers, and click-a-row to highlight its curve on the plots) for people, plus a machine-readable <strong>CSV</strong> of every parameter and its standard error for downstream analysis (Excel, R, Python).</li>
         </ul>
         <p className="text-xs text-muted-foreground">The landmarks and readouts are fit-derived and independent of the manual baseline / threshold settings.</p>
+      </div>
+    ),
+  },
+  {
+    id: 'methods',
+    title: 'Methods: Fitting & Statistics',
+    content: (
+      <div className="space-y-4">
+        <p>
+          This section documents how the automatic baseline, the kinetic readouts, and the
+          limit of detection are computed — the mathematics behind the <strong>Kinetics</strong> landmarks
+          and the <strong>Kinetics Report</strong>. All of it runs on the <strong>raw</strong> fluorescence in
+          seconds, so results are comparable across runs and independent of the x-axis unit you view.
+        </p>
+
+        <div>
+          <h4 className="font-semibold text-xs mb-1">1 · The amplification model (FreeShoulder)</h4>
+          <p className="mb-1.5">
+            Each amplification curve is fit to a six-parameter sigmoid — a logistic whose upper and lower
+            knees are independently rounded by a Kumaraswamy <em>warp</em>:
+          </p>
+          <div className="font-mono text-[11px] bg-muted/60 rounded px-3 py-2 my-1.5 leading-relaxed whitespace-pre overflow-x-auto">{`S(t) = 1 / (1 + e^(−B·(t − C)))          logistic
+w(t) = 1 − (1 − S(t)^foot)^shoulder       warp  (0 → 1)
+f(t) = A + (D − A) · w(t)                 fitted RFU`}</div>
+          <table className="w-full text-xs border border-border rounded mt-1.5">
+            <thead><tr><TH>Parameter</TH><TH>Meaning</TH></tr></thead>
+            <tbody>
+              <tr><TD><code>A</code></TD><TD>Baseline — the lower asymptote. This is the fitted baseline level.</TD></tr>
+              <tr><TD><code>D</code></TD><TD>Ceiling — the upper asymptote (fitted plateau / &ldquo;max&rdquo;).</TD></tr>
+              <tr><TD><code>B</code></TD><TD>Logistic rate (steepness of the rise).</TD></tr>
+              <tr><TD><code>C</code></TD><TD>Logistic centre (s).</TD></tr>
+              <tr><TD><code>foot</code></TD><TD>Lower-knee bend.</TD></tr>
+              <tr><TD><code>shoulder</code></TD><TD>Upper-knee bend.</TD></tr>
+            </tbody>
+          </table>
+          <p className="mt-1.5 text-muted-foreground">
+            With <code>foot = shoulder = 1</code> the warp vanishes and the model reduces to an ordinary
+            four-parameter logistic; the free shoulder lets it round the sharp upper corner that a plain
+            logistic cannot.
+          </p>
+        </div>
+
+        <div>
+          <h4 className="font-semibold text-xs mb-1">2 · Fitting &amp; the automatic baseline</h4>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>The fit uses <strong>multi-start Levenberg–Marquardt</strong> in normalised coordinates: eight starting points span the rate and the two bend parameters, and the fit with the lowest sum-of-squared residuals wins.</li>
+            <li><strong>Auto baseline = the fitted <code>A</code>.</strong> The curve is corrected by subtracting <code>A</code>. This follows the true pre-amplification level even through early dips or across wells that amplify at different times.</li>
+            <li><strong>Poor-fit fallback.</strong> The fitted <code>A</code> is trusted only when a real flat pre-rise stretch anchors it — <code>r² ≥ 0.9</code> <em>and</em> at least 8 reads below 5% of the fitted height. Otherwise (a junk or non-amplifying control) the app falls back to a robust low-level estimate (the trough) instead of trusting a bad fit.</li>
+            <li>Fit quality is reported as <strong>r²</strong> and <strong>RMSE</strong> in the report&rsquo;s curve-reconstruction table.</li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 className="font-semibold text-xs mb-1">3 · Noise floor (per-well σ and run σ)</h4>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>
+              <strong>Per-well σ</strong> = <code>1.4826 × MAD</code> of the <em>consecutive differences</em> of the raw
+              curve over the pre-amplification region (the reads before the fit reaches 5% of its height).
+              Differencing removes slow drift and any constant offset; the median-absolute-deviation (MAD)
+              resists the odd spike.
+            </li>
+            <li>
+              <strong>Run σ</strong> = the <em>median</em> of the per-well σ across the amplifying wells (a well whose σ
+              exceeds 3× the provisional median is dropped as an outlier). Noise is a property of the run,
+              so a single pooled σ drives every well&rsquo;s detection call.
+            </li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 className="font-semibold text-xs mb-1">4 · Limit of detection (t_lod)</h4>
+          <p className="mb-1.5">
+            The LoD is the first baseline-corrected reading that rises above <code>8 × run σ</code> whose
+            <em> next</em> reading is at least as high (the two-point confirmation rejects single-point spikes);
+            the crossing time is linearly interpolated:
+          </p>
+          <div className="font-mono text-[11px] bg-muted/60 rounded px-3 py-2 my-1.5 leading-relaxed whitespace-pre overflow-x-auto">{`threshold = 8 · runσ
+t_lod     = first confirmed upward crossing of the threshold
+SE(t_lod) = runσ / |local slope|   (≥ one read interval)`}</div>
+          <p className="text-muted-foreground">
+            This is a <strong>detection</strong> landmark only — it needs no fit. Speed and shape come from the
+            fit-derived readouts below.
+          </p>
+        </div>
+
+        <div>
+          <h4 className="font-semibold text-xs mb-1">5 · Time-to-onset &amp; doubling time (fit-derived)</h4>
+          <p className="mb-1.5">Read off the fitted curve by inverting the warp. With <code>S<sub>f</sub></code> the logistic value at fraction <code>f</code> of height:</p>
+          <div className="font-mono text-[11px] bg-muted/60 rounded px-3 py-2 my-1.5 leading-relaxed whitespace-pre overflow-x-auto">{`S_f       = [1 − (1 − f)^(1/shoulder)]^(1/foot)
+t(f)      = C + ln(S_f / (1 − S_f)) / B        time to fraction f
+Td(f)     = ln2 · f / w′(t_f)                  local doubling time`}</div>
+          <ul className="list-disc pl-5 space-y-1 mt-1.5">
+            <li><strong>t_onset10</strong> is <code>t(f)</code> at <code>f = 0.10</code> (time to 10% of height).</li>
+            <li>The <strong>doubling-time profile</strong> <code>Td</code> is reported at 5 / 20 / 50% of height. Height cancels, so <code>Td</code> depends only on the shape (<code>B, C, foot, shoulder</code>) — not on <code>A</code> or <code>D</code>.</li>
+            <li>The <strong>inflection</strong> (steepest-rise) point is located numerically — the warped curve has no closed-form inflection.</li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 className="font-semibold text-xs mb-1">6 · Uncertainties (± standard errors)</h4>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>
+              Parameter SEs come from the fit covariance
+              <code> cov = σ̂² · (JᵀJ)⁻¹</code>, with <code>σ̂² = RSS / (n − 6)</code> (RSS = residual sum of squares,
+              <code> n</code> = reads, 6 = parameters, <code>J</code> = Jacobian of the fitted curve).
+            </li>
+            <li>
+              SEs for the <em>derived</em> landmarks (t_onset10, Td, …) are propagated by <strong>Monte-Carlo</strong>:
+              500 parameter sets are drawn from the fit covariance and each landmark&rsquo;s spread is its reported ±.
+            </li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 className="font-semibold text-xs mb-1">7 · Residuals</h4>
+          <p>
+            In the <strong>Kinetics Report</strong>, clicking a table row opens a <strong>residual strip</strong> beneath the
+            amplification plot: the vertical distance from each measured point to the fitted curve
+            (<code>observed − fit</code>). The shaded band is <strong>±1 run σ</strong> — the measurement-noise floor.
+            Residuals that stay inside the band mean the fit is within noise; systematic curvature poking
+            outside it signals lack of fit. Only curves with a usable fit have residuals — for a curve whose
+            fit was censored (most often because <strong>no plateau was reached</strong> by the end of the run), the
+            strip instead states why no fit is reported.
+          </p>
+        </div>
+
+        <div>
+          <h4 className="font-semibold text-xs mb-1">8 · When readouts are blank</h4>
+          <p>
+            The %-of-height readouts (<code>t_onset10</code>, <code>Td</code>, yield, and <code>D / foot / shoulder</code>)
+            are shown only when the plateau is actually observed (the curve reaches ~90% of its ceiling and
+            <code> D</code> is tightly determined) <em>and</em> the fitted transition falls inside the measured time
+            window. This suppresses nonsense values from a flat control that the flexible model bends into
+            the tail of a warped curve. <code>t_lod</code> — a data threshold crossing, not a fitted quantity — is
+            still reported for such curves.
+          </p>
+        </div>
       </div>
     ),
   },

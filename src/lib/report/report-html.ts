@@ -6,7 +6,7 @@
  * a curve's raw + fit + landmark marks and its melt trace.
  */
 import { curveAt, type FivePLParams } from '@/lib/curvefit';
-import type { ReportRow } from './kinetics-report';
+import { fitCensorReason, type ReportRow } from './kinetics-report';
 
 export interface ReportHtmlCurve {
   key: string;
@@ -31,6 +31,8 @@ export interface ReportHtmlInput {
   condition: { label: string; value: string }[];
   timeS: number[];
   temperatureC: number[] | null;
+  /** Pooled run σ (the measurement noise floor) — the ±band on the residual strip. */
+  runSigma: number;
   curves: ReportHtmlCurve[];
 }
 
@@ -122,7 +124,8 @@ export function buildReportHtml(input: ReportHtmlInput): string {
   const ampDots: PlotDot[] = [];
   for (const c of curves) {
     const o = offOf(c);
-    ampLines.push({ key: c.key, color: c.color, width: 1, opacity: 0.4, role: 'data', pts: c.rfu.map((v, i) => [timeS[i], v - o]) });
+    // Data is the ground truth → bold and solid; the fit is a fainter, thinner overlay.
+    ampLines.push({ key: c.key, color: c.color, width: 1.8, opacity: 0.9, role: 'data', pts: c.rfu.map((v, i) => [timeS[i], v - o]) });
     // All landmark types are always drawn; `poi` only sets their initial
     // visibility so they can be toggled on/off live in the standalone report.
     // t_lod sits on the data curve — a detection landmark, shown even when the
@@ -131,7 +134,7 @@ export function buildReportHtml(input: ReportHtmlInput): string {
       ampDots.push({ key: c.key, color: c.color, x: c.row.t_lod, y: interpAt(c.rfu, timeS, c.row.t_lod) - o, symbol: 'lod' });
     }
     if (c.fit && c.fit.A !== null) {
-      ampLines.push({ key: c.key, color: c.color, width: 1.8, opacity: 0.95, role: 'fit', pts: timeS.map((t) => [t, curveAt(t, c.fit as FivePLParams) - o]) });
+      ampLines.push({ key: c.key, color: c.color, width: 1, opacity: 0.5, role: 'fit', pts: timeS.map((t) => [t, curveAt(t, c.fit as FivePLParams) - o]) });
       // t_onset10 / inflection are fit-derived — on the fitted curve.
       const mark = (t: number | null, symbol: 'lod' | 'onset' | 'infl') => {
         if (t === null || !Number.isFinite(t)) return;
@@ -142,6 +145,26 @@ export function buildReportHtml(input: ReportHtmlInput): string {
     }
   }
   const ampSvg = svgPlot(900, 380, 'Time (s)', input.corrected ? 'Baseline-corrected RFU' : 'Fluorescence (RFU)', xDomAmp, yDomAmp, ampLines, ampDots);
+
+  // ── Residuals (observed − fit) per fitted curve, pre-computed here and rendered
+  //    on demand in the browser (renderResid) below the amp plot when a row is
+  //    clicked. The residual is display-invariant (the baseline offset cancels),
+  //    so it's just raw − curveAt. Only curves with a usable fit have a strip. ──
+  const residData: Record<string, { label: string; color: string; pts?: [number, number][]; note?: string }> = {};
+  for (const c of curves) {
+    if (c.fit && c.fit.A !== null) {
+      const pts: [number, number][] = [];
+      for (let i = 0; i < timeS.length; i++) {
+        const rv = c.rfu[i] - curveAt(timeS[i], c.fit as FivePLParams);
+        if (Number.isFinite(rv)) pts.push([timeS[i], rv]);
+      }
+      if (pts.length) { residData[c.key] = { label: c.label, color: c.color, pts }; continue; }
+    }
+    // No usable fit → carry the reason (no plateau, etc.) so the strip flags it.
+    residData[c.key] = { label: c.label, color: c.color, note: fitCensorReason(c.row) };
+  }
+  // Escape `<` so a sample name containing "</script>" can't break out of the tag.
+  const residJson = JSON.stringify(residData).replace(/</g, '\\u003c');
 
   // ── Melt plot: −dF/dT ──
   let meltSvg = '';
@@ -333,6 +356,10 @@ export function buildReportHtml(input: ReportHtmlInput): string {
   .call.unk{ color:var(--faint); background:var(--shade); }
   .note{ font-size:12px; line-height:1.55; color:var(--muted); margin:12px 2px 0; }
   .note b{ color:var(--ink-2); font-weight:600; }
+  .residmsg{ display:flex; align-items:flex-start; gap:9px; font-size:12.5px; line-height:1.5; color:var(--ink-2);
+    background:var(--brand-tint); border:1px solid var(--line-2); border-radius:8px; padding:11px 13px; }
+  .residmsg .warn{ color:var(--brand); font-weight:700; flex:none; }
+  .residmsg b{ color:var(--ink); font-weight:650; }
   .foot{ text-align:center; color:var(--faint); font-size:11.5px; margin-top:6px; }
   .hidden{ display:none; }
 
@@ -379,8 +406,8 @@ export function buildReportHtml(input: ReportHtmlInput): string {
       <div class="plotwrap">${ampSvg}</div>
       <div class="legend">
         <span class="leg-group">
-          <label class="poi rule"><input type="checkbox" data-line="data" checked><svg class="glyph" viewBox="0 0 22 12"><line x1="1" y1="6" x2="21" y2="6" stroke-width="1"/></svg>${input.corrected ? 'corrected' : 'raw'} data</label>
-          <label class="poi rule"><input type="checkbox" data-line="fit" checked><svg class="glyph" viewBox="0 0 22 12"><line x1="1" y1="6" x2="21" y2="6" stroke-width="2.4"/></svg>fit</label>
+          <label class="poi rule"><input type="checkbox" data-line="data" checked><svg class="glyph" viewBox="0 0 22 12"><line x1="1" y1="6" x2="21" y2="6" stroke-width="2.4"/></svg>${input.corrected ? 'corrected' : 'raw'} data</label>
+          <label class="poi rule"><input type="checkbox" data-line="fit" checked><svg class="glyph" viewBox="0 0 22 12"><line x1="1" y1="6" x2="21" y2="6" stroke-width="1"/></svg>fit</label>
         </span>
         <span class="leg-sep"></span>
         <span class="leg-group">
@@ -389,6 +416,15 @@ export function buildReportHtml(input: ReportHtmlInput): string {
           <label class="poi"><input type="checkbox" data-poi="infl"${poi.infl ? ' checked' : ''}><svg class="glyph" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5"/></svg>inflection</label>
         </span>
       </div>
+    </div>
+  </section>
+
+  <section class="card hidden" id="residCard">
+    <div class="card-head"><h2>Residuals</h2><span class="sub" id="residSub">click a row below to show observed − fit</span></div>
+    <div class="card-body">
+      <div class="residmsg hidden" id="residMsg"></div>
+      <div class="plotwrap" id="residPlotWrap"><svg id="residPlot" viewBox="0 0 900 170" class="plot"></svg></div>
+      <p class="note" id="residHelp">Vertical distance from each measured point to the fitted curve for the selected sample. The shaded band is <b>±1 run σ</b> (the measurement-noise floor): residuals staying inside it mean the fit is within noise, while systematic structure poking outside signals lack of fit.</p>
     </div>
   </section>
 
@@ -503,6 +539,59 @@ export function buildReportHtml(input: ReportHtmlInput): string {
     });
   });
 
+  // ── residual strip: rendered on row-click for the selected curve ──
+  var RESID = ${residJson};
+  var RUNSIGMA = ${Number.isFinite(input.runSigma) ? input.runSigma : 0};
+  var TDOM = [${xDomAmp[0]}, ${xDomAmp[1]}];
+  function renderResid(key){
+    var card = document.getElementById('residCard');
+    var d = key ? RESID[key] : null;
+    if (!d){ card.classList.add('hidden'); return; }
+    card.classList.remove('hidden');
+    var msg = document.getElementById('residMsg'), wrap = document.getElementById('residPlotWrap'), help = document.getElementById('residHelp');
+    if (!d.pts){
+      // No usable fit — flag WHY (no plateau, etc.) instead of an empty strip.
+      document.getElementById('residSub').textContent = d.label + ' — no fit reported';
+      msg.innerHTML = '';
+      var w = document.createElement('span'); w.className = 'warn'; w.textContent = '⚠';
+      var b = document.createElement('b'); b.textContent = d.label;
+      msg.appendChild(w); msg.appendChild(b); msg.appendChild(document.createTextNode(' — ' + (d.note || 'No fit reported.')));
+      msg.classList.remove('hidden'); wrap.classList.add('hidden'); help.classList.add('hidden');
+      return;
+    }
+    msg.classList.add('hidden'); wrap.classList.remove('hidden'); help.classList.remove('hidden');
+    document.getElementById('residSub').textContent =
+      d.label + ' — observed − fit · band = ±1 run σ (' + Math.round(RUNSIGMA) + ' RFU)';
+    var W = 900, H = 170, ml = 64, mr = 16, mt = 14, mb = 42;
+    var x0 = TDOM[0], x1 = TDOM[1], xs = (x1 - x0) || 1;
+    var maxAbs = 0;
+    for (var i = 0; i < d.pts.length; i++){ var a = Math.abs(d.pts[i][1]); if (a > maxAbs) maxAbs = a; }
+    var R = Math.max(4 * RUNSIGMA, 1.1 * maxAbs); if (!(R > 0)) R = 1;
+    function sx(v){ return ml + ((v - x0) / xs) * (W - mr - ml); }
+    function sy(v){ return (H - mb) + ((v + R) / (2 * R)) * (mt - (H - mb)); }
+    var g = [];
+    // ±run σ noise band
+    g.push('<rect x="' + ml + '" y="' + sy(RUNSIGMA).toFixed(1) + '" width="' + (W - mr - ml) + '" height="' + Math.abs(sy(-RUNSIGMA) - sy(RUNSIGMA)).toFixed(1) + '" fill="' + d.color + '" fill-opacity="0.10"/>');
+    // grid + x ticks
+    for (var k = 0; k <= 6; k++){
+      var tx = x0 + (x1 - x0) * k / 6, px = sx(tx);
+      g.push('<line x1="' + px.toFixed(1) + '" y1="' + mt + '" x2="' + px.toFixed(1) + '" y2="' + (H - mb) + '" class="grid"/>');
+      g.push('<text x="' + px.toFixed(1) + '" y="' + (H - mb + 17) + '" class="tick" text-anchor="middle">' + Math.round(tx) + '</text>');
+    }
+    // zero line + axes
+    g.push('<line x1="' + ml + '" y1="' + sy(0).toFixed(1) + '" x2="' + (W - mr) + '" y2="' + sy(0).toFixed(1) + '" stroke="#c9ccd3" stroke-width="1"/>');
+    g.push('<line x1="' + ml + '" y1="' + (H - mb) + '" x2="' + (W - mr) + '" y2="' + (H - mb) + '" class="axis"/>');
+    g.push('<line x1="' + ml + '" y1="' + mt + '" x2="' + ml + '" y2="' + (H - mb) + '" class="axis"/>');
+    // y labels (−R, 0, +R)
+    [-R, 0, R].forEach(function(ty){ g.push('<text x="' + (ml - 8) + '" y="' + (sy(ty) + 3).toFixed(1) + '" class="tick" text-anchor="end">' + Math.round(ty) + '</text>'); });
+    g.push('<text x="' + ((ml + W - mr) / 2) + '" y="' + (H - 5) + '" class="axtitle" text-anchor="middle">Time (s)</text>');
+    g.push('<text x="15" y="' + ((mt + H - mb) / 2) + '" class="axtitle" text-anchor="middle" transform="rotate(-90 15 ' + ((mt + H - mb) / 2) + ')">Residual (RFU)</text>');
+    var pts = '';
+    for (var j = 0; j < d.pts.length; j++){ pts += sx(d.pts[j][0]).toFixed(1) + ',' + sy(d.pts[j][1]).toFixed(1) + ' '; }
+    g.push('<polyline fill="none" stroke="' + d.color + '" stroke-width="1.4" stroke-linejoin="round" points="' + pts.trim() + '"/>');
+    document.getElementById('residPlot').innerHTML = g.join('');
+  }
+
   // ── click a row to isolate its curve on the plots (both tables stay in sync) ──
   var isoKey = null;
   function setIso(key){
@@ -513,6 +602,7 @@ export function buildReportHtml(input: ReportHtmlInput): string {
     document.querySelectorAll('tr[data-key]').forEach(function(r){
       r.classList.toggle('active', isoKey !== null && r.getAttribute('data-key') === isoKey);
     });
+    renderResid(isoKey);
   }
   document.querySelectorAll('tbody tr[data-key]').forEach(function(r){
     r.addEventListener('click', function(){ setIso(r.getAttribute('data-key')); });
