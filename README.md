@@ -14,8 +14,8 @@
     <img src="https://img.shields.io/github/v/release/tomzzzhang/SHARP-Processor-2?label=Download&style=for-the-badge&color=c42a30" alt="Download latest release" />
   </a>
   &nbsp;&nbsp;
-  <a href="https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.2">
-    <img src="https://img.shields.io/badge/Beta-v0.2.2%20(multichannel%20%2B%20kinetics)-d29922?style=for-the-badge" alt="v0.2.2 beta (multichannel + kinetics)" />
+  <a href="https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.1.13">
+    <img src="https://img.shields.io/badge/Roll%20back-v0.1.13-6e7681?style=for-the-badge" alt="Roll back to v0.1.13" />
   </a>
 </p>
 
@@ -23,14 +23,14 @@
 
 ## Download & Install
 
-**Two versions are available:**
+**The current version is v0.2.2.**
 
 | Version | What it is | Download |
 |---|---|---|
-| **v0.1.13** | Single-channel support | **[v0.1.13 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest)** |
-| **v0.2.2** | Multichannel support + kinetics report (beta) | **[v0.2.2 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.2)** |
+| **v0.2.2** (current) | Multichannel support + kinetics report | **[Download v0.2.2 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest)** |
+| **v0.1.13** (previous stable) | Single-channel — roll back here if needed | **[Download v0.1.13 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.1.13)** |
 
-v0.1.13 is the current "Latest" release; v0.2.2 is the newest pre-release (the 0.2.x beta line). See *What's New in v0.2.2* below.
+v0.2.2 is now the current **"Latest"** release, so existing installs will be offered the update automatically. **Need to roll back?** v0.1.13 remains available above — your `.sharp` / `.sharpx` files open in both versions, so switching is safe. See *What's New in v0.2.2* below.
 
 ### Windows
 
@@ -44,6 +44,8 @@ v0.1.13 is the current "Latest" release; v0.2.2 is the newest pre-release (the 0
 > **Windows may show a SmartScreen warning** the first time you run the app ("Windows protected your PC"). This is normal for new apps that haven't been code-signed yet. Click **"More info"** → **"Run anyway"** to proceed.
 
 ### macOS (Apple Silicon)
+
+> **The macOS build for v0.2.2 is being finalized and will be posted to the release shortly.** In the meantime, macOS users can install [v0.1.13](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.1.13).
 
 1. Download the **`.dmg`** file from the [Releases](https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest) page
 2. Open the DMG and drag **SHARP Processor 2** into the **Applications** folder
