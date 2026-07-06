@@ -33,7 +33,7 @@
 
 v0.2.3 builds on v0.2.2 with Kinetics Report improvements (see *What's New in v0.2.3* below). **Need to roll back?** v0.2.2 and v0.1.13 remain available above — your `.sharp` / `.sharpx` files open in all of them, so switching is safe.
 
-> **v0.2.3 is available as an opt-in pre-release.** All installers — Windows x64/x86 and macOS (Apple Silicon) — are posted on the release. It is **not yet the auto-update "Latest"**: existing installs stay on **v0.2.2** until v0.2.3 is promoted.
+> **v0.2.3 is the current release** — it is the auto-update "Latest", and its Windows x64/x86 and macOS (Apple Silicon) installers are on the release page below.
 
 ### Windows
 
