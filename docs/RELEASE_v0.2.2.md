@@ -164,7 +164,7 @@ matching PR #9/#10). Branch kept (not deleted), matching prior convention.
 + `dist-release/windows-x86/`. Attached to the GitHub release.
 
 **Mac DMG** built separately on the Mac (no Mac in this session) — see
-`MAC_BUILD_HANDOFF.md` for the exact 0.2.2 steps (build → `hdiutil verify` →
+`MAC_BUILD_HANDOFF_2026-07-06.md` for the exact 0.2.2 steps (build → `hdiutil verify` →
 `codesign --deep --strict` → upload aarch64 DMG to the v0.2.2 release).
 
 ---
@@ -240,7 +240,7 @@ tiebreak for the other sort columns.
 v0.2.2 **Windows installers were rebuilt from `5bd70d0` and re-uploaded in
 place** (`gh release upload v0.2.2 … --clobber`); the `v0.2.2` tag stays frozen
 at the release commit `0ee94fc`, and **v0.1.13 remains "Latest."** The Mac DMG
-is to be rebuilt from `main` (see `MAC_BUILD_HANDOFF.md`).
+is to be rebuilt from `main` (see `MAC_BUILD_HANDOFF_2026-07-06.md`).
 
 **Noted, not fixed (separate item):** the standalone-HTML export renders times in
 raw **seconds** under unit-less headers, while the in-app table honours the
