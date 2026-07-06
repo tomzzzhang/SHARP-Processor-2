@@ -23,14 +23,17 @@
 
 ## Download & Install
 
-**The current version is v0.2.2.**
+**The current version is v0.2.3.**
 
 | Version | What it is | Download |
 |---|---|---|
-| **v0.2.2** (current) | Multichannel support + kinetics report | **[Download v0.2.2 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest)** |
+| **v0.2.3** (current) | Kinetics Report residuals, melt-temp on hover, data/fit toggles | **[Download v0.2.3 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.3)** |
+| **v0.2.2** | Multichannel support + kinetics report | **[Download v0.2.2 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.2)** |
 | **v0.1.13** (previous stable) | Single-channel — roll back here if needed | **[Download v0.1.13 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.1.13)** |
 
-v0.2.2 is now the current **"Latest"** release, so existing installs will be offered the update automatically. **Need to roll back?** v0.1.13 remains available above — your `.sharp` / `.sharpx` files open in both versions, so switching is safe. See *What's New in v0.2.2* below.
+v0.2.3 builds on v0.2.2 with Kinetics Report improvements (see *What's New in v0.2.3* below). **Need to roll back?** v0.2.2 and v0.1.13 remain available above — your `.sharp` / `.sharpx` files open in all of them, so switching is safe.
+
+> **v0.2.3 is rolling out now.** The macOS build is posted on the release; the Windows installers are being built and will be posted shortly. Until then, Windows users can stay on v0.2.2, which remains the auto-update "Latest" release.
 
 ### Windows
 
@@ -45,9 +48,7 @@ v0.2.2 is now the current **"Latest"** release, so existing installs will be off
 
 ### macOS (Apple Silicon)
 
-> **The macOS build for v0.2.2 is being finalized and will be posted to the release shortly.** In the meantime, macOS users can install [v0.1.13](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.1.13).
-
-1. Download the **`.dmg`** file from the [Releases](https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest) page
+1. Download the **`.dmg`** file from the [v0.2.3 release](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.3) page
 2. Open the DMG and drag **SHARP Processor 2** into the **Applications** folder
 3. **First launch — bypass the macOS security warning:**
    - Open **System Settings → Privacy & Security**
@@ -56,6 +57,19 @@ v0.2.2 is now the current **"Latest"** release, so existing installs will be off
    - Alternatively: right-click the app in Applications → **Open** → click **Open** in the dialog
 
 > macOS builds are ad-hoc signed (not notarized with Apple). After you allow it once via the steps above, subsequent launches work normally. This is standard for open-source Tauri apps distributed outside the Mac App Store.
+
+---
+
+## What's New in v0.2.3
+
+Refinements to the **Kinetics Report** (Tools → Kinetics Report) and its exported HTML.
+
+- **Residual view.** Click any sample's row to see a **residual strip** below the amplification plot — the difference between the measured data and the fitted model, with a **±1σ noise band** — so you can tell at a glance whether a fit is good (residuals inside the band) or shows lack of fit (structure poking outside). If a curve couldn't be fit confidently — usually because it **never reached a plateau** by the end of the run — the report now says so plainly instead of silently omitting the fit.
+- **Melt temperatures on demand.** Instead of crowding every melt temperature onto the plot (where they overlapped into an unreadable smear), **hover a melt curve — or click its sample row — to highlight it and show its Tm** at the peak.
+- **Data is the truth.** Amplification plots now draw your **raw data bold and solid**, with the **fitted model as a fainter, thinner overlay** (previously reversed). New checkboxes let you show/hide the **Data** lines, the **Fit** lines, and each kinetic landmark (t_lod / t_onset10 / inflection) independently.
+- **Methods documentation.** The in-app **User Manual** gains a **"Methods: Fitting & Statistics"** section documenting exactly how the model is fit, how the noise floor and limit of detection are determined, and how the kinetic readouts and their uncertainties are computed.
+
+All existing `.sharp` / `.sharpx` files and instrument formats open exactly as before.
 
 ---
 
