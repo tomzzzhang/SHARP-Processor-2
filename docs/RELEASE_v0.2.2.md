@@ -1,6 +1,6 @@
 # SHARP Processor 2 — v0.2.2 (Kinetics Report + FreeShoulder baseline) — Dev Documentation
 
-**Last Updated:** 2026-07-06 PST — Claude (Windows session — **v0.2.2 promoted to "Latest".** The Kinetics Report was beautified + made interactive + given an **HTML/CSV bundle export** (repo CLAUDE.md #55, merge `8163281`); the fresh Windows x64/x86 installers were rebuilt and **re-uploaded**, and the `v0.2.2` GitHub release was **flipped from pre-release to "Latest"** (`gh release edit v0.2.2 --prerelease=false --latest`; `/releases/latest` → v0.2.2) so existing installs get the in-app update prompt, with a prominent **v0.1.13 rollback link** in the notes (v0.1.13 no longer marked Latest but stays available). **macOS DMG still to be built from `main` (`8163281`) + uploaded** to the v0.2.2 release. **Prior:** cut the v0.2.2 pre-release — committed the kinetics-report work on `feature/kinetics-report`, merged to `main` via PR #11, bumped 0.2.1 → 0.2.2, built Windows x64/x86 installers, published the `v0.2.2` GitHub pre-release (v0.1.13 was Latest). Mac DMG handoff prepared for a separate Mac build.)
+**Last Updated:** 2026-07-06 PST — Claude (**Mac session — v0.2.2 macOS aarch64 DMG built, verified, and published to the v0.2.2 release** (`gh release upload v0.2.2 … --clobber`; built from `main` @ `ce47947`; `hdiutil verify` VALID + `codesign --verify --deep --strict` valid on disk / satisfies its Designated Requirement / ad-hoc). The release-page macOS install line now names the DMG, so v0.2.2 is cross-platform complete (Win x64/x86 + macOS aarch64). v0.2.2 stays **"Latest"**, tag frozen at `0ee94fc`. macOS live-UI sign-off not run this session. **Prior (Windows session) — v0.2.2 promoted to "Latest".** The Kinetics Report was beautified + made interactive + given an **HTML/CSV bundle export** (repo CLAUDE.md #55, merge `8163281`); the fresh Windows x64/x86 installers were rebuilt and **re-uploaded**, and the `v0.2.2` GitHub release was **flipped from pre-release to "Latest"** (`gh release edit v0.2.2 --prerelease=false --latest`; `/releases/latest` → v0.2.2) so existing installs get the in-app update prompt, with a prominent **v0.1.13 rollback link** in the notes (v0.1.13 no longer marked Latest but stays available). **macOS DMG still to be built from `main` (`8163281`) + uploaded** to the v0.2.2 release. **Prior:** cut the v0.2.2 pre-release — committed the kinetics-report work on `feature/kinetics-report`, merged to `main` via PR #11, bumped 0.2.1 → 0.2.2, built Windows x64/x86 installers, published the `v0.2.2` GitHub pre-release (v0.1.13 was Latest). Mac DMG handoff prepared for a separate Mac build.)
 
 > This is the **internal** engineering record for 0.2.2 — full detail (file paths,
 > functions, algorithm provenance). The user-facing release note lives in `README.md`
@@ -150,12 +150,17 @@ detail in `CLAUDE.md` #53 + #54.
 
 ## 6. Release / rollout
 
-**Staged rollout (unchanged precedent from v0.2.0):** the 0.2.x line is the *beta* line.
+**Rollout (superseded the staged-beta precedent):**
 
-- `v0.2.2` published as a **Pre-release**. `v0.1.13` **remains "Latest."**
-- The in-app updater reads `/releases/latest` → keeps the general user base on the
-  stable v0.1.13 single-channel build. Beta users opt in via the pre-release link.
-- **Never** silently change what is marked Latest.
+- `v0.2.2` was **first published as a Pre-release** with `v0.1.13` kept as "Latest" (so
+  the in-app updater, which reads `/releases/latest`, did not prompt existing users).
+- **2026-07-06 — Tom promoted `v0.2.2` to "Latest"** (`gh release edit v0.2.2
+  --prerelease=false --latest`). `/releases/latest` now → v0.2.2, so existing installs
+  DO get the in-app update prompt. The release notes were rewritten with a prominent
+  **rollback link to v0.1.13** (v0.1.13 is no longer marked Latest but stays available;
+  `.sharp` / `.sharpx` open in both).
+- **Never** silently change what is marked Latest — this promotion was an explicit
+  decision by Tom, recorded here and in the release notes.
 
 **Merge:** `feature/kinetics-report` → `main` via PR #11, merge commit (revertible,
 matching PR #9/#10). Branch kept (not deleted), matching prior convention.
@@ -163,9 +168,16 @@ matching PR #9/#10). Branch kept (not deleted), matching prior convention.
 **Windows installers** built via `build.bat` (x64 + x86) → `dist-release/windows-x64/`
 + `dist-release/windows-x86/`. Attached to the GitHub release.
 
-**Mac DMG** built separately on the Mac (no Mac in this session) — see
-`MAC_BUILD_HANDOFF_2026-07-06.md` for the exact 0.2.2 steps (build → `hdiutil verify` →
-`codesign --deep --strict` → upload aarch64 DMG to the v0.2.2 release).
+**Mac DMG** — **built + published 2026-07-06 (Mac session).**
+`SHARP.Processor.2_0.2.2_aarch64.dmg` built from `main` @ `ce47947` via `./build.sh`
+(→ `/tmp/tauri-build-cache`, ad-hoc signed, DMG rebuilt with an Applications symlink,
+copied to `dist-release/macos/`), integrity + signature verified (`hdiutil verify`
+VALID; `codesign --verify --deep --strict` valid on disk / satisfies its Designated
+Requirement), and uploaded to the v0.2.2 release with `gh release upload v0.2.2 …
+--clobber`. All five assets now present (Win x64/x86 exe+msi + macOS aarch64 DMG); the
+release-page macOS install line names the DMG. macOS live-UI sign-off of the Kinetics
+Report / landmarks on WKWebView was **not** run this session (still Windows-verified
+only) — see `MAC_BUILD_HANDOFF_2026-07-06.md` §2/§6 if it's picked up later.
 
 ---
 
