@@ -59,6 +59,11 @@ export interface ExperimentData {
    *  populated by the `.sharpx` loader and consumed by `loadExperiment`.
    *  NOT part of the saved data model — plain `.sharp` files never carry it. */
   session?: Record<string, unknown> | null;
+  /** Parser-detected empty (never-loaded) wells. Transient hand-off consumed by
+   *  `loadExperiment` to seed `deactivatedWells`; not part of the saved model.
+   *  Used by the `.eds` path, where QuantStudio assigns a target to the whole
+   *  plate so unloaded wells are otherwise indistinguishable from loaded ones. */
+  autoEmptyWells?: string[];
 }
 
 export interface WellDisplaySettings {

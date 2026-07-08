@@ -55,6 +55,7 @@ export function StyleTab() {
   const experiments = useAppState((s) => s.experiments);
   const activeIdx = useAppState((s) => s.activeExperimentIndex);
   const hiddenWells = useAppState((s) => s.hiddenWells);
+  const deactivatedWells = useAppState((s) => s.deactivatedWells);
   const wellGroups = useAppState((s) => s.wellGroups);
   const activeExp = experiments[activeIdx];
   // Channel-display state — needed for the legend reorder list (which must mirror
@@ -81,7 +82,7 @@ export function StyleTab() {
       ? (chans.includes(activeChannel) ? [activeChannel] : chans.slice(0, 1))
       : chans.filter((c) => visibleChannels.has(c));
     const multi = visList.length > 1;
-    const visibleWells = activeExp.wellsUsed.filter((w) => !hiddenWells.has(w));
+    const visibleWells = activeExp.wellsUsed.filter((w) => !hiddenWells.has(w) && !deactivatedWells.has(w));
     const seen = new Set<string>();
     const raw: { key: string; label: string }[] = [];
     for (const ch of visList) {
@@ -119,7 +120,7 @@ export function StyleTab() {
       return 0;
     });
     return raw;
-  }, [activeExp, hiddenWells, wellGroups, curveGroups, legendContent, legendOrder, viewMode, activeChannel, visibleChannels, wellChannelHidden, channelLabels]);
+  }, [activeExp, hiddenWells, deactivatedWells, wellGroups, curveGroups, legendContent, legendOrder, viewMode, activeChannel, visibleChannels, wellChannelHidden, channelLabels]);
 
   // Pointer-event reorder (HTML5 drag is intercepted by the Tauri
   // webview as a file drop, so we handle mousedown/move/up manually).
@@ -267,7 +268,8 @@ export function StyleTab() {
     const results = allChannelResults.get(channel);
     const ttOf = (well: string) => results?.get(well)?.tt;
     const wells = activeExp.wellsUsed.filter((w) =>
-      !hiddenWells.has(w) && visibleChannels.has(channel) && !(wellChannelHidden.get(w)?.has(channel)));
+      !hiddenWells.has(w) && !deactivatedWells.has(w)
+      && visibleChannels.has(channel) && !(wellChannelHidden.get(w)?.has(channel)));
     if (wells.length === 0) { setPalette(paletteName); return; }
     const units: Array<{ t: number; keys: string[] }> = [];
     if (paletteGroupColors) {
@@ -298,7 +300,23 @@ export function StyleTab() {
       for (const key of units[i].keys) entries.push([key, color]);
     }
     setCurveColorsBatch(entries, paletteName);
-  }, [activeExp, allChannelResults, hiddenWells, visibleChannels, wellChannelHidden, paletteGroupColors, curveGroups, wellGroups, paletteReversed, setCurveColorsBatch, setPalette]);
+  }, [activeExp, allChannelResults, hiddenWells, deactivatedWells, visibleChannels, wellChannelHidden, paletteGroupColors, curveGroups, wellGroups, paletteReversed, setCurveColorsBatch, setPalette]);
+
+  // Palette selection is NON-DESTRUCTIVE: the dropdown only stages a choice.
+  // Nothing recolours until "Apply" is pressed, so browsing palettes (or hiding
+  // and showing wells) never disturbs the curves you already have.
+  const [pendingPalette, setPendingPalette] = useState(palette);
+  useEffect(() => { setPendingPalette(palette); }, [palette]);
+
+  // Apply = assign the selected palette to the curves that are SHOWN RIGHT NOW,
+  // by Tt order, and persist it as per-curve colour overrides. Because the result
+  // is stored (not re-derived), the assignment STICKS: hiding or unhiding wells
+  // afterwards never recolours them. Press Apply again to re-spread over the new
+  // hide state.
+  const applySelectedPalette = useCallback(() => {
+    const target = multiChannel && styleScope !== 'all' ? styleScope : activeChannel;
+    applyPaletteToChannel(target, pendingPalette);
+  }, [multiChannel, styleScope, activeChannel, pendingPalette, applyPaletteToChannel]);
 
 
   // Preset management
@@ -438,8 +456,8 @@ export function StyleTab() {
         <div className="flex items-center gap-2 text-sm">
           <span className="text-muted-foreground">Palette:</span>
           <select
-            value={palette}
-            onChange={(e) => setPalette(e.target.value)}
+            value={pendingPalette}
+            onChange={(e) => setPendingPalette(e.target.value)}
             className={`flex-1 h-7 border rounded-md px-1 text-sm bg-background ${FOCUS_RING}`}
           >
             {MAIN_PALETTE_NAMES.map((p) => (
@@ -451,21 +469,25 @@ export function StyleTab() {
               ))}
             </optgroup>
           </select>
-          {multiChannel && styleScope !== 'all' && (
-            <Button
-              variant="outline" size="sm" className="h-7 text-xs px-2 shrink-0"
-              onClick={() => applyPaletteToChannel(styleScope, palette)}
-              title={`Re-apply ${palette} to ${effectiveChannelLabel(styleScope, channelLabels, activeExp?.channelFluorophore)} (by Tt order)`}
-            >
-              Apply
-            </Button>
-          )}
+          <Button
+            variant={pendingPalette !== palette ? 'default' : 'outline'}
+            size="sm" className="h-7 text-xs px-2 shrink-0"
+            onClick={applySelectedPalette}
+            title={multiChannel && styleScope !== 'all'
+              ? `Apply ${pendingPalette} to ${effectiveChannelLabel(styleScope, channelLabels, activeExp?.channelFluorophore)} (by Tt order)`
+              : `Apply ${pendingPalette} to the curves (by Tt order)`}
+          >
+            Apply
+          </Button>
         </div>
-        {multiChannel && styleScope !== 'all' && (
-          <p className="text-[11px] text-muted-foreground">
-            Click <span className="font-medium">Apply</span> to colour <span className="font-medium">{effectiveChannelLabel(styleScope, channelLabels, activeExp?.channelFluorophore)}</span> curves by Tt order; other channels keep their colours.
-          </p>
-        )}
+        <p className="text-[11px] text-muted-foreground">
+          Selecting a palette changes nothing. <span className="font-medium">Apply</span> colours the curves
+          {multiChannel && styleScope !== 'all'
+            ? <> of <span className="font-medium">{effectiveChannelLabel(styleScope, channelLabels, activeExp?.channelFluorophore)}</span> (other channels keep theirs)</>
+            : null} that are <span className="font-medium">shown right now</span>, by Tt order, and keeps them —
+          hiding or showing wells afterwards will not recolour. Press Apply again to re-spread.
+          Reversed and Group colors take effect on the next Apply.
+        </p>
         <label className="flex items-center gap-2 text-sm">
           <Checkbox checked={paletteReversed} onCheckedChange={() => reversePalette()} />
           Reversed

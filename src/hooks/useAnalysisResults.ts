@@ -17,11 +17,13 @@ import { computeChannelLandmarks, type WellLandmark } from '@/lib/report/kinetic
 export function useGlobalDrift(): { slope: number; nWells: number } {
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
+  const deactivatedWells = useAppState((s) => s.deactivatedWells);
   const exp = experiments[idx];
   return useMemo(() => {
     if (!exp?.amplification) return { slope: 0, nWells: 0 };
-    return computeDriftSlope(exp.amplification, exp.wellsUsed);
-  }, [exp]);
+    const active = exp.wellsUsed.filter((w) => !deactivatedWells.has(w));
+    return computeDriftSlope(exp.amplification, active);
+  }, [exp, deactivatedWells]);
 }
 
 /** Mean of arr over the 1-indexed inclusive window [start, end]. */
@@ -290,21 +292,25 @@ function useComputeAllChannelResults(): Map<string, Map<string, WellAnalysisResu
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
   const xAxisMode = useAppState((s) => s.xAxisMode);
+  const deactivatedWells = useAppState((s) => s.deactivatedWells);
   const channelStates = useChannelStates();
   const exp = experiments[idx];
 
   return useMemo(() => {
     const out = new Map<string, Map<string, WellAnalysisResult>>();
     if (!exp) return out;
+    // Exclude deactivated (empty) wells so they don't pollute pooled statistics
+    // (drift slope, run σ) or appear as spurious results.
+    const active = exp.wellsUsed.filter((w) => !deactivatedWells.has(w));
     for (const ch of exp.channels) {
       const amp = exp.amplificationByChannel[ch] ?? null;
       const cs = channelStates.get(ch);
       if (!cs) { out.set(ch, new Map()); continue; }
-      const drift = (amp && cs.driftCorrectionEnabled) ? computeDriftSlope(amp, exp.wellsUsed).slope : 0;
-      out.set(ch, computeChannelResults(amp, exp.wellsUsed, xAxisMode, cs, drift));
+      const drift = (amp && cs.driftCorrectionEnabled) ? computeDriftSlope(amp, active).slope : 0;
+      out.set(ch, computeChannelResults(amp, active, xAxisMode, cs, drift));
     }
     return out;
-  }, [exp, xAxisMode, channelStates]);
+  }, [exp, xAxisMode, channelStates, deactivatedWells]);
 }
 
 const AllChannelResultsContext =
@@ -325,16 +331,18 @@ const EMPTY_LANDMARKS: Map<string, WellLandmark> = new Map();
 function useComputeAllChannelLandmarks(): Map<string, Map<string, WellLandmark>> {
   const experiments = useAppState((s) => s.experiments);
   const idx = useAppState((s) => s.activeExperimentIndex);
+  const deactivatedWells = useAppState((s) => s.deactivatedWells);
   const exp = experiments[idx];
   return useMemo(() => {
     const out = new Map<string, Map<string, WellLandmark>>();
     if (!exp) return out;
+    const active = exp.wellsUsed.filter((w) => !deactivatedWells.has(w));
     for (const ch of exp.channels) {
       const amp = exp.amplificationByChannel[ch] ?? null;
-      out.set(ch, amp ? computeChannelLandmarks(amp, exp.wellsUsed) : new Map());
+      out.set(ch, amp ? computeChannelLandmarks(amp, active) : new Map());
     }
     return out;
-  }, [exp]);
+  }, [exp, deactivatedWells]);
 }
 
 /**

@@ -451,6 +451,24 @@ function useGroupedColors(
   );
 }
 
+/** Effective per-well group for `channel`: the curve's group (keyed by curveKey)
+ *  wins over a legacy well group. Grouping writes `curveGroups` since the
+ *  curve-centric migration (#45), so the live colour map must resolve through it
+ *  or grouped wells never share a colour. */
+function effectiveWellGroups(
+  wells: string[],
+  channel: string,
+  curveGroups: Map<string, string>,
+  wellGroups: Map<string, string>,
+): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const w of wells) {
+    const g = curveGroups.get(curveKey(w, channel)) ?? wellGroups.get(w);
+    if (g) m.set(w, g);
+  }
+  return m;
+}
+
 // ── Auto-scale freeze ────────────────────────────────────────────────
 type AxisRange = [number, number];
 interface FrozenRanges { x: AxisRange | null; y: AxisRange | null; y2?: AxisRange | null; }
@@ -736,6 +754,7 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
   const logScale = useAppState((s) => s.logScale);
   const selectedCurves = useAppState((s) => s.selectedCurves);
   const hiddenWells = useAppState((s) => s.hiddenWells);
+  const deactivatedWells = useAppState((s) => s.deactivatedWells);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
   const curveStyleOverrides = useAppState((s) => s.curveStyleOverrides);
   const curveGroups = useAppState((s) => s.curveGroups);
@@ -805,18 +824,35 @@ function AmplificationPlot({ openContextMenu }: { openContextMenu: (x: number, y
 
   const visibleWells = useMemo(() => {
     if (!exp) return [];
-    return exp.wellsUsed.filter((w) => !hiddenWells.has(w));
-  }, [exp, hiddenWells]);
+    return exp.wellsUsed.filter((w) => !hiddenWells.has(w) && !deactivatedWells.has(w));
+  }, [exp, hiddenWells, deactivatedWells]);
 
+  // Colours are assigned over the experiment's ACTIVE wells (everything except
+  // deactivated/empty ones) — NOT the currently-visible subset. `buildColorMap`
+  // divides the palette among *units*, so keying it to visibility would resplit
+  // the palette and recolour every curve whenever a well is hidden or shown.
+  // Stable by construction; re-spreading is an explicit act (Style → Apply).
+  const colorWells = useMemo(
+    () => (exp ? exp.wellsUsed.filter((w) => !deactivatedWells.has(w)) : []),
+    [exp, deactivatedWells],
+  );
+  // Effective groups (curve group wins over legacy well group). Grouped wells
+  // share one colour: group whenever groups exist (or the "Group colors" toggle
+  // is on) — resolved through `curveGroups` so grouping recolours live.
+  const groupMap = useMemo(
+    () => effectiveWellGroups(colorWells, activeChannel, curveGroups, wellGroups),
+    [colorWells, activeChannel, curveGroups, wellGroups],
+  );
+  const groupColorsOn = paletteGroupColors || groupMap.size > 0;
   const colorMap = useGroupedColors(
-    exp?.wellsUsed ?? [], visibleWells, style.palette, wellGroups, wellStyleOverrides,
+    exp?.wellsUsed ?? [], colorWells, style.palette, groupMap, wellStyleOverrides,
     analysisResults as Map<string, { tt?: number | null }>, paletteReversed,
-    paletteGroupColors
+    groupColorsOn
   );
 
   const channelColorMaps = useChannelColorMaps(
-    visibleChannelList, visibleWells, useRamps, paletteReversed, paletteGroupColors,
-    wellGroups, wellStyleOverrides,
+    visibleChannelList, colorWells, useRamps, paletteReversed, groupColorsOn,
+    groupMap, wellStyleOverrides,
     allChannelResults as Map<string, Map<string, { tt?: number | null }>>,
     colorMap, channelColors, channelLabels, exp?.channelFluorophore,
   );
@@ -1309,9 +1345,11 @@ function MeltDerivMini({ openContextMenu }: { openContextMenu: (x: number, y: nu
   const idx = useAppState((s) => s.activeExperimentIndex);
   const selectedCurves = useAppState((s) => s.selectedCurves);
   const hiddenWells = useAppState((s) => s.hiddenWells);
+  const deactivatedWells = useAppState((s) => s.deactivatedWells);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
   const curveStyleOverrides = useAppState((s) => s.curveStyleOverrides);
   const wellGroups = useAppState((s) => s.wellGroups);
+  const curveGroups = useAppState((s) => s.curveGroups);
   const paletteReversed = useAppState((s) => s.paletteReversed);
   const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
   const hoveredWell = useAppState((s) => s.hoveredWell);
@@ -1354,18 +1392,35 @@ function MeltDerivMini({ openContextMenu }: { openContextMenu: (x: number, y: nu
 
   const visibleWells = useMemo(() => {
     if (!exp) return [];
-    return exp.wellsUsed.filter((w) => !hiddenWells.has(w));
-  }, [exp, hiddenWells]);
+    return exp.wellsUsed.filter((w) => !hiddenWells.has(w) && !deactivatedWells.has(w));
+  }, [exp, hiddenWells, deactivatedWells]);
 
+  // Colours are assigned over the experiment's ACTIVE wells (everything except
+  // deactivated/empty ones) — NOT the currently-visible subset. `buildColorMap`
+  // divides the palette among *units*, so keying it to visibility would resplit
+  // the palette and recolour every curve whenever a well is hidden or shown.
+  // Stable by construction; re-spreading is an explicit act (Style → Apply).
+  const colorWells = useMemo(
+    () => (exp ? exp.wellsUsed.filter((w) => !deactivatedWells.has(w)) : []),
+    [exp, deactivatedWells],
+  );
+  // Effective groups (curve group wins over legacy well group). Grouped wells
+  // share one colour: group whenever groups exist (or the "Group colors" toggle
+  // is on) — resolved through `curveGroups` so grouping recolours live.
+  const groupMap = useMemo(
+    () => effectiveWellGroups(colorWells, activeChannel, curveGroups, wellGroups),
+    [colorWells, activeChannel, curveGroups, wellGroups],
+  );
+  const groupColorsOn = paletteGroupColors || groupMap.size > 0;
   const colorMap = useGroupedColors(
-    exp?.wellsUsed ?? [], visibleWells, style.palette, wellGroups, wellStyleOverrides,
+    exp?.wellsUsed ?? [], colorWells, style.palette, groupMap, wellStyleOverrides,
     analysisResults as Map<string, { tt?: number | null }>, paletteReversed,
-    paletteGroupColors
+    groupColorsOn
   );
 
   const channelColorMaps = useChannelColorMaps(
-    visibleChannelList, visibleWells, useRamps, paletteReversed, paletteGroupColors,
-    wellGroups, wellStyleOverrides,
+    visibleChannelList, colorWells, useRamps, paletteReversed, groupColorsOn,
+    groupMap, wellStyleOverrides,
     allChannelResults as Map<string, Map<string, { tt?: number | null }>>,
     colorMap, channelColors, channelLabels, exp?.channelFluorophore,
   );
@@ -1623,6 +1678,7 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
   const idx = useAppState((s) => s.activeExperimentIndex);
   const selectedCurves = useAppState((s) => s.selectedCurves);
   const hiddenWells = useAppState((s) => s.hiddenWells);
+  const deactivatedWells = useAppState((s) => s.deactivatedWells);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
   const curveStyleOverrides = useAppState((s) => s.curveStyleOverrides);
   const wellGroups = useAppState((s) => s.wellGroups);
@@ -1675,18 +1731,35 @@ function MeltPlot({ openContextMenu }: { openContextMenu: (x: number, y: number)
 
   const visibleWells = useMemo(() => {
     if (!exp) return [];
-    return exp.wellsUsed.filter((w) => !hiddenWells.has(w));
-  }, [exp, hiddenWells]);
+    return exp.wellsUsed.filter((w) => !hiddenWells.has(w) && !deactivatedWells.has(w));
+  }, [exp, hiddenWells, deactivatedWells]);
 
+  // Colours are assigned over the experiment's ACTIVE wells (everything except
+  // deactivated/empty ones) — NOT the currently-visible subset. `buildColorMap`
+  // divides the palette among *units*, so keying it to visibility would resplit
+  // the palette and recolour every curve whenever a well is hidden or shown.
+  // Stable by construction; re-spreading is an explicit act (Style → Apply).
+  const colorWells = useMemo(
+    () => (exp ? exp.wellsUsed.filter((w) => !deactivatedWells.has(w)) : []),
+    [exp, deactivatedWells],
+  );
+  // Effective groups (curve group wins over legacy well group). Grouped wells
+  // share one colour: group whenever groups exist (or the "Group colors" toggle
+  // is on) — resolved through `curveGroups` so grouping recolours live.
+  const groupMap = useMemo(
+    () => effectiveWellGroups(colorWells, activeChannel, curveGroups, wellGroups),
+    [colorWells, activeChannel, curveGroups, wellGroups],
+  );
+  const groupColorsOn = paletteGroupColors || groupMap.size > 0;
   const colorMap = useGroupedColors(
-    exp?.wellsUsed ?? [], visibleWells, style.palette, wellGroups, wellStyleOverrides,
+    exp?.wellsUsed ?? [], colorWells, style.palette, groupMap, wellStyleOverrides,
     analysisResults as Map<string, { tt?: number | null }>, paletteReversed,
-    paletteGroupColors
+    groupColorsOn
   );
 
   const channelColorMaps = useChannelColorMaps(
-    visibleChannelList, visibleWells, useRamps, paletteReversed, paletteGroupColors,
-    wellGroups, wellStyleOverrides,
+    visibleChannelList, colorWells, useRamps, paletteReversed, groupColorsOn,
+    groupMap, wellStyleOverrides,
     allChannelResults as Map<string, Map<string, { tt?: number | null }>>,
     colorMap, channelColors, channelLabels, exp?.channelFluorophore,
   );

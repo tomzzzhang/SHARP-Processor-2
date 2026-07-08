@@ -123,6 +123,7 @@ export function WellList() {
   const selectedCurves = useAppState((s) => s.selectedCurves);
   const selectedWells = useAppState((s) => s.selectedWells);
   const hiddenWells = useAppState((s) => s.hiddenWells);
+  const deactivatedWells = useAppState((s) => s.deactivatedWells);
   const visibleChannels = useAppState((s) => s.visibleChannels);
   const wellChannelHidden = useAppState((s) => s.wellChannelHidden);
   const toggleWellHidden = useAppState((s) => s.toggleWellHidden);
@@ -207,6 +208,7 @@ export function WellList() {
     if (!exp) return [];
     const out: SCRow[] = [];
     for (const well of exp.wellsUsed) {
+      if (deactivatedWells.has(well)) continue;   // empty wells aren't listed
       const info = exp.wells[well];
       for (const ch of rowChannels) {
         const key = curveKey(well, ch);
@@ -247,7 +249,7 @@ export function WellList() {
       return c;
     });
     return out;
-  }, [exp, rowChannels, channels, wellColorMap, curveStyleOverrides, wellStyleOverrides, curveGroups, wellGroups, channelLabels, sortKey, sortDir, rowVisible]);
+  }, [exp, deactivatedWells, rowChannels, channels, wellColorMap, curveStyleOverrides, wellStyleOverrides, curveGroups, wellGroups, channelLabels, sortKey, sortDir, rowVisible]);
 
   const orderedKeys = useMemo(() => rows.map((r) => r.key), [rows]);
   const { onRowMouseDown, onRowMouseEnter } = useDragSelect(orderedKeys, {

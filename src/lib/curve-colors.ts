@@ -83,9 +83,12 @@ export function buildColorMap(
     }
   }
 
-  // Sort by Tt ascending
+  // Sort by Tt ascending. `|| 0` keeps the sort stable when Tt is equal or
+  // absent (Infinity − Infinity = NaN, an inconsistent comparator that would
+  // otherwise reorder units unpredictably — e.g. when threshold detection is off
+  // so every Tt is null, making the plot and grid disagree on group→colour).
   if (analysisResults && analysisResults.size > 0) {
-    units.sort((a, b) => a[0] - b[0]);
+    units.sort((a, b) => (a[0] - b[0]) || 0);
   }
 
   let colors = colorsFor(units.length);

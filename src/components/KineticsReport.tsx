@@ -10,6 +10,7 @@ import { buildReportHtml, type ReportHtmlCurve } from '@/lib/report/report-html'
 import { exportReportBundle } from '@/lib/export';
 import { buildReportCsv } from '@/lib/report/report-csv';
 import { curveAt, type FivePLParams } from '@/lib/curvefit';
+import { curveKey } from '@/lib/curves';
 import { getPaletteColors } from '@/lib/constants';
 import { wellSortKey } from '@/lib/parsers/utils';
 import { effectiveChannelLabel } from '@/lib/channels';
@@ -102,6 +103,9 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
   const palette = useAppState((s) => s.palette);
   const paletteReversed = useAppState((s) => s.paletteReversed);
   const wellGroups = useAppState((s) => s.wellGroups);
+  const curveGroups = useAppState((s) => s.curveGroups);
+  const deactivatedWells = useAppState((s) => s.deactivatedWells);
+  const hiddenWells = useAppState((s) => s.hiddenWells);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
   const curveStyleOverrides = useAppState((s) => s.curveStyleOverrides);
   const analysisResults = useAnalysisResults();
@@ -112,14 +116,35 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
   // analysis-setting changes never touch (exp, channel), so the report is stable.
   const [report, setReport] = useState<Report | null>(null);
   const [computing, setComputing] = useState(true);
+  // Show wells hidden in the main window (off by default — `hidden` is the app's
+  // "leave it out" mechanism, honoured by the results table and CSV exports too).
+  const [showHidden, setShowHidden] = useState(false);
+
+  // Deactivated (empty) wells are never reported. Hidden wells are reported only
+  // when the user opts in — but even then they stay OUT of the run-σ pool, so
+  // merely showing them can never shift another well's noise floor / LoD.
+  const excludedWells = useMemo(
+    () => (showHidden
+      ? new Set<string>(deactivatedWells)
+      : new Set<string>([...deactivatedWells, ...hiddenWells])),
+    [showHidden, deactivatedWells, hiddenWells],
+  );
+  const sigmaExcludedWells = useMemo(() => new Set<string>(hiddenWells), [hiddenWells]);
+
   useEffect(() => {
     setComputing(true);
     const id = requestAnimationFrame(() => {
-      setReport(exp ? computeExperimentReport(exp, activeChannel) : null);
+      setReport(exp ? computeExperimentReport(exp, activeChannel, excludedWells, sigmaExcludedWells) : null);
       setComputing(false);
     });
     return () => cancelAnimationFrame(id);
-  }, [exp, activeChannel]);
+  }, [exp, activeChannel, excludedWells, sigmaExcludedWells]);
+
+  /** Wells hidden in the main window that actually carry data (drives the toggle). */
+  const hiddenCount = useMemo(
+    () => (exp ? exp.wellsUsed.filter((w) => hiddenWells.has(w) && !deactivatedWells.has(w)).length : 0),
+    [exp, hiddenWells, deactivatedWells],
+  );
 
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [ampOnly, setAmpOnly] = useState(false);
@@ -165,12 +190,28 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
   // so report colours always match the processor: per-curve override -> per-well
   // override -> grouped/Tt-ordered palette (a hand-set colour or gradient carries
   // through). 'group' mode groups the palette base; 'curve' colours each well.
+  // Colours are assigned over the experiment's ACTIVE wells (all but deactivated/
+  // empty) — the same stable domain the plot and plate grid use, so the report's
+  // colours match the main window and don't shift when a well is hidden/shown.
+  const colorWells = useMemo(
+    () => (exp ? exp.wellsUsed.filter((w) => !deactivatedWells.has(w)) : []),
+    [exp, deactivatedWells],
+  );
+
   const colorMap = useMemo(() => {
+    // Effective group per well: the curve's group wins over a legacy well group.
+    // Grouping writes `curveGroups` (curve-centric migration), so without this the
+    // report's 'group' colour mode never reflects the user's grouping.
+    const groups = new Map<string, string>();
+    for (const well of colorWells) {
+      const g = curveGroups.get(curveKey(well, activeChannel)) ?? wellGroups.get(well);
+      if (g) groups.set(well, g);
+    }
     const m = new Map<string, string>();
     const base = buildColorMap(
-      rows.map((r) => r.well),
+      colorWells,
       (n) => getPaletteColors(palette, n),
-      wellGroups, wellStyleOverrides, analysisResults, paletteReversed, colorMode === 'group',
+      groups, wellStyleOverrides, analysisResults, paletteReversed, colorMode === 'group',
     );
     for (const r of rows) {
       const ov = resolveCurveColorWidth(r.well, activeChannel, curveStyleOverrides, wellStyleOverrides).color;
@@ -178,7 +219,7 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
       if (c) m.set(r.curveKey, c);
     }
     return m;
-  }, [rows, palette, paletteReversed, colorMode, wellGroups, wellStyleOverrides, curveStyleOverrides, analysisResults, activeChannel]);
+  }, [rows, colorWells, palette, paletteReversed, colorMode, wellGroups, curveGroups, wellStyleOverrides, curveStyleOverrides, analysisResults, activeChannel]);
 
   const visibleRows = useMemo(
     () => rows.filter((r) => !hidden.has(r.curveKey) && (!ampOnly || r.fired)),
@@ -190,34 +231,58 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
   const tScale = timeUnit === 'min' ? 1 / 60 : 1;
   const xfmt = timeUnit === 'min' ? '.1f' : '.0f';
 
-  // Collapse toggle entries that share a colour + name (e.g. group-coloured
-  // replicates) into one dot + name + a vertical stack of per-curve checkboxes.
+  // Collapse toggle entries into one dot + name + a vertical stack of per-curve
+  // checkboxes. A curve in a user group collapses by that group (labeled with the
+  // group name) — so explicit grouping shows in the report even when the grouped
+  // wells have distinct sample names (e.g. well-position fallbacks A1/A2/A5).
+  // Ungrouped curves collapse by shared colour + sample name (replicates).
   const toggleGroups = useMemo(() => {
-    const map = new Map<string, { color: string; name: string; rows: ReportRow[] }>();
+    const map = new Map<string, { color: string; name: string; rows: ReportRow[]; hidden: boolean }>();
     const order: string[] = [];
     for (const r of rows) {
+      const grp = curveGroups.get(r.curveKey) ?? wellGroups.get(r.well);
       const color = colorMap.get(r.curveKey) ?? '#888';
-      const name = label(r);
-      const key = `${color} :: ${name}`;
+      const name = grp || label(r);
+      const key = grp ? `grp:: ${grp}` : `${color} :: ${name}`;
       let g = map.get(key);
-      if (!g) { g = { color, name, rows: [] }; map.set(key, g); order.push(key); }
+      if (!g) { g = { color, name, rows: [], hidden: true }; map.set(key, g); order.push(key); }
       g.rows.push(r);
+      // A tile counts as hidden only if EVERY member is hidden in the main window
+      // (a group with one shown member is still a normal group tile).
+      if (!hiddenWells.has(r.well)) g.hidden = false;
     }
-    return order.map((k) => map.get(k)!);
-  }, [rows, colorMap, label]);
+    const tiles = order.map((k) => map.get(k)!);
+    // Tiles made up entirely of main-window-hidden wells (surfaced by "Show
+    // hidden") are appended after the regular sample/group tiles, so enabling the
+    // toggle adds to the end instead of reshuffling — nothing you were already
+    // looking at moves.
+    return [...tiles.filter((g) => !g.hidden), ...tiles.filter((g) => g.hidden)];
+  }, [rows, colorMap, label, curveGroups, wellGroups, hiddenWells]);
 
   // Uniform tile width: measure the widest tile at its natural width and pin every
   // tile's min-width to it (via the `--tm` CSS var), so the longest label
   // ("Plasmid10⁷") sets the standard, shorter names match it, and the checkbox row
   // right-aligns to that shared edge. Re-measures once the app font has loaded.
+  //
+  // Two rules keep the standard STABLE, so toggling "Show hidden" appends tiles
+  // without resizing the ones already on screen:
+  //  - Only the non-hidden tiles set the standard (hidden tiles are appended and
+  //    simply adopt it).
+  //  - Tiles are `shrink-0`. As flex items they would otherwise shrink once the
+  //    row overflows, and we'd measure the SQUEEZED width rather than the natural
+  //    one — which silently narrowed every card as soon as enough tiles existed.
   const tilesRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const el = tilesRef.current;
     if (!el) return;
     const measure = () => {
       el.style.setProperty('--tm', '0px');
+      const kids = Array.from(el.children) as HTMLElement[];
+      const standard = kids.filter((t) => t.dataset.tileHidden !== '1');
       let max = 0;
-      for (const t of Array.from(el.children)) max = Math.max(max, (t as HTMLElement).getBoundingClientRect().width);
+      for (const t of (standard.length ? standard : kids)) {
+        max = Math.max(max, t.getBoundingClientRect().width);
+      }
       el.style.setProperty('--tm', `${Math.ceil(max)}px`);
     };
     measure();
@@ -372,7 +437,10 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
   }, [meltFig.activeTm, isDark]);
   useLayoutEffect(() => {
     const gd = meltGdRef.current;
-    if (gd && meltFig.data.length > 0) void Plotly.relayout(gd, { annotations: meltAnns } as Partial<Layout>);
+    // `isConnected` guards a stale ref: the panel unmounts while the report
+    // recomputes (spinner), and relayout on a detached/purged div throws inside
+    // Plotly. A mounted div is always connected, so the normal path is unchanged.
+    if (gd?.isConnected && meltFig.data.length > 0) void Plotly.relayout(gd, { annotations: meltAnns } as Partial<Layout>);
   }, [meltAnns, meltFig.data.length]);
 
   // ── Residual strip: observed − fit for the row selected in the table. The
@@ -580,6 +648,15 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
             <label className="inline-flex items-center gap-1.5 text-xs cursor-pointer ml-2">
               <Checkbox checked={ampOnly} onCheckedChange={() => setAmpOnly((v) => !v)} className="size-3" /> Amplifying only
             </label>
+            {hiddenCount > 0 && (
+              <label
+                className="inline-flex items-center gap-1.5 text-xs cursor-pointer ml-2"
+                title={`Include the ${hiddenCount} well${hiddenCount === 1 ? '' : 's'} hidden in the main window. They are kept out of the run-σ pool, so showing them never changes any other well's LoD.`}
+              >
+                <Checkbox checked={showHidden} onCheckedChange={() => setShowHidden((v) => !v)} className="size-3" />
+                Show hidden ({hiddenCount})
+              </label>
+            )}
             <label className="inline-flex items-center gap-1 text-xs ml-2">
               <span className="text-muted-foreground">Signal</span>
               <select
@@ -622,7 +699,11 @@ export function KineticsReport({ onClose }: { onClose: () => void }) {
                 return (
                   <div
                     key={`${g.color}|${g.name}`}
-                    className={`flex flex-col gap-1 rounded-md border border-border bg-card px-2.5 py-1.5 transition-colors ${st === 'none' ? 'opacity-50' : ''}`}
+                    data-tile-hidden={g.hidden ? '1' : undefined}
+                    title={g.hidden
+                      ? `${g.name} — hidden in the main window. Shown for reference; kept out of the run-σ pool.`
+                      : undefined}
+                    className={`flex flex-col gap-1 rounded-md border shrink-0 ${g.hidden ? 'border-dashed' : ''} border-border bg-card px-2.5 py-1.5 transition-colors ${st === 'none' ? 'opacity-50' : ''}`}
                     style={{ minWidth: 'var(--tm, 0px)', ...tint }}
                   >
                     {/* Line 1: master · dot · name */}

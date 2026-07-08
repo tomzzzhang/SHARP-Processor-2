@@ -44,8 +44,19 @@ function extractEds(buffer: ArrayBuffer): Record<string, Uint8Array> {
 function readJson(contents: Record<string, Uint8Array>, key: string): unknown | null {
   const raw = contents[key];
   if (!raw) return null;
-  try { return JSON.parse(strFromU8(raw)); }
-  catch { return null; }
+  const text = strFromU8(raw);
+  try { return JSON.parse(text); }
+  catch {
+    // QuantStudio writes bare `NaN` / `Infinity` for undetermined values (e.g.
+    // `cq` on a NO_AMP well). That is invalid JSON: `JSON.parse` rejects it
+    // (Python's json is lenient, so it only bites the app — the modern .eds
+    // path was silently getting null for analysis_result.json). Replace those
+    // tokens in value position only (never inside a quoted string) with null.
+    try {
+      const fixed = text.replace(/([:,[]\s*)(-?Infinity|NaN)(?=\s*[,\]}])/g, '$1null');
+      return JSON.parse(fixed);
+    } catch { return null; }
+  }
 }
 
 function readText(contents: Record<string, Uint8Array>, key: string): string | null {
@@ -94,14 +105,32 @@ function parseModern(
     run_ended_utc: endTimeMs ? new Date(endTimeMs).toISOString() : '',
   };
 
+  // Protocol (parsed early — its amp/melt stage numbers slice the
+  // multicomponent raw-fluorescence series by run stage).
+  const runMethodJson = readJson(contents, 'setup/run_method.json') as Record<string, unknown> | null;
+  const protocol = parseRunMethodJson(runMethodJson);
+
   // Plate setup
   const plateSetup = readJson(contents, 'setup/plate_setup.json') as Record<string, unknown> | null;
   let nCols = 12;
   const sampleMap: Record<string, { sample: string; content: string; cq?: number }> = {};
+  // targetName → reporter dye (e.g. "16s" → "SYBR"), so channels read by dye.
+  const targetToReporter: Record<string, string> = {};
+  let passiveReference = '';
+  // Wells the plate setup explicitly leaves unconfigured (no target assignment):
+  // an explicit "not loaded" signal, honoured alongside signal-based detection.
+  const setupEmptyWells = new Set<string>();
 
   if (plateSetup) {
     const blockType = (plateSetup.blockType as string) ?? '';
     if (blockType.includes('384') || blockType.toUpperCase().includes('16X24')) nCols = 24;
+    passiveReference = ((plateSetup.passiveReference as string) ?? '').trim();
+
+    for (const t of (plateSetup.targets as Array<Record<string, unknown>>) ?? []) {
+      const name = ((t.name as string) ?? '').trim();
+      const reporter = ((t.reporter as string) ?? '').trim();
+      if (name && reporter) targetToReporter[name] = reporter;
+    }
 
     for (const entry of (plateSetup.wells as Array<Record<string, unknown>>) ?? []) {
       const idx = (entry.index as number) ?? -1;
@@ -110,16 +139,30 @@ function parseModern(
       const sampleName = (entry.sampleName as string) ?? '';
       const assignments = (entry.targetAssignments as Array<Record<string, unknown>>) ?? [];
       const task = assignments.length > 0 ? mapTask((assignments[0].task as string) ?? 'UNKNOWN') : 'Unkn';
-      sampleMap[wellName] = { sample: sampleName, content: task };
+      // Fall back to the well position when no sample name was entered, so no
+      // occupied well is ever unlabeled (matches the .pcrd path).
+      sampleMap[wellName] = { sample: sampleName || wellName, content: task };
+      if (assignments.length === 0) setupEmptyWells.add(wellName);
     }
   }
 
-  // Analysis results → amplification, one channel per reaction (dye/target).
+  // Raw dye fluorescence (multicomponent) — the correct amplification signal for
+  // dye-based chemistries. QuantStudio's `rn` is SYBR/ROX; when a run carries no
+  // real passive reference (e.g. SHARP's no-ROX mix) that ratio is division-by-
+  // noise, so we plot the raw reporter-dye signal instead — matching how .pcrd /
+  // .tlpd and the legacy .eds path feed raw fluorescence. Also the basis for
+  // empty-well detection (a loaded well fluoresces from its intercalating dye).
+  const multi = parseMulticomponent(contents, nCols, protocol.ampStageNum);
+  const primaryDye = pickPrimaryDye(multi, targetToReporter, passiveReference);
+
+  // Analysis results → amplification (raw dye) + melt, one channel per reaction.
   // A multiplex well carries several `reactionResults`, each with its own dye.
   const analysis = readJson(contents, 'primary/analysis_result.json') as Record<string, unknown> | null;
 
-  // Per-channel raw rn series: channelId → { well → rn[] }.
+  // Per-channel raw amp series + melt: channelId → { well → series }.
   const ampByChannelRaw: Record<string, Record<string, number[]>> = {};
+  const meltRnByChannel: Record<string, Record<string, number[]>> = {};
+  const meltTempByChannel: Record<string, number[]> = {};
   const channelOrder: string[] = [];
   let cycleCount = 0;
 
@@ -136,26 +179,53 @@ function parseModern(
       for (const rx of reactions) {
         const ampResult = (rx.amplificationResult as Record<string, unknown>) ?? {};
         const rn = (ampResult.rn as number[]) ?? [];
-        if (rn.length === 0) continue;
 
-        let channelId = modernReactionChannel(rx);
+        // Channel = reporter dye (falls back to target/assay name).
+        let channelId = modernReactionChannel(rx, targetToReporter);
+        // The dye whose raw series drives this channel's amplification.
+        const targetName = (rx.targetName as string) ?? '';
+        const dyeName = targetToReporter[targetName]
+          || (multi && channelId in multi.ampByDye ? channelId : primaryDye);
+        // Prefer raw dye fluorescence; fall back to `rn` if multicomponent is
+        // absent for this well/dye.
+        const rawSeries = dyeName && multi ? multi.ampByDye[dyeName]?.[wellName] : undefined;
+        const ampSeries = rawSeries ?? rn;
+
+        const meltResult = rx.meltResult as Record<string, unknown> | undefined;
+        const meltRn = meltResult && Array.isArray(meltResult.rn) ? (meltResult.rn as number[]) : [];
+        const hasAmp = ampSeries.length > 0;
+        const hasMeltData = meltRn.length > 0;
+        if (!hasAmp && !hasMeltData) continue;
+
         // Two reactions in the same well that resolve to the same channel ID
         // (e.g. both fall back to 'Channel 1' when dye metadata is absent)
         // would otherwise overwrite each other — silent loss of one
         // fluorophore's curve. Give the collider a distinct ID so every
         // reaction keeps its own curve. Properly-tagged multiplex files have a
         // distinct dye per reaction and never hit this path.
-        if (ampByChannelRaw[channelId]?.[wellName] !== undefined) {
+        if (ampByChannelRaw[channelId]?.[wellName] !== undefined
+          || meltRnByChannel[channelId]?.[wellName] !== undefined) {
           let n = 2;
-          while (ampByChannelRaw[`${channelId} (${n})`]?.[wellName] !== undefined) n++;
+          while (ampByChannelRaw[`${channelId} (${n})`]?.[wellName] !== undefined
+            || meltRnByChannel[`${channelId} (${n})`]?.[wellName] !== undefined) n++;
           channelId = `${channelId} (${n})`;
         }
         if (!(channelId in ampByChannelRaw)) {
           ampByChannelRaw[channelId] = {};
+          meltRnByChannel[channelId] = {};
           channelOrder.push(channelId);
         }
-        ampByChannelRaw[channelId][wellName] = rn;
-        cycleCount = Math.max(cycleCount, rn.length);
+        if (hasAmp) {
+          ampByChannelRaw[channelId][wellName] = ampSeries;
+          cycleCount = Math.max(cycleCount, ampSeries.length);
+        }
+        if (hasMeltData) {
+          meltRnByChannel[channelId][wellName] = meltRn;
+          if (!(channelId in meltTempByChannel)) {
+            const temps = (meltResult!.rnTemperatures as number[]) ?? [];
+            if (temps.length > 0) meltTempByChannel[channelId] = temps;
+          }
+        }
 
         const cqRaw = (ampResult.cq as number) ?? -1;
         const cq = cqRaw !== -1 && cqRaw !== null ? cqRaw : undefined;
@@ -166,7 +236,7 @@ function parseModern(
         if (firstCq !== undefined) sampleMap[wellName].cq = firstCq;
       } else {
         sampleMap[wellName] = {
-          sample: (wr.sampleName as string) ?? '',
+          sample: (wr.sampleName as string) || wellName,
           content: 'Unkn',
           cq: firstCq,
         };
@@ -174,41 +244,43 @@ function parseModern(
     }
   }
 
-  // Timing (shared across channels).
-  const timing = buildTiming(contents, startTimeMs, cycleCount,
+  // Timing (shared across channels) — real per-cycle timestamps from run/quant.
+  const timing = buildModernTiming(contents, protocol.ampStageNum, cycleCount,
     startTimeMs ? new Date(startTimeMs) : null,
     endTimeMs ? new Date(endTimeMs) : null);
   const cycles: number[] = Array.from({ length: cycleCount }, (_, c) => c + 1);
 
-  // Build one AmplificationData per channel.
+  // Build one AmplificationData + MeltData per channel.
   const channels: string[] = [];
   const channelFluorophore: Record<string, string> = {};
   const amplificationByChannel: Record<string, AmplificationData | null> = {};
   const meltByChannel: Record<string, MeltData | null> = {};
   for (const channelId of channelOrder) {
-    const raw = ampByChannelRaw[channelId];
-    if (Object.keys(raw).length === 0) continue;
-    const wells: Record<string, number[]> = {};
-    for (const [wn, rn] of Object.entries(raw)) {
-      wells[wn] = Array.from({ length: cycleCount }, (_, c) => c < rn.length ? rn[c] : NaN);
-    }
+    const rawAmp = ampByChannelRaw[channelId] ?? {};
     channels.push(channelId);
     channelFluorophore[channelId] = channelId;
-    amplificationByChannel[channelId] = {
-      cycle: cycles,
-      timeS: timing.cycleTimes,
-      timeMin: timing.cycleTimes.map(t => t / 60),
-      wells,
-    };
-    meltByChannel[channelId] = null;
+
+    if (Object.keys(rawAmp).length > 0) {
+      const wells: Record<string, number[]> = {};
+      for (const [wn, rn] of Object.entries(rawAmp)) {
+        wells[wn] = Array.from({ length: cycleCount }, (_, c) => c < rn.length ? rn[c] : NaN);
+      }
+      amplificationByChannel[channelId] = {
+        cycle: cycles,
+        timeS: timing.cycleTimes,
+        timeMin: timing.cycleTimes.map(t => t / 60),
+        wells,
+      };
+    } else {
+      amplificationByChannel[channelId] = null;
+    }
+
+    meltByChannel[channelId] = buildModernMelt(meltTempByChannel[channelId], meltRnByChannel[channelId]);
   }
 
   const multichannel = channels.length > 0;
   const activeAmp = multichannel ? amplificationByChannel[channels[0]] : null;
-
-  // Protocol
-  const runMethodJson = readJson(contents, 'setup/run_method.json') as Record<string, unknown> | null;
-  const protocol = parseRunMethodJson(runMethodJson);
+  const activeMelt = multichannel ? meltByChannel[channels[0]] : null;
 
   // Build well info
   const wells: Record<string, WellInfo> = {};
@@ -221,15 +293,24 @@ function parseModern(
 
   const wellsUsed = sortWells(activeAmp ? Object.keys(activeAmp.wells) : Object.keys(wells));
 
+  // Auto-detect empty (never-loaded) wells. QuantStudio assigns a target to the
+  // whole plate, so the .eds marks every well "populated" even when only some
+  // were loaded. A loaded well fluoresces from its intercalating dye; an empty
+  // one sits at background — so a clearly-low raw-dye baseline (bimodal split,
+  // biased toward keeping ambiguous wells), plus any plate-setup-unconfigured
+  // wells, flags the empties. loadExperiment seeds these into `deactivatedWells`
+  // so they don't clutter plots/analysis, reversibly (Configure Plate, later).
+  const autoEmptyWells = detectEmptyWells(multi, primaryDye, wellsUsed, setupEmptyWells);
+
   const stats = activeAmp ? computeTimeStats(activeAmp.timeS) : { mean: null, median: null, stdev: null };
 
-  return buildExperimentData({
+  const exp = buildExperimentData({
     fileName, experimentId, instrument, runInfo,
     protocol: {
       type: protocol.experimentType,
       reaction_temp_c: protocol.reactionTemp,
       amp_cycle_count: protocol.ampCycles,
-      has_melt: protocol.hasMelt,
+      has_melt: activeMelt !== null,
       raw_definition: protocol.rawDefinition,
     },
     wells, wellsUsed,
@@ -244,19 +325,178 @@ function parseModern(
       mean_cycle_duration_s: stats.mean,
     },
   });
+  return autoEmptyWells.length > 0 ? { ...exp, autoEmptyWells } : exp;
 }
 
-/** Channel ID for a modern-format reaction. Prefers the reporter dye, then the
- *  target/assay name, else a generic label. */
-function modernReactionChannel(rx: Record<string, unknown>): string {
-  const candidates = [
-    rx.dye, rx.reporter, rx.reporterDye, rx.dyeName,
-    rx.target, rx.targetName, rx.assayName, rx.detector,
-  ];
-  for (const c of candidates) {
-    if (typeof c === 'string' && c.trim()) return c.trim();
-  }
+/** Channel ID for a modern-format reaction. A dye field on the reaction wins
+ *  (files that tag reactions explicitly); otherwise the target's reporter dye
+ *  (so channels read as SYBR/FAM, not the assay name); then the target/assay
+ *  name; else a generic label. */
+function modernReactionChannel(rx: Record<string, unknown>, targetToReporter: Record<string, string>): string {
+  const direct = [rx.dye, rx.reporter, rx.reporterDye, rx.dyeName];
+  for (const c of direct) if (typeof c === 'string' && c.trim()) return c.trim();
+  const target = ((rx.target as string) ?? (rx.targetName as string)
+    ?? (rx.assayName as string) ?? (rx.detector as string) ?? '').trim();
+  if (target && targetToReporter[target]) return targetToReporter[target];
+  if (target) return target;
   return 'Channel 1';
+}
+
+// ---------------------------------------------------------------------------
+// Modern raw fluorescence (multicomponent) + empty-well detection
+// ---------------------------------------------------------------------------
+
+interface ModernMulti {
+  /** Raw dye fluorescence over the amplification stage: dyeName → well → series. */
+  ampByDye: Record<string, Record<string, number[]>>;
+  /** Number of amplification-stage collection points. */
+  ampLen: number;
+}
+
+/** Read `primary/multicomponent_data.json` and extract each dye's raw
+ *  fluorescence over the amplification stage's collection points. Stage is
+ *  sliced by `ampStageNum` (from the run method); falls back to the lowest
+ *  stage present (amp precedes melt). Returns null when absent. */
+function parseMulticomponent(
+  contents: Record<string, Uint8Array>,
+  nCols: number,
+  ampStageNum: number | null,
+): ModernMulti | null {
+  const mc = readJson(contents, 'primary/multicomponent_data.json') as Record<string, unknown> | null;
+  if (!mc) return null;
+  const cps = (mc.collectionPoints as Array<Record<string, unknown>>) ?? [];
+  const wellData = (mc.wellData as Array<Record<string, unknown>>) ?? [];
+  if (cps.length === 0 || wellData.length === 0) return null;
+
+  const stages = [...new Set(cps.map(c => (c.stage as number) ?? 0))].sort((a, b) => a - b);
+  const ampStage = ampStageNum ?? (stages.length > 0 ? stages[0] : null);
+  const ampIdx: number[] = [];
+  cps.forEach((c, i) => { if (((c.stage as number) ?? 0) === ampStage) ampIdx.push(i); });
+  const useIdx = ampIdx.length > 0 ? ampIdx : cps.map((_, i) => i);
+
+  const ampByDye: Record<string, Record<string, number[]>> = {};
+  for (const wd of wellData) {
+    const idx = (wd.wellIndex as number) ?? -1;
+    if (idx < 0) continue;
+    const wn = plateIndexToWell(idx, nCols);
+    for (const d of (wd.dyeData as Array<Record<string, unknown>>) ?? []) {
+      const dye = ((d.dyeName as string) ?? '').trim();
+      if (!dye) continue;
+      const f = (d.fluorescences as number[]) ?? [];
+      (ampByDye[dye] ??= {})[wn] = useIdx.map(i => f[i] ?? NaN);
+    }
+  }
+  return { ampByDye, ampLen: useIdx.length };
+}
+
+/** The plate's primary reporter dye — a declared target reporter (excluding the
+ *  passive reference), else the sole non-reference dye. Used for empty-well
+ *  detection and single-dye amplification. */
+function pickPrimaryDye(
+  multi: ModernMulti | null,
+  targetToReporter: Record<string, string>,
+  passiveReference: string,
+): string {
+  if (!multi) return '';
+  const dyes = Object.keys(multi.ampByDye);
+  const ref = passiveReference.trim().toUpperCase();
+  const reporters = new Set(Object.values(targetToReporter));
+  for (const d of dyes) if (reporters.has(d) && d.toUpperCase() !== ref) return d;
+  const nonRef = dyes.filter(d => d.toUpperCase() !== ref);
+  return nonRef[0] ?? dyes[0] ?? '';
+}
+
+/** Build a channel's MeltData from its per-well raw melt reads and shared
+ *  temperature axis (first well's `rnTemperatures`). Wells whose read count
+ *  differs from the axis are skipped with a warning. Derivative is recomputed
+ *  (not resampled from the file) to match the .pcrd / legacy melt UI. */
+function buildModernMelt(
+  temps: number[] | undefined,
+  rnByWell: Record<string, number[]> | undefined,
+): MeltData | null {
+  if (!temps || temps.length === 0 || !rnByWell || Object.keys(rnByWell).length === 0) return null;
+  const n = temps.length;
+  const rfu: Record<string, number[]> = {};
+  for (const [w, rn] of Object.entries(rnByWell)) {
+    if (rn.length !== n) {
+      console.warn(`[eds] melt read count ${rn.length} != axis ${n} for well ${w}; skipping`);
+      continue;
+    }
+    rfu[w] = rn;
+  }
+  if (Object.keys(rfu).length === 0) return null;
+  return { temperatureC: temps, rfu, derivative: computeMeltDerivative(temps, rfu) };
+}
+
+/** Empty (never-loaded) wells = plate-setup-unconfigured wells plus wells whose
+ *  raw-dye pre-amplification baseline is clearly low (a loaded well fluoresces
+ *  from its intercalating dye; an empty one sits at background). */
+function detectEmptyWells(
+  multi: ModernMulti | null,
+  primaryDye: string,
+  wellsUsed: string[],
+  setupEmpty: Set<string>,
+): string[] {
+  const empty = new Set<string>(setupEmpty);
+  const series = multi && primaryDye ? multi.ampByDye[primaryDye] : undefined;
+  if (series) {
+    const baseline = new Map<string, number>();
+    for (const w of wellsUsed) {
+      const s = series[w];
+      if (!s || s.length === 0) continue;
+      const head = s.slice(0, Math.min(5, s.length)).filter(v => !isNaN(v));
+      if (head.length > 0) baseline.set(w, medianOf(head));
+    }
+    for (const w of clearlyLowWells(baseline)) empty.add(w);
+  }
+  return wellsUsed.filter(w => empty.has(w));
+}
+
+/** Flag clearly-low (empty) wells by finding the tight loaded cluster at the top
+ *  and cutting below it. Loaded wells (with intercalating dye) cluster densely
+ *  at a high fluorescence; empty wells sit anywhere below. Walking down from the
+ *  top, the first gap that is large relative to the loaded level (or the typical
+ *  inter-well spacing) marks the bottom of the loaded cluster — everything below
+ *  is empty. This is robust both to a lone low outlier (it stays in the low
+ *  cluster) and to a lone well stranded in the gap (it falls below the loaded
+ *  cluster, unlike an Otsu/k-means midpoint split). Conservative: with no clear
+ *  gap (a unimodal/full plate) nothing is flagged, and a well within ~70% of the
+ *  loaded level is kept. */
+function clearlyLowWells(baseline: Map<string, number>): Set<string> {
+  const entries = [...baseline.entries()];
+  const n = entries.length;
+  if (n < 6) return new Set();
+  const sorted = entries.map(e => e[1]).slice().sort((a, b) => a - b);
+
+  // Robust loaded level: 90th percentile (top of the high cluster, resistant to
+  // a single spurious high reading).
+  const hi = sorted[Math.floor(0.9 * (n - 1))];
+  if (hi <= 0) return new Set();
+
+  const gaps: number[] = [];
+  for (let i = 0; i < n - 1; i++) gaps.push(sorted[i + 1] - sorted[i]);
+  const gapThresh = Math.max(0.15 * hi, 4 * Math.max(medianOf(gaps), 1e-6));
+
+  // Highest split whose gap exceeds the threshold = bottom of the loaded cluster.
+  let cutIdx = -1;
+  for (let i = n - 2; i >= 0; i--) if (gaps[i] > gapThresh) { cutIdx = i; break; }
+  if (cutIdx < 0) return new Set();                 // no clear gap → all loaded
+
+  const lowMax = sorted[cutIdx];
+  const highCount = n - cutIdx - 1;
+  if (highCount < 2 || !(lowMax < 0.7 * hi)) return new Set();   // keep ambiguous wells
+
+  const cut = (lowMax + sorted[cutIdx + 1]) / 2;
+  const out = new Set<string>();
+  for (const [w, v] of entries) if (v <= cut) out.add(w);
+  return out;
+}
+
+function medianOf(xs: number[]): number {
+  if (xs.length === 0) return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
 // ---------------------------------------------------------------------------
@@ -523,37 +763,93 @@ function parseDyeMatchedFilters(calib: string): Map<string, number> {
 // Protocol parsing
 // ---------------------------------------------------------------------------
 
-function parseRunMethodJson(runMethod: Record<string, unknown> | null) {
-  if (!runMethod) return { experimentType: 'standard_pcr', reactionTemp: null, ampCycles: null, hasMelt: false, rawDefinition: '' };
+interface ModernProtocol {
+  experimentType: string;
+  reactionTemp: number | null;
+  ampCycles: number | null;
+  hasMelt: boolean;
+  rawDefinition: string;
+  /** 1-based stage index (matches `collectionPoints.stage`) of the
+   *  amplification / melt stages, for slicing multicomponent by run stage. */
+  ampStageNum: number | null;
+  meltStageNum: number | null;
+}
+
+/**
+ * Parse `setup/run_method.json`. Handles the qPCR File API 2.0 schema
+ * (stages carry `repeat`; steps nest temp/duration under `ramp`/`hold`; a
+ * collecting step has a `collectionProfile` — `MELT_RAC_SETTING` /
+ * `collectionMode: "CONTINUOUS"` marks the melt ramp, `PCR_HAC_SETTING` the
+ * amplification reads) while keeping the older string-named schema
+ * (`name`/`cycleCount`/`collectionTemperature`/`collectData` + "PCR"/"AMP"/
+ * "CYCLING"/"MELT" names) as a fallback so both instruments parse.
+ */
+function parseRunMethodJson(runMethod: Record<string, unknown> | null): ModernProtocol {
+  const empty: ModernProtocol = {
+    experimentType: 'standard_pcr', reactionTemp: null, ampCycles: null,
+    hasMelt: false, rawDefinition: '', ampStageNum: null, meltStageNum: null,
+  };
+  if (!runMethod) return empty;
 
   const stages = (runMethod.stages as Array<Record<string, unknown>>) ?? [];
   let ampCycles: number | null = null;
   let reactionTemp: number | null = null;
   let hasMelt = false;
+  let ampStageNum: number | null = null;
+  let meltStageNum: number | null = null;
   const rawLines: string[] = [];
 
-  for (const stage of stages) {
-    const stageName = (stage.name as string) ?? (stage.type as string) ?? '';
-    const nCycles = (stage.cycleCount as number) ?? 1;
-    rawLines.push(`Stage: ${stageName} (${nCycles} cycles)`);
+  stages.forEach((stage, si) => {
+    const stageNum = si + 1;   // 1-based, matches collectionPoints.stage
+    const stageName = ((stage.name as string) ?? (stage.type as string) ?? '').trim();
+    // 2.0 uses `repeat`; older schema used `cycleCount`.
+    const repeat = stage.repeat as number | undefined;
+    const nCycles = typeof repeat === 'number' ? repeat : ((stage.cycleCount as number) ?? 1);
+    rawLines.push(`Stage ${stageNum}: ${stageName || 'stage'} (repeat ${nCycles})`);
+
+    let stageCollectsPcr = false;
+    let stageContinuous = false;
+    let stageCollectTemp: number | null = null;
 
     for (const step of (stage.steps as Array<Record<string, unknown>>) ?? []) {
-      const temp = (step.collectionTemperature ?? step.temperature ?? '') as string | number;
-      const dur = (step.duration ?? '') as string | number;
-      const collect = (step.collectData as boolean) ?? false;
-      rawLines.push(`  ${(step.name as string) ?? 'step'} ${temp}C ${dur}s ${collect ? '[READ]' : ''}`);
-      if (collect && temp && reactionTemp === null) {
-        const t = typeof temp === 'number' ? temp : parseFloat(temp);
-        if (!isNaN(t)) reactionTemp = t;
+      const ramp = (step.ramp as Record<string, unknown>) ?? {};
+      const hold = (step.hold as Record<string, unknown>) ?? {};
+      // 2.0 nests temp under ramp, duration under hold; older schema is flat.
+      const tempRaw = (ramp.temperature ?? step.collectionTemperature ?? step.temperature) as number | string | undefined;
+      const dur = (hold.duration ?? step.duration ?? '') as number | string;
+      const profile = (hold.collectionProfile ?? ramp.collectionProfile) as Record<string, unknown> | undefined;
+      const flatCollect = (step.collectData as boolean) ?? false;
+      const collects = !!profile || flatCollect;
+      const t = typeof tempRaw === 'number' ? tempRaw : (tempRaw != null ? parseFloat(String(tempRaw)) : NaN);
+      rawLines.push(`  ${(step.name as string) ?? 'step'} ${isNaN(t) ? '' : `${t}C`} ${dur}s${collects ? ' [READ]' : ''}`);
+
+      if (profile) {
+        const mode = ((profile.collectionMode as string) ?? '').toUpperCase();
+        const filterId = ((profile.filterSettingId as string) ?? '').toUpperCase();
+        if (mode === 'CONTINUOUS' || filterId.includes('MELT')) stageContinuous = true;
+        else stageCollectsPcr = true;   // any other quant read = amplification
       }
+      if (flatCollect) stageCollectsPcr = true;
+      if (collects && !isNaN(t) && stageCollectTemp === null) stageCollectTemp = t;
     }
 
     const upper = stageName.toUpperCase();
-    if (upper.includes('PCR') || upper.includes('AMP') || upper.includes('CYCLING')) ampCycles = nCycles;
-    if (upper.includes('MELT')) hasMelt = true;
-  }
+    const isMelt = stageContinuous || upper.includes('MELT');
+    if (isMelt) {
+      hasMelt = true;
+      if (meltStageNum === null) meltStageNum = stageNum;
+      return;   // a melt stage is never the amplification stage
+    }
 
-  return { experimentType: 'standard_pcr', reactionTemp, ampCycles, hasMelt, rawDefinition: rawLines.join('\n') };
+    const isAmp = stageCollectsPcr || upper.includes('PCR') || upper.includes('AMP') || upper.includes('CYCLING');
+    if (isAmp) {
+      if (nCycles > (ampCycles ?? 0)) ampCycles = nCycles;   // max repeat among amp stages
+      if (reactionTemp === null && stageCollectTemp !== null) reactionTemp = stageCollectTemp;
+      if (ampStageNum === null) ampStageNum = stageNum;
+    }
+  });
+
+  return { experimentType: 'standard_pcr', reactionTemp, ampCycles, hasMelt, rawDefinition: rawLines.join('\n'), ampStageNum, meltStageNum };
 }
 
 // ---------------------------------------------------------------------------
@@ -586,7 +882,9 @@ function buildTiming(
     const c = parseInt(m[1]);
     if (cycleTimes.has(c)) continue;
     const text = strFromU8(contents[key]);
-    const t = parseQuantTime(text);
+    // Real timestamps win over any estimate — try both `[conditions]` encodings
+    // (header/value table, then the `Time<TAB>value` row form).
+    const t = parseQuantConditionTime(text) ?? parseQuantTime(text);
     if (t !== null) cycleTimes.set(c, t);
   }
 
@@ -612,6 +910,75 @@ function parseQuantTime(text: string): number | null {
     }
   }
   return null;
+}
+
+/**
+ * Read `Time` (Unix epoch seconds) from a `.quant` `[conditions]` block. Modern
+ * files write a tab-separated *header row* then a *value row*, so the legacy
+ * `parseQuantTime` (which expects a `Time<TAB>value` line) never matches.
+ */
+function parseQuantConditionTime(text: string): number | null {
+  let inConditions = false;
+  let header: string[] | null = null;
+  for (const line of text.split('\n')) {
+    const s = line.trim();
+    if (s === '[conditions]') { inConditions = true; continue; }
+    if (s.startsWith('[') && inConditions) break;
+    if (!inConditions || !s) continue;
+    const parts = s.split('\t');
+    if (header === null) { header = parts.map((p) => p.trim()); continue; }
+    const idx = header.indexOf('Time');
+    if (idx >= 0 && idx < parts.length) {
+      const t = parseFloat(parts[idx].trim());
+      if (!isNaN(t)) return t;
+    }
+    break;
+  }
+  return null;
+}
+
+/**
+ * Per-cycle acquisition times for the modern layout. Real timestamps live in
+ * `run/quant/*.quant` (`[conditions]` → `Time`); the filename encodes
+ * `S{stage}_C{cycle}_…`, so we take one read per *amplification*-stage cycle and
+ * rebase on the first amp read (cycle 1 → t=0), matching `.pcrd`, which zeroes
+ * on its first plate read.
+ *
+ * Modern files store quant under `run/quant/`, not the legacy
+ * `apldbio/sds/quant/` that `buildTiming` scans — so the old call silently fell
+ * back to `estimateTiming`, smearing the WHOLE run (initial hold + melt ramp
+ * included) across the amplification cycles and inflating the time axis.
+ */
+function buildModernTiming(
+  contents: Record<string, Uint8Array>,
+  ampStageNum: number | null,
+  cycleCount: number,
+  startDt: Date | null,
+  endDt: Date | null,
+): { cycleTimes: number[] } {
+  const keys = Object.keys(contents)
+    .filter((k) => k.startsWith('run/quant/') && k.endsWith('.quant'))
+    .sort();
+  if (keys.length === 0) return estimateTiming(cycleCount, startDt, endDt);
+
+  const pattern = /S(\d+)_C(\d+)_/;
+  const cycleTimes = new Map<number, number>();
+  for (const key of keys) {
+    const m = key.match(pattern);
+    if (!m) continue;
+    // Amplification-stage reads only (the melt ramp is a separate stage).
+    if (ampStageNum !== null && parseInt(m[1]) !== ampStageNum) continue;
+    const cycle = parseInt(m[2]);
+    if (cycleTimes.has(cycle)) continue;   // one read per cycle — decode once
+    const text = strFromU8(contents[key]);
+    const t = parseQuantConditionTime(text) ?? parseQuantTime(text);
+    if (t !== null) cycleTimes.set(cycle, t);
+  }
+  if (cycleTimes.size === 0) return estimateTiming(cycleCount, startDt, endDt);
+
+  const sorted = [...cycleTimes.keys()].sort((a, b) => a - b);
+  const t0 = cycleTimes.get(sorted[0])!;
+  return { cycleTimes: sorted.map((c) => cycleTimes.get(c)! - t0) };
 }
 
 function estimateTiming(cycleCount: number, startDt: Date | null, endDt: Date | null): { cycleTimes: number[] } {

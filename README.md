@@ -23,17 +23,16 @@
 
 ## Download & Install
 
-**The current version is v0.2.3.**
+**The current version is v0.2.4.**
 
 | Version | What it is | Download |
 |---|---|---|
-| **v0.2.3** (current) | Kinetics Report residuals, melt-temp on hover, data/fit toggles | **[Download v0.2.3 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.3)** |
+| **v0.2.4** (current) | QuantStudio `.eds` support, correct time axis, palette **Apply** | **[Download v0.2.4 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.4)** |
+| **v0.2.3** | Kinetics Report residuals, melt-temp on hover, data/fit toggles | **[Download v0.2.3 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.3)** |
 | **v0.2.2** | Multichannel support + kinetics report | **[Download v0.2.2 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.2)** |
 | **v0.1.13** (previous stable) | Single-channel — roll back here if needed | **[Download v0.1.13 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.1.13)** |
 
-v0.2.3 builds on v0.2.2 with Kinetics Report improvements (see *What's New in v0.2.3* below). **Need to roll back?** v0.2.2 and v0.1.13 remain available above — your `.sharp` / `.sharpx` files open in all of them, so switching is safe.
-
-> **v0.2.3 is the current release** — it is the auto-update "Latest", and its Windows x64/x86 and macOS (Apple Silicon) installers are on the release page below.
+v0.2.4 builds on v0.2.3 (see *What's New in v0.2.4* below). **Need to roll back?** v0.2.3, v0.2.2 and v0.1.13 remain available above — your `.sharp` / `.sharpx` files open in all of them, so switching is safe.
 
 ### Windows
 
@@ -57,6 +56,29 @@ v0.2.3 builds on v0.2.2 with Kinetics Report improvements (see *What's New in v0
    - Alternatively: right-click the app in Applications → **Open** → click **Open** in the dialog
 
 > macOS builds are ad-hoc signed (not notarized with Apple). After you allow it once via the steps above, subsequent launches work normally. This is standard for open-source Tauri apps distributed outside the Mac App Store.
+
+---
+
+## What's New in v0.2.4
+
+**ThermoFisher QuantStudio (`.eds`) files now open properly.** Previously a QuantStudio run would open but show little or nothing usable. It now loads with the same completeness as a Bio-Rad file.
+
+- **Full QuantStudio support.** Amplification curves, melt curves and melt peaks, the run protocol (cycle count, reaction temperature, melt), and dye-named channels all load. Wells with no sample name are labelled by their plate position rather than left blank.
+- **Correct time axis.** The amplification time axis now uses the **timestamps the instrument recorded for each cycle**, instead of assuming an average cycle length. On a typical run this corrects the axis by more than 10 minutes and, with it, every time-based readout (t_LoD, time-to-10%).
+- **Only the wells you actually loaded.** QuantStudio marks the entire plate as set up, even when you loaded a handful of wells. The app now detects which wells actually contain reaction mix and switches the rest off, so your plate view shows real wells only. Nothing is discarded — the wells are simply turned off.
+- **True amplification signal.** Curves are drawn from the raw dye fluorescence, which is the right signal for dye-based chemistries that don't use a passive reference.
+
+**Colour and grouping fixes** (these apply to every file format):
+
+- **Grouped wells share a colour.** Grouping replicates now actually colours them as one group — on the plot, the plate view, and in the Kinetics Report.
+- **The plate view matches the curves.** Well colours on the plate now always match the colours of their curves.
+- **Palettes are applied on purpose.** Picking a palette from the dropdown no longer instantly recolours everything. Press the new **Apply** button beside it: the palette is applied to the curves shown at that moment and **stays put** — hiding or showing wells afterwards will not recolour your figure. Press Apply again to re-spread it.
+
+**Kinetics Report**
+
+- **Show hidden.** The report now covers exactly the curves visible in the main window. If you have wells hidden, a **Show hidden** checkbox lets you bring them in for reference — appended at the end so nothing you were reading moves. Hidden wells never influence the run's noise floor, so showing them cannot change any other well's limit of detection.
+
+All existing `.sharp` / `.sharpx` files and instrument formats open exactly as before.
 
 ---
 

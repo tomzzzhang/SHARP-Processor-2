@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { ExperimentData, XAxisMode, ContentType, WellInfo } from '../types/experiment';
 import { normalizeExperiment } from '../lib/parsers/utils';
-import { curveKey, wellCurves, curvesToWells } from '../lib/curves';
+import { curveKey, wellCurves, curvesToWells, parseCurveKey } from '../lib/curves';
 import type { DilutionConfig } from '../lib/analysis';
 import {
   DEFAULT_BASELINE_METHOD, DEFAULT_BASELINE_START, DEFAULT_BASELINE_END,
@@ -796,6 +796,20 @@ export const useAppState = create<AppState>((set, get) => ({
         newView.selectedWells = curvesToWells(newView.selectedCurves);
       }
 
+      // Seed parser-detected empty (never-loaded) wells into the deactivated set
+      // so they don't clutter plots/analysis — unless a saved session already
+      // carries a plate configuration (which then wins). Keep deactivated wells
+      // out of the initial selection.
+      if (!(parsed?.view.deactivatedWells instanceof Set) && data.autoEmptyWells?.length) {
+        newView.deactivatedWells = new Set(data.autoEmptyWells);
+      }
+      if (newView.deactivatedWells.size > 0) {
+        newView.selectedCurves = new Set(
+          [...newView.selectedCurves].filter((k) => !newView.deactivatedWells.has(parseCurveKey(k).well)),
+        );
+        newView.selectedWells = curvesToWells(newView.selectedCurves);
+      }
+
       // Seed one analysis-state entry per channel (from the session if present).
       const chanMap = new Map<string, ChannelAnalysisState>();
       for (const ch of data.channels) {
@@ -1235,8 +1249,9 @@ export const useAppState = create<AppState>((set, get) => ({
     }),
   selectOnly: (well) => set((s) => applySelection(new Set(wellCurves(well, activeChannels(s))))),
   selectAll: () => {
-    const exp = get().experiments[get().activeExperimentIndex];
-    if (exp) set(applySelection(wellsToCurves(exp.wellsUsed, exp.channels)));
+    const s = get();
+    const exp = s.experiments[s.activeExperimentIndex];
+    if (exp) set(applySelection(wellsToCurves(exp.wellsUsed.filter((w) => !s.deactivatedWells.has(w)), exp.channels)));
   },
   deselectAll: () => set(applySelection(new Set())),
   setSelectedCurves: (curves) => set(applySelection(new Set(curves))),
@@ -1255,9 +1270,11 @@ export const useAppState = create<AppState>((set, get) => ({
       return applySelection(next);
     }),
   selectByType: (type) => {
-    const exp = get().experiments[get().activeExperimentIndex];
+    const s = get();
+    const exp = s.experiments[s.activeExperimentIndex];
     if (!exp) return;
     const wells = exp.wellsUsed.filter((w) => {
+      if (s.deactivatedWells.has(w)) return false;
       const content = exp.wells[w]?.content ?? '';
       if (type === 'Unkn') return content === 'Unkn' || content === '';
       return content === type;
@@ -1265,15 +1282,17 @@ export const useAppState = create<AppState>((set, get) => ({
     set(applySelection(wellsToCurves(wells, exp.channels)));
   },
   selectByChannel: (channel) => {
-    const exp = get().experiments[get().activeExperimentIndex];
+    const s = get();
+    const exp = s.experiments[s.activeExperimentIndex];
     if (!exp || !exp.channels.includes(channel)) return;
-    set(applySelection(new Set(exp.wellsUsed.map((w) => curveKey(w, channel)))));
+    const wells = exp.wellsUsed.filter((w) => !s.deactivatedWells.has(w));
+    set(applySelection(new Set(wells.map((w) => curveKey(w, channel)))));
   },
   selectShown: () => {
     const state = get();
     const exp = state.experiments[state.activeExperimentIndex];
     if (!exp) return;
-    const wells = exp.wellsUsed.filter((w) => !state.hiddenWells.has(w));
+    const wells = exp.wellsUsed.filter((w) => !state.hiddenWells.has(w) && !state.deactivatedWells.has(w));
     set(applySelection(wellsToCurves(wells, exp.channels)));
   },
   selectHidden: () => {

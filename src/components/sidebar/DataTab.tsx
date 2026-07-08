@@ -16,6 +16,7 @@ export function DataTab() {
   const loadExperiment = useAppState((s) => s.loadExperiment);
   const setActiveSourcePath = useAppState((s) => s.setActiveSourcePath);
   const hiddenWells = useAppState((s) => s.hiddenWells);
+  const deactivatedWells = useAppState((s) => s.deactivatedWells);
   const xAxisMode = useAppState((s) => s.xAxisMode);
   const figureDpi = useAppState((s) => s.figureDpi);
   const plotTab = useAppState((s) => s.plotTab);
@@ -82,7 +83,7 @@ export function DataTab() {
   }, [loadExperiment]);
 
   const visibleWells = exp
-    ? exp.wellsUsed.filter((w) => !hiddenWells.has(w))
+    ? exp.wellsUsed.filter((w) => !hiddenWells.has(w) && !deactivatedWells.has(w))
     : [];
 
   const handleExportPlot = useCallback(async (format: 'png' | 'svg' | 'jpeg') => {

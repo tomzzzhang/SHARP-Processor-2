@@ -66,6 +66,7 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
   const activeIdx = useAppState((s) => s.activeExperimentIndex);
   const exp = experiments[activeIdx];
   const hiddenWells = useAppState((s) => s.hiddenWells);
+  const deactivatedWells = useAppState((s) => s.deactivatedWells);
   const wellGroups = useAppState((s) => s.wellGroups);
   const legendOrder = useAppState((s) => s.legendOrder);
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
@@ -134,8 +135,8 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
   }), [palette, paletteReversed, paletteGroupColors, lineWidth, fontFamily, titleSize, labelSize, tickSize, legendSize, showLegend, legendPosition, legendContent, showTitle, showLabels, showTicks, showGrid, gridAlpha, plotBgColor, textColor, isDark]);
 
   const visibleWells = useMemo(
-    () => (exp ? exp.wellsUsed.filter((w) => !hiddenWells.has(w)) : []),
-    [exp, hiddenWells],
+    () => (exp ? exp.wellsUsed.filter((w) => !hiddenWells.has(w) && !deactivatedWells.has(w)) : []),
+    [exp, hiddenWells, deactivatedWells],
   );
 
   // Target pixel dimensions (what will actually be written to disk)
