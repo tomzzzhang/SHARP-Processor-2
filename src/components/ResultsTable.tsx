@@ -136,6 +136,7 @@ export function ResultsTable() {
   const selectedWells = useAppState((s) => s.selectedWells);
   const selectedCurves = useAppState((s) => s.selectedCurves);
   const hiddenWells = useAppState((s) => s.hiddenWells);
+  const deactivatedWells = useAppState((s) => s.deactivatedWells);
   const selectOnly = useAppState((s) => s.selectOnly);
   const toggleWellSelection = useAppState((s) => s.toggleWellSelection);
   const setSelectedWells = useAppState((s) => s.setSelectedWells);
@@ -310,7 +311,7 @@ export function ResultsTable() {
     const activeLandmarks = allChannelLandmarks.get(activeChannel);
     const result: RowData[] = [];
     for (const well of exp.wellsUsed) {
-      if (hiddenWells.has(well)) continue;
+      if (hiddenWells.has(well) || deactivatedWells.has(well)) continue;
       const info = exp.wells[well];
       const analysis = analysisResults.get(well);
       const lm = activeLandmarks?.get(well);
@@ -331,7 +332,7 @@ export function ResultsTable() {
     }
     result.sort((a, b) => compareRows(a, b, sortKey, sortDir));
     return result;
-  }, [exp, hiddenWells, analysisResults, colorMap, sortKey, sortDir, tmMap, allChannelLandmarks, activeChannel]);
+  }, [exp, hiddenWells, deactivatedWells, analysisResults, colorMap, sortKey, sortDir, tmMap, allChannelLandmarks, activeChannel]);
 
   // Multichannel collapsible tree: one parent row per visible well + a child
   // row per visible channel (S-C pair). A well with a single visible channel
@@ -349,7 +350,7 @@ export function ResultsTable() {
     };
     const nodes: TreeNode[] = [];
     for (const well of exp.wellsUsed) {
-      if (hiddenWells.has(well)) continue;
+      if (hiddenWells.has(well) || deactivatedWells.has(well)) continue;
       const info = exp.wells[well];
       const chs = visibleChannelList.filter((ch) => !wellChannelHidden.get(well)?.has(ch));
       if (chs.length === 0) continue;
@@ -380,7 +381,7 @@ export function ResultsTable() {
     }
     nodes.sort((a, b) => compareRows(a.sortRow, b.sortRow, sortKey, sortDir));
     return nodes;
-  }, [exp, multiChannel, hiddenWells, visibleChannelList, wellChannelHidden, allChannelResults, allChannelLandmarks, colorMap, tmFor, channelLabels, sortKey, sortDir]);
+  }, [exp, multiChannel, hiddenWells, deactivatedWells, visibleChannelList, wellChannelHidden, allChannelResults, allChannelLandmarks, colorMap, tmFor, channelLabels, sortKey, sortDir]);
 
   // Expand/collapse per parent well (multichannel tree). Default collapsed.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());

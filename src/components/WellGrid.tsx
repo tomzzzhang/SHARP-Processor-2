@@ -3,6 +3,7 @@ import { useAppState } from '@/hooks/useAppState';
 import { useAnalysisResults } from '@/hooks/useAnalysisResults';
 import { WELL_EMPTY_COLOR, WELL_SELECTED_BORDER, getPaletteColors, DEFAULT_PLATE_ROW_COUNT, DEFAULT_PLATE_COL_COUNT, getPlateRowLetters, getPlateColNumbers } from '@/lib/constants';
 import { curveKey } from '@/lib/curves';
+import { buildColorMap } from '@/lib/curve-colors';
 import { ContextMenu, useContextMenu } from './ContextMenu';
 
 // Cell size constants (must match render)
@@ -14,6 +15,7 @@ const HEADER_ROW_H = 16; // approximate height of col header row
 export function WellGrid() {
   const selectedWells = useAppState((s) => s.selectedWells);
   const hiddenWells = useAppState((s) => s.hiddenWells);
+  const deactivatedWells = useAppState((s) => s.deactivatedWells);
   const setSelectedWells = useAppState((s) => s.setSelectedWells);
   const addToSelection = useAppState((s) => s.addToSelection);
   const { menu, onContextMenu, close } = useContextMenu();
@@ -31,8 +33,16 @@ export function WellGrid() {
   const wellStyleOverrides = useAppState((s) => s.wellStyleOverrides);
   const curveStyleOverrides = useAppState((s) => s.curveStyleOverrides);
   const activeChannel = useAppState((s) => s.activeChannel);
+  const curveGroups = useAppState((s) => s.curveGroups);
+  const paletteGroupColors = useAppState((s) => s.paletteGroupColors);
   const exp = experiments[idx];
-  const usedWells = exp ? exp.wellsUsed : [];
+  // Deactivated (empty) wells render as unpopulated cells — not selectable, no
+  // colour — so the plate shows only the loaded wells. Memoized so it keeps a
+  // stable identity across renders (feeds the colour-map memo below).
+  const usedWells = useMemo(
+    () => (exp ? exp.wellsUsed.filter((w) => !deactivatedWells.has(w)) : []),
+    [exp, deactivatedWells],
+  );
   const usedSet = new Set(usedWells);
   const plateRowCount = exp?.plateRows ?? DEFAULT_PLATE_ROW_COUNT;
   const plateColCount = exp?.plateCols ?? DEFAULT_PLATE_COL_COUNT;
@@ -40,58 +50,29 @@ export function WellGrid() {
   const cols = getPlateColNumbers(plateColCount);
   const analysisResults = useAnalysisResults();
 
-  // Build well→color map respecting groups and Tt ordering (matches plot color logic)
+  // Build well→color map via the SAME shared builder the plot uses, over the SAME
+  // domain (the experiment's active wells — `usedWells` already excludes
+  // deactivated/empty ones, and deliberately includes hidden wells so hiding a
+  // well never resplits the palette). Curve group (active channel) wins over a
+  // legacy well group. Then overlay the active channel's per-curve colour (the
+  // coarse grid shows one colour per well).
   const wellColorMap = useMemo(() => {
-    const m = new Map<string, string>();
-    if (usedWells.length === 0) return m;
-
-    const seenGroups = new Set<string>();
-    const groupMembers = new Map<string, string[]>();
-    const ungrouped: string[] = [];
+    const effGroups = new Map<string, string>();
     for (const well of usedWells) {
-      const group = wellGroups.get(well);
-      if (group) {
-        if (!seenGroups.has(group)) { seenGroups.add(group); groupMembers.set(group, []); }
-        groupMembers.get(group)!.push(well);
-      } else { ungrouped.push(well); }
+      const g = curveGroups.get(curveKey(well, activeChannel)) ?? wellGroups.get(well);
+      if (g) effGroups.set(well, g);
     }
-
-    // Build sortable units with Tt ordering
-    const units: [number, string[]][] = [];
-    for (const [, members] of groupMembers) {
-      let sum = 0, count = 0;
-      for (const w of members) {
-        const tt = analysisResults.get(w)?.tt;
-        if (tt != null) { sum += tt; count++; }
-      }
-      units.push([count > 0 ? sum / count : Infinity, members]);
-    }
-    for (const well of ungrouped) {
-      const tt = analysisResults.get(well)?.tt;
-      units.push([tt ?? Infinity, [well]]);
-    }
-    if (analysisResults.size > 0) units.sort((a, b) => a[0] - b[0]);
-
-    let colors = getPaletteColors(palette, units.length);
-    if (paletteReversed) colors = [...colors].reverse();
-    for (let i = 0; i < units.length; i++) {
-      const color = colors[i % colors.length];
-      for (const well of units[i][1]) m.set(well, color);
-    }
-
-    // Per-well overrides, then the active channel's per-curve override (the
-    // coarse grid shows one colour per well — use the active channel's curve as
-    // the representative, so single-channel custom colours still appear here).
-    for (const [well, ov] of wellStyleOverrides.entries()) {
-      const override = ov as { color?: string } | undefined;
-      if (override?.color) m.set(well, override.color);
-    }
+    const m = buildColorMap(
+      usedWells, (n) => getPaletteColors(palette, n), effGroups, wellStyleOverrides,
+      analysisResults as Map<string, { tt?: number | null }>, paletteReversed,
+      paletteGroupColors || effGroups.size > 0,
+    );
     for (const well of usedWells) {
       const c = curveStyleOverrides.get(curveKey(well, activeChannel))?.color;
       if (c) m.set(well, c);
     }
     return m;
-  }, [usedWells, palette, paletteReversed, wellGroups, wellStyleOverrides, curveStyleOverrides, activeChannel, analysisResults]);
+  }, [usedWells, palette, paletteReversed, wellGroups, curveGroups, paletteGroupColors, wellStyleOverrides, curveStyleOverrides, activeChannel, analysisResults]);
 
   // ── Drag-to-select state ──
   const gridRef = useRef<HTMLDivElement>(null);

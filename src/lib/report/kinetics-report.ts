@@ -424,6 +424,11 @@ export function computeChannelReport(
   wells: string[],
   channel: string,
   sampleOf: (well: string) => string,
+  /** Wells that are reported but kept OUT of the run-σ pool — e.g. wells hidden
+   *  in the main window (mis-pipetted / excluded). They still get a row and a
+   *  quality flag, but must not move the noise floor that sets every other
+   *  well's LoD, so the readouts don't change when they're merely shown. */
+  sigmaExclude?: Set<string>,
 ): KineticsReport {
   // Fit + kinetics run in SECONDS (cross-run comparability; the fitted `A` and
   // the reported times are then x-unit independent). Fall back to cycle indices
@@ -451,18 +456,25 @@ export function computeChannelReport(
 
   // ── Run σ: median of the amplifying (`ok`) wells' σ. Bootstrap the pool with
   //    a provisional σ from the anchored-baseline wells (no role exclusion). ──
+  // `poolable` keeps σ-excluded wells (e.g. hidden ones) out of every noise-floor
+  // estimate, so merely displaying them cannot shift another well's LoD.
+  const poolable = (p: Pass1) => !sigmaExclude?.has(p.well);
   const finiteSigmas = pass1.filter((p) => Number.isFinite(p.sigma)).map((p) => p.sigma);
-  const provisional = pass1
-    .filter((p) => p.fit.baselineObserved && Number.isFinite(p.sigma))
+  const finitePool = pass1
+    .filter((p) => poolable(p) && Number.isFinite(p.sigma))
     .map((p) => p.sigma);
-  const provisionalSigma = median(provisional.length ? provisional : finiteSigmas);
+  const fallbackSigmas = finitePool.length ? finitePool : finiteSigmas;
+  const provisional = pass1
+    .filter((p) => poolable(p) && p.fit.baselineObserved && Number.isFinite(p.sigma))
+    .map((p) => p.sigma);
+  const provisionalSigma = median(provisional.length ? provisional : fallbackSigmas);
   for (const p of pass1) {
     p.quality = assessQuality(p.fit.baselineObserved, p.sigma, provisionalSigma, K.sigmaOutlierFactor);
   }
   const okSigmas = pass1
-    .filter((p) => p.quality === 'ok' && Number.isFinite(p.sigma))
+    .filter((p) => poolable(p) && p.quality === 'ok' && Number.isFinite(p.sigma))
     .map((p) => p.sigma);
-  const runSigma = median(okSigmas.length ? okSigmas : finiteSigmas);
+  const runSigma = median(okSigmas.length ? okSigmas : fallbackSigmas);
 
   // ── Pass 2: per-curve readouts ──
   const rows = pass1.map((p) => buildRow(p, channel, timeS, melt, runSigma, sampleOf(p.well)));
@@ -543,10 +555,23 @@ export function computeChannelLandmarks(amp: AmplificationData, wells: string[])
 
 /** Compute the report for one channel of an experiment (pulls amp/melt/samples
  *  off `ExperimentData`). Pure function of `(exp, channel)` — memoize on those. */
-export function computeExperimentReport(exp: ExperimentData, channel: string): KineticsReport {
+export function computeExperimentReport(
+  exp: ExperimentData,
+  channel: string,
+  /** Wells omitted from the report entirely (deactivated/empty, and — unless the
+   *  user opts to show them — wells hidden in the main window). */
+  exclude?: Set<string>,
+  /** Wells that are reported but kept out of the run-σ pool (see below). */
+  sigmaExclude?: Set<string>,
+): KineticsReport {
   const amp = exp.amplificationByChannel[channel] ?? null;
   const melt = exp.meltByChannel[channel] ?? null;
   if (!amp) return { channel, runSigma: NaN, rows: [], timeS: [], knobs: REPORT_KNOBS };
   const sampleOf = (well: string) => exp.wells[well]?.sample ?? '';
-  return computeChannelReport(amp, melt, exp.wellsUsed, channel, sampleOf);
+  // Drop deactivated (empty) wells so they neither appear as curves nor pollute
+  // the pooled run σ used for the LoD call.
+  const wells = exclude && exclude.size > 0
+    ? exp.wellsUsed.filter((w) => !exclude.has(w))
+    : exp.wellsUsed;
+  return computeChannelReport(amp, melt, wells, channel, sampleOf, sigmaExclude);
 }

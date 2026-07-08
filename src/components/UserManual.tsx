@@ -59,6 +59,14 @@ const sections: Section[] = [
           </tbody>
         </table>
 
+        <p className="text-xs text-muted-foreground mt-2">
+          <strong>ThermoFisher QuantStudio (.eds).</strong> QuantStudio assigns a target to the whole plate, so a
+          <code>.eds</code> looks "full" even when only some wells were loaded. The app detects the wells that were
+          actually loaded (a loaded well fluoresces from its dye; an empty one does not) and switches the rest off, so
+          your plate shows only real wells. The amplification signal is the <strong>raw dye fluorescence</strong>, and
+          the time axis uses the instrument's <strong>recorded per-cycle timestamps</strong>, not an assumed cycle length.
+        </p>
+
         <h4 className="font-semibold text-xs">Loading Data</h4>
         <ul className="list-disc pl-5 space-y-1">
           <li><strong>File &gt; Open</strong> (<Kbd>{mod}+O</Kbd>) — file dialog</li>
@@ -344,13 +352,14 @@ const sections: Section[] = [
           <table className="w-full text-xs border border-border rounded">
             <thead><tr><TH>Section</TH><TH>Controls</TH></tr></thead>
             <tbody>
-              <tr><TD>Colors &amp; Lines</TD><TD>Palette, reverse, group-colour, assign-by-arrow, clear custom colours/styles, line width (0.3–5.0 pt), line style, plot background. Multichannel adds per-channel colour / line-style controls.</TD></tr>
+              <tr><TD>Colors &amp; Lines</TD><TD>Palette + <strong>Apply</strong> (choosing a palette changes nothing until you press Apply — see below), reverse, group-colour, assign-by-arrow, clear custom colours/styles, line width (0.3–5.0 pt), line style, plot background. Multichannel adds per-channel colour / line-style controls.</TD></tr>
               <tr><TD>Typography</TD><TD>Font family; title / labels / ticks / legend sizes (each show-hide-able); text colour (auto / black / white)</TD></tr>
               <tr><TD>Legend</TD><TD>Show, per-plot toggles, content (sample / well / group), position, "Selected wells only", drag-to-reorder</TD></tr>
               <tr><TD>Grid &amp; Export</TD><TD>Grid show/opacity and export DPI (72–600)</TD></tr>
               <tr><TD>Presets</TD><TD>Save / Load / Reset / delete style presets</TD></tr>
             </tbody>
           </table>
+          <p className="mt-2"><strong>Applying a palette.</strong> Choosing a palette from the dropdown does <em>not</em> recolour anything — press <strong>Apply</strong> next to it. Apply colours the curves that are <strong>shown at that moment</strong>, in order of detection time, and <strong>keeps them that way</strong>: hiding or showing wells afterwards never recolours your curves. Press Apply again to re-spread the palette over whatever is shown then. <strong>Reversed</strong> and <strong>Group colors</strong> are options for the next Apply. Grouped wells share one colour, so grouping replicates gives one colour per group.</p>
         </div>
       </div>
     ),
@@ -652,6 +661,7 @@ const sections: Section[] = [
           <li><strong>Kinetics table</strong> — t_lod, t_onset10, the local doubling-time profile (Td₅/₂₀/₅₀), yield, and melt Tm, each with a shaded ± standard-error column plus baseline-observed / plateau-observed flags. Sortable; click a row to isolate that curve.</li>
           <li><strong>Curve reconstruction</strong> (collapsed) — the six FreeShoulder fit parameters, kept so a curve can be reconstructed if the raw data is lost.</li>
           <li><strong>Sample tiles</strong> — one per group; a master checkbox toggles all replicates and tints the tile, and a time-unit selector switches the table between seconds and minutes.</li>
+          <li><strong>Show hidden</strong> — the report covers exactly the curves shown in the main window. If you have wells hidden there, a <strong>Show hidden (n)</strong> checkbox appears; tick it to include them. They are appended after your sample tiles (with a dashed border) so nothing you were reading moves, and they are deliberately <strong>kept out of the run-σ pool</strong> — displaying an excluded well can never change another well's noise floor or limit of detection.</li>
           <li><strong>Export HTML + CSV</strong> — one click writes two files: a self-contained, shareable <strong>HTML report</strong> (interactive — sortable columns, a show/hide toggle for the ± uncertainties, checkboxes to toggle the raw data / fit / landmark markers, and click-a-row to highlight its curve on the plots) for people, plus a machine-readable <strong>CSV</strong> of every parameter and its standard error for downstream analysis (Excel, R, Python).</li>
         </ul>
         <p className="text-xs text-muted-foreground">The landmarks and readouts are fit-derived and independent of the manual baseline / threshold settings.</p>
@@ -800,7 +810,7 @@ Td(f)     = ln2 · f / w′(t_f)                  local doubling time`}</div>
     title: 'Tips',
     content: (
       <ul className="list-disc pl-5 space-y-1.5">
-        <li><strong>Palette ordering</strong> — colours are assigned by ascending detection time (Tt), so the fastest-amplifying wells get the first palette colour.</li>
+        <li><strong>Palette ordering</strong> — <strong>Apply</strong> assigns colours by ascending detection time (Tt), so the fastest-amplifying wells get the first palette colour. Grouped wells count as one unit and share a colour. The assignment sticks until you press Apply again.</li>
         <li><strong>Box select</strong> — draw a rectangle on the amplification plot to quickly select wells whose curves pass through that region.</li>
         <li><strong>Auto-Group</strong> — right-click &gt; Auto-Group by Sample to create groups from matching sample names.</li>
         <li><strong>Multiple experiments</strong> — load several at once and switch via the tab bar. Each maintains its own analysis state.</li>

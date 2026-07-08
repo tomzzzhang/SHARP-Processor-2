@@ -169,11 +169,12 @@ export function MenuBar({ onOpenWizard, onOpenManual }: { onOpenWizard?: () => v
   const viewMode = useAppState((s) => s.viewMode);
   const setViewMode = useAppState((s) => s.setViewMode);
   const hiddenWells = useAppState((s) => s.hiddenWells);
+  const deactivatedWells = useAppState((s) => s.deactivatedWells);
   const figureDpi = useAppState((s) => s.figureDpi);
   const analysisResults = useAnalysisResults();
 
   const hasData = !!exp;
-  const visibleWells = exp ? exp.wellsUsed.filter((w) => !hiddenWells.has(w)) : [];
+  const visibleWells = exp ? exp.wellsUsed.filter((w) => !hiddenWells.has(w) && !deactivatedWells.has(w)) : [];
 
   const openFilePath = useCallback(async (filePath: string) => {
     try {
