@@ -32,7 +32,11 @@
 | **v0.2.2** | Multichannel support + kinetics report | **[Download v0.2.2 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.2)** |
 | **v0.1.13** (previous stable) | Single-channel — roll back here if needed | **[Download v0.1.13 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.1.13)** |
 
-v0.2.4 builds on v0.2.3 (see *What's New in v0.2.4* below). **Need to roll back?** v0.2.3, v0.2.2 and v0.1.13 remain available above — your `.sharp` / `.sharpx` files open in all of them, so switching is safe.
+v0.2.4 builds on v0.2.3 (see *What's New in v0.2.4* below) and is the auto-update "Latest".
+
+> **macOS:** the Apple Silicon `.dmg` for v0.2.4 is being built and will be added to its release page shortly. Until it appears, use the macOS build from [v0.2.3](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.3).
+
+**Need to roll back?** [v0.1.13](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.1.13) is the previous stable single-channel release. Your `.sharp` / `.sharpx` files open in every version, so switching is safe.
 
 ### Windows
 
@@ -47,7 +51,7 @@ v0.2.4 builds on v0.2.3 (see *What's New in v0.2.4* below). **Need to roll back?
 
 ### macOS (Apple Silicon)
 
-1. Download the **`.dmg`** file from the [v0.2.3 release](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.3) page
+1. Download the **`.dmg`** file from the [latest release](https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest) page (if the v0.2.4 DMG has not appeared yet, use the [v0.2.3 release](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.3))
 2. Open the DMG and drag **SHARP Processor 2** into the **Applications** folder
 3. **First launch — bypass the macOS security warning:**
    - Open **System Settings → Privacy & Security**

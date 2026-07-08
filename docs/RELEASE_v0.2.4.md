@@ -115,4 +115,13 @@ Version 0.2.3 → **0.2.4** across all five sources (`package.json`, `package-lo
 
 `curvefit/` (`FREESHOULDER_FIT_VERSION 1.2.0`) untouched.
 
-Windows x64 + x86 installers built via `build.bat`. macOS DMG queued — see the dated Mac build handoff in the OneDrive shared folder. Published as a **pre-release**; **v0.2.3 stays "Latest"** until Tom's WebView2 smoke-test and the macOS DMG land, so existing installs are not prompted to update.
+Merged via **PR #12** (merge commit `22eb3e2`, revertible). Tagged `v0.2.4` → `22eb3e2`.
+
+Windows x64 + x86 installers built and attached (4 assets). **Promoted to "Latest"** per Tom — `/releases/latest` → `v0.2.4`, so existing installs get the in-app update prompt. His rationale: the 0.2.x line is a single beta line, so rolling back to an earlier 0.2.x buys nothing ("they are equally untested"); **v0.1.13** stays the meaningful rollback target and is what the notes/README link.
+
+**macOS DMG is the one outstanding asset** — see `MAC_BUILD_HANDOFF_2026-07-08.md` in the OneDrive shared folder. Until it is uploaded, the release notes and README direct macOS users to v0.2.3's DMG. macOS live-UI sign-off has **not** been done for this release (Windows/WebView2 only) — the handoff carries a 9-point checklist, with the melt-Tm `Plotly.relayout` path flagged as the WKWebView risk surface.
+
+### Build gotchas hit this session (both would have shipped the wrong thing)
+
+- `build.bat` ends with `explorer` + `pause` — it hangs any non-interactive run. Invoke the two `npx tauri build --target …` commands directly with `CARGO_TARGET_DIR` set instead.
+- Tauri never cleans `build-cache/*/release/bundle/`, so it still held 0.2.0 / 0.2.2 / 0.2.3 installers. A `copy *.exe` (which is exactly what `build.bat` does) stages **stale-version installers** alongside the new ones. Always prune to the current version before uploading.
