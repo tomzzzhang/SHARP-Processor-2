@@ -1,6 +1,6 @@
 # Release v0.2.4 — QuantStudio `.eds` support, correct time axis, colour/palette model
 
-**Last Updated:** 2026-07-08 PST — Claude
+**Last Updated:** 2026-07-13 PST — Claude (macOS DMG built + published; release now cross-platform complete)
 
 Internal record. Public-facing notes live in `README.md` → *What's New in v0.2.4* and on the GitHub release page. Everything below is implementation detail and stays here.
 
@@ -119,7 +119,7 @@ Merged via **PR #12** (merge commit `22eb3e2`, revertible). Tagged `v0.2.4` → 
 
 Windows x64 + x86 installers built and attached (4 assets). **Promoted to "Latest"** per Tom — `/releases/latest` → `v0.2.4`, so existing installs get the in-app update prompt. His rationale: the 0.2.x line is a single beta line, so rolling back to an earlier 0.2.x buys nothing ("they are equally untested"); **v0.1.13** stays the meaningful rollback target and is what the notes/README link.
 
-**macOS DMG is the one outstanding asset** — see `MAC_BUILD_HANDOFF_2026-07-08.md` in the OneDrive shared folder. Until it is uploaded, the release notes and README direct macOS users to v0.2.3's DMG. macOS live-UI sign-off has **not** been done for this release (Windows/WebView2 only) — the handoff carries a 9-point checklist, with the melt-Tm `Plotly.relayout` path flagged as the WKWebView risk surface.
+**macOS DMG built and uploaded (2026-07-13 Mac session)** — `SHARP.Processor.2_0.2.4_aarch64.dmg` built from `main` @ `0799a21` via `./build.sh`, verified (`hdiutil verify` VALID; the DMG's enclosed `.app` `codesign --verify --deep --strict` valid on disk / satisfies its Designated Requirement, ad-hoc `com.sharp-diagnostics.processor`), and attached to the `v0.2.4` release (`gh release upload … --clobber`). **v0.2.4 is now cross-platform complete** (5 assets: aarch64 DMG + Win x64/x86 exe+msi). The release notes' macOS line + the README were updated from "DMG being built, use v0.2.3" to name the DMG. macOS live-UI sign-off has **not** been done for this release (Windows/WebView2 only) — the `MAC_BUILD_HANDOFF_2026-07-08.md` handoff carries a 9-point checklist, with the melt-Tm `Plotly.relayout` path flagged as the WKWebView risk surface.
 
 ### Build gotchas hit this session (both would have shipped the wrong thing)
 
