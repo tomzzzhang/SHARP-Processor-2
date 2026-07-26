@@ -39,8 +39,16 @@ function applyLog2Ticks(axis: AxisLayout, range: [number, number] | null): void 
 function applyAxisSpec(axis: AxisLayout | undefined, spec: AxisSpec | null | undefined, style: PlotFigureStyle): void {
   if (!axis || !spec) return;
 
-  if (spec.title !== undefined && spec.title !== null) {
-    axis.title = { text: spec.title, font: { family: style.fontFamily, size: style.labelSize } };
+  // Title text and standoff are merged into one object rather than assigned
+  // independently — setting one must not clobber the other, and standoff
+  // alone (no text override) still needs somewhere to land.
+  if ((spec.title !== undefined && spec.title !== null) || spec.titleStandoff != null) {
+    const existing = (axis.title ?? {}) as { text?: string; font?: unknown };
+    axis.title = {
+      text: spec.title ?? existing.text,
+      font: existing.font ?? { family: style.fontFamily, size: style.labelSize },
+      ...(spec.titleStandoff != null ? { standoff: spec.titleStandoff } : {}),
+    };
   }
 
   if (spec.scale === 'log2') {

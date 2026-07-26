@@ -144,6 +144,15 @@ export interface AxisSpec {
   /** Show a line at zero. Plotly defaults this on and it often reads as a
    *  stray heavy gridline. */
   zeroline?: boolean | null;
+  /**
+   * Distance in px from the tick labels to the axis title. Plotly's default
+   * positions the title relative to the tick labels' own width, so a y-axis
+   * title on a panel with wide tick labels (e.g. "7000") sits further left
+   * than one on a panel with narrow labels (e.g. "20") even at identical
+   * plot margins — the titles visibly fail to align. Set explicitly per axis
+   * to pin them to a shared left edge.
+   */
+  titleStandoff?: number | null;
 }
 
 export interface LegendSpec {
