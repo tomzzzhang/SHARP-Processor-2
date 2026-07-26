@@ -13,7 +13,7 @@
  */
 import { execFile } from 'node:child_process';
 import { copyFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -37,6 +37,11 @@ const CHROME_CANDIDATES: Record<string, string[]> = {
     '/usr/bin/chromium',
     '/usr/bin/chromium-browser',
     '/opt/google/chrome/chrome',
+    // Playwright's browser cache, which is what a Claude sandbox usually has.
+    // The versioned directory is expanded by `expandCandidate`.
+    '/opt/pw-browsers/chromium-*/chrome-linux/chrome',
+    '/opt/pw-browsers/chromium_headless_shell-*/chrome-linux/headless_shell',
+    '/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome',
   ],
   win32: [
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
@@ -44,34 +49,74 @@ const CHROME_CANDIDATES: Record<string, string[]> = {
   ],
 };
 
+/**
+ * Expand one `*` in a path segment, so a versioned browser directory can be
+ * named without pinning its version. Returns matches sorted newest-last so the
+ * highest version wins.
+ */
+function expandCandidate(pattern: string): string[] {
+  if (!pattern.includes('*')) return [pattern];
+  const star = pattern.indexOf('*');
+  const dirEnd = pattern.lastIndexOf('/', star);
+  const parent = pattern.slice(0, dirEnd);
+  const rest = pattern.slice(dirEnd + 1);
+  const slash = rest.indexOf('/');
+  const segment = slash === -1 ? rest : rest.slice(0, slash);
+  const tail = slash === -1 ? '' : rest.slice(slash);
+
+  let entries: string[];
+  try {
+    entries = readdirSync(parent);
+  } catch {
+    return [];
+  }
+  const re = new RegExp(`^${segment.split('*').map((s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
+  return entries.filter((e) => re.test(e)).sort().map((e) => `${parent}/${e}${tail}`);
+}
+
 export function resolveChrome(explicit?: string | null): string {
-  const candidates = [
+  const patterns = [
     explicit,
     process.env.SHARPPLOT_CHROME,
     ...(CHROME_CANDIDATES[process.platform] ?? []),
   ].filter((c): c is string => Boolean(c));
 
+  const candidates = patterns.flatMap(expandCandidate);
   for (const c of candidates) if (existsSync(c)) return c;
 
   throw new CliError(
     'No Chrome/Chromium found. Pass --chrome <path> or set SHARPPLOT_CHROME.\n' +
-    `Looked in:\n${candidates.map((c) => `  ${c}`).join('\n')}`,
+    `Looked in:\n${patterns.map((c) => `  ${c}`).join('\n')}`,
   );
 }
 
-/** Locate the bundled Plotly. Resolved relative to the running CLI so the
- *  tool works from any working directory. */
-function resolvePlotly(): string {
+/**
+ * Locate Plotly for the harness.
+ *
+ * A sibling `plotly.min.js` is checked first so the CLI stays portable: copy
+ * `sharpplot.mjs` and `plotly.min.js` into any directory and `render` works
+ * with no repo and no `node_modules` present. That is the shape of the
+ * Cowork flow, where the machine holding the data has no browser and the
+ * machine with the browser has no checkout.
+ */
+export function resolvePlotly(explicit?: string | null): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
+    explicit,
+    process.env.SHARPPLOT_PLOTLY,
+    path.resolve(here, 'plotly.min.js'),
     path.resolve(here, '../node_modules/plotly.js-dist-min/plotly.min.js'),
     path.resolve(here, '../../node_modules/plotly.js-dist-min/plotly.min.js'),
+    path.resolve(process.cwd(), 'plotly.min.js'),
     path.resolve(process.cwd(), 'node_modules/plotly.js-dist-min/plotly.min.js'),
-  ];
+  ].filter((c): c is string => Boolean(c));
+
   for (const c of candidates) if (existsSync(c)) return c;
   throw new CliError(
-    'Cannot find plotly.min.js. Expected it in node_modules/plotly.js-dist-min/.\n' +
-    'Run npm install in the repo.',
+    'Cannot find plotly.min.js.\n' +
+    'Put it next to sharpplot.mjs, pass --plotly <path>, set SHARPPLOT_PLOTLY,\n' +
+    'or run this from a checkout where node_modules/plotly.js-dist-min/ exists.\n' +
+    `Looked in:\n${candidates.map((c) => `  ${c}`).join('\n')}`,
   );
 }
 
@@ -100,6 +145,8 @@ export interface RenderOptions {
   /** Output path. Its extension is ignored; formats come from the spec. */
   out: string;
   chrome?: string | null;
+  /** Explicit plotly.min.js, for a staged copy with no node_modules nearby. */
+  plotly?: string | null;
   /** Keep the temporary harness directory and report where it is. */
   keepHtml?: boolean;
   /** Milliseconds Chrome will let the page's virtual clock run. */
@@ -134,7 +181,7 @@ export async function renderBundle(bundle: FigureBundle, opts: RenderOptions): P
   assertVectorSafe(bundle);
 
   const chrome = resolveChrome(opts.chrome);
-  const plotlySrc = resolvePlotly();
+  const plotlySrc = resolvePlotly(opts.plotly);
 
   const work = await mkdtemp(path.join(tmpdir(), 'sharpplot-'));
   let keep = Boolean(opts.keepHtml);

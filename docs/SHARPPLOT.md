@@ -57,6 +57,7 @@ app default  →  what the source file saved  →  composite style  →  panel
 | `plot <spec>` | `figure` + `render`. The normal path. |
 | `convert <raw> --out f.sharpx` | Raw instrument file to `.sharpx` via the app's own parsers. |
 | `group <file> --assign "..."` | Assign wells to groups from a described plate map. |
+| `bundle --out <dir>` | Stage a self-contained renderer for a machine with no checkout. |
 
 `figure` and `render` are separate because the data step and the browser step
 do not always run on the same machine: the pure step runs where the data is,
@@ -64,6 +65,39 @@ and the resulting `fig.json` can be rendered anywhere a browser exists.
 
 Sources: `.sharpx`, `.sharp`, `.pcrd`, `.tlpd`, `.eds`, `.amxd`, or a Bio-Rad
 CFX export folder.
+
+## Porting it to another machine
+
+Two routes.
+
+**With a checkout** — clone the repo, then:
+
+```bash
+npm install
+npm run cli:build
+```
+
+**Without a checkout** — stage a self-contained copy:
+
+```bash
+node dist-cli/sharpplot.mjs bundle --out /somewhere
+```
+
+That writes `sharpplot.mjs`, its lazily-loaded side chunks, and
+`plotly.min.js`. Every dependency is bundled, so those files run on any machine
+with Node 20+ — no `node_modules`, no network, no repo. Copy the directory and:
+
+```bash
+node sharpplot.mjs render fig.json --out figure
+```
+
+Per-machine requirements: **Node 20+** for everything; **Chrome/Chromium** only
+for `render` (auto-detected on macOS, Linux, Windows, including Playwright's
+browser cache; override with `--chrome` or `SHARPPLOT_CHROME`); **poppler**
+(`pdftoppm`) only for PNG output — PDF needs Chrome alone.
+
+This is what makes the split-machine flow work: run `figure` where the data
+lives, move `fig.json` to where a browser lives, and `render` there.
 
 ## Spec reference
 

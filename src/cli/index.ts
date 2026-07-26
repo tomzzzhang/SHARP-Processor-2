@@ -22,6 +22,7 @@ import { isBundle, readJsonFile, readSpec } from './read-spec';
 import { renderBundle } from './render';
 import { convertCommand } from './convert';
 import { groupCommand, writeGroups } from './group';
+import { bundleCommand } from './bundle';
 import { CliError, toJson } from './util';
 
 const USAGE = `sharpplot — publication figures from SHARP Processor data
@@ -46,6 +47,10 @@ Usage:
   sharpplot group   <file.sharpx> --assign "10^7=A1-A3; NTC=B4,B5,B6" [--write [--out f]]
       Assign wells to groups from a described plate map. Prints the resulting
       well-to-group table for confirmation. Writes nothing unless --write.
+
+  sharpplot bundle  --out <dir>
+      Stage a self-contained renderer (sharpplot.mjs + plotly.min.js) so
+      the render verb works there with no repo and no node_modules.
 
 Sources: .sharpx, .sharp, .pcrd, .tlpd, .eds, .amxd, or a Bio-Rad CFX folder.
 
@@ -117,6 +122,7 @@ async function run(args: ParsedArgs): Promise<number> {
       const result = await renderBundle(bundle, {
         out,
         chrome: typeof args.flags.chrome === 'string' ? args.flags.chrome : null,
+        plotly: typeof args.flags.plotly === 'string' ? args.flags.plotly : null,
         keepHtml: args.flags['keep-html'] === true,
       });
 
@@ -166,6 +172,14 @@ async function run(args: ParsedArgs): Promise<number> {
       } else {
         process.stdout.write('\nNothing written. Re-run with --write to save this into the file.\n');
       }
+      return 0;
+    }
+
+    case 'bundle': {
+      const out = typeof args.flags.out === 'string' ? args.flags.out : null;
+      if (!out) throw new CliError('bundle needs --out <dir>');
+      const result = await bundleCommand(out, typeof args.flags.plotly === 'string' ? args.flags.plotly : null);
+      process.stdout.write(`${toJson(result, true)}\n`);
       return 0;
     }
 

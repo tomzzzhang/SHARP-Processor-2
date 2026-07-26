@@ -28,6 +28,14 @@ export default defineConfig({
     // Matches the app build so `constants.ts` reports the same version.
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
+  ssr: {
+    // Bundle every dependency rather than leaving them as bare imports
+    // resolved from node_modules at run time. That makes dist-cli/sharpplot.mjs
+    // genuinely self-contained, so it can be copied to a machine with no
+    // checkout — which is the whole point of the `bundle` verb and of the
+    // split between the pure `figure` step and the browser `render` step.
+    noExternal: true,
+  },
   build: {
     ssr: true,
     outDir: 'dist-cli',
