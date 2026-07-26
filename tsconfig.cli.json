@@ -1,14 +1,20 @@
 {
   "compilerOptions": {
-    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.cli.tsbuildinfo",
     "target": "ES2023",
     "useDefineForClassFields": true,
+    /* DOM is present for type resolution only (plotly.js's type declarations
+       reference DOM types). The CLI's pure path never touches the DOM; the
+       browser work happens in headless Chrome, not in this process. */
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
-    "types": ["vite/client"],
+    /* `vite/client` supplies the ambient `import.meta.env` and `__APP_VERSION__`
+       declarations that shared app modules rely on; the CLI is built by Vite
+       too, so the same globals are defined. */
+    "types": ["node", "vite/client"],
     "skipLibCheck": true,
 
-    /* Bundler mode */
+    /* Bundler mode — matches the app project so shared imports resolve identically */
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": false,
@@ -30,8 +36,5 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src"],
-  /* The sharpplot CLI is a Node program, typechecked by tsconfig.cli.json
-     (which supplies node types the app project deliberately does not have). */
-  "exclude": ["src/cli"]
+  "include": ["src/cli", "src/vite-env.d.ts"]
 }

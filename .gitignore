@@ -27,6 +27,8 @@ dist-ssr
 src-tauri/target/
 build-cache/
 dist-release/
+# sharpplot CLI bundle — a developer artifact, not part of the shipped app
+dist-cli/
 
 # Local dev config (machine-specific, not for public repo)
 CLAUDE.local.md

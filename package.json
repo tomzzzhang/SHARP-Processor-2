@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "cli:build": "vite build --config vite.cli.config.ts",
     "lint": "eslint .",
     "test:codex": "node scripts/codex-regression-tests.cjs",
     "preview": "vite preview"
