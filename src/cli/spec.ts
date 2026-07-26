@@ -215,6 +215,13 @@ export interface PlotPanel extends BasePanel {
   xAxisMode?: XAxisMode | null;
   logScale?: boolean | null;
   baselineEnabled?: boolean | null;
+  /** Fit-first automatic baseline. Off means the method/start/end below apply. */
+  baselineAuto?: boolean | null;
+  baselineMethod?: 'horizontal' | 'linear' | null;
+  /** Baseline zone, in 1-indexed cycles (not x-axis units). */
+  baselineStart?: number | null;
+  baselineEnd?: number | null;
+  driftCorrectionEnabled?: boolean | null;
   normalizeEnabled?: boolean | null;
   thresholdEnabled?: boolean | null;
   thresholdRfu?: number | null;
@@ -223,6 +230,10 @@ export interface PlotPanel extends BasePanel {
   meltNormalizeEnabled?: boolean | null;
   smoothingEnabled?: boolean | null;
   smoothingWindow?: number | null;
+  /** Log-linear doubling-time fit. Required for a `doubling` panel. */
+  fittingEnabled?: boolean | null;
+  fitStartFraction?: number | null;
+  fitEndFraction?: number | null;
 
   legend?: LegendSpec | null;
   xaxis?: AxisSpec | null;

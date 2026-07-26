@@ -9,6 +9,7 @@
     "cli:build": "vite build --config vite.cli.config.ts",
     "lint": "eslint .",
     "test:codex": "node scripts/codex-regression-tests.cjs",
+    "test:parity": "node scripts/parity-check.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

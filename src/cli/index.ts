@@ -14,6 +14,8 @@
  */
 import { parseArgs, type ParsedArgs } from './args';
 import { inspectCommand } from './inspect';
+import { buildBundle } from './figure';
+import { readSpec } from './read-spec';
 import { CliError } from './util';
 
 const USAGE = `sharpplot — publication figures from SHARP Processor data
@@ -40,6 +42,24 @@ async function run(args: ParsedArgs): Promise<number> {
       if (!source) throw new CliError('inspect needs a file: sharpplot inspect <file>');
       const report = await inspectCommand(source);
       await args.emit(report);
+      return 0;
+    }
+    case 'figure': {
+      const specPath = args.positional[0];
+      if (!specPath) throw new CliError('figure needs a spec: sharpplot figure <spec.json> --out fig.json');
+      const spec = await readSpec(specPath);
+      const only = typeof args.flags.panel === 'string' ? args.flags.panel : null;
+      if (only) {
+        const keep = spec.panels.filter((p) => p.label === only);
+        if (keep.length === 0) {
+          throw new CliError(
+            `--panel ${only} matches no panel. Spec has: ${spec.panels.map((p) => p.label).join(', ')}`,
+          );
+        }
+        spec.panels = keep;
+      }
+      const bundle = await buildBundle(spec);
+      await args.emit(bundle);
       return 0;
     }
     default:
