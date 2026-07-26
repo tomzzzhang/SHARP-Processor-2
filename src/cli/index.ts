@@ -12,20 +12,40 @@
  *   render  <spec|fig> --out out.pdf  browser: figures → PDF/PNG
  *   plot    <spec.json>               figure + render in one call
  */
+// Side-effect import: installs the browser globals the instrument parsers
+// expect. Must come before anything that can reach a parser.
+import './shims/dom';
 import { parseArgs, type ParsedArgs } from './args';
 import { inspectCommand } from './inspect';
 import { buildBundle, type FigureBundle } from './figure';
 import { isBundle, readJsonFile, readSpec } from './read-spec';
 import { renderBundle } from './render';
-import { CliError } from './util';
+import { convertCommand } from './convert';
+import { groupCommand, writeGroups } from './group';
+import { CliError, toJson } from './util';
 
 const USAGE = `sharpplot — publication figures from SHARP Processor data
 
 Usage:
   sharpplot inspect <file> [--out report.json] [--pretty]
+      What is in this file: wells, samples, groups, colours, channels, melt
+      content, which plot types it supports — plus a populated starting spec.
+
   sharpplot figure  <spec.json> [--panel LABEL] --out fig.json
+      Pure. Spec to Plotly figures, no browser needed.
+
   sharpplot render  <spec.json|fig.json> --out out.pdf [--chrome PATH] [--keep-html]
+      Browser. Figures to PDF and PNG.
+
   sharpplot plot    <spec.json> [--out basename] [--chrome PATH]
+      figure + render in one call. The normal path.
+
+  sharpplot convert <raw-file> --out <file.sharpx>
+      Raw instrument file to .sharpx, through the app's own parsers.
+
+  sharpplot group   <file.sharpx> --assign "10^7=A1-A3; NTC=B4,B5,B6" [--write [--out f]]
+      Assign wells to groups from a described plate map. Prints the resulting
+      well-to-group table for confirmation. Writes nothing unless --write.
 
 Sources: .sharpx, .sharp, .pcrd, .tlpd, .eds, .amxd, or a Bio-Rad CFX folder.
 
@@ -34,6 +54,9 @@ Common options:
   --pretty         indent JSON output
   --chrome PATH    Chrome/Chromium binary (or set SHARPPLOT_CHROME)
   -h, --help       this message
+
+Anything a spec does not mention is inherited from the source file, so a
+one-panel spec reproduces what the app last showed for it.
 `;
 
 async function run(args: ParsedArgs): Promise<number> {
@@ -60,6 +83,14 @@ async function run(args: ParsedArgs): Promise<number> {
         spec.panels = keep;
       }
       const bundle = await buildBundle(spec);
+      // A dilution panel's resolved step table goes to stderr so it is seen
+      // even when the figure JSON is piped somewhere. It is the confirmation
+      // that the x-axis means what the user thinks it means.
+      for (const p of bundle.panels) {
+        if (p.kind === 'plot' && p.summary.dilution) {
+          process.stderr.write(`\n[panel ${p.label}] ${p.summary.dilution}\n\n`);
+        }
+      }
       await args.emit(bundle);
       return 0;
     }
@@ -89,10 +120,55 @@ async function run(args: ParsedArgs): Promise<number> {
         keepHtml: args.flags['keep-html'] === true,
       });
 
+      for (const p of bundle.panels) {
+        if (p.kind === 'plot' && p.summary.dilution) {
+          process.stderr.write(`\n[panel ${p.label}] ${p.summary.dilution}\n\n`);
+        }
+      }
+
       for (const f of result.files) process.stdout.write(`${f}\n`);
       if (result.harnessDir) process.stdout.write(`harness: ${result.harnessDir}\n`);
       return 0;
     }
+    case 'convert': {
+      const source = args.positional[0];
+      if (!source) throw new CliError('convert needs a file: sharpplot convert <raw> --out <file.sharpx>');
+      const out = typeof args.flags.out === 'string' ? args.flags.out : null;
+      if (!out) throw new CliError('convert needs --out <file.sharpx>');
+      const result = await convertCommand(source, out);
+      // Report to stdout directly rather than through `emit`: here --out names
+      // the archive being written, so emitting there would overwrite it.
+      process.stdout.write(`${toJson(result, true)}\n`);
+      return 0;
+    }
+
+    case 'group': {
+      const source = args.positional[0];
+      if (!source) throw new CliError('group needs a file: sharpplot group <file.sharpx> --assign "..."');
+      const assign = args.flags.assign;
+      if (typeof assign !== 'string') {
+        throw new CliError(
+          'group needs --assign "NAME=WELLS; NAME=WELLS".\n' +
+          'Wells may be listed (A1,A2,A3), given as a range (A1-A3, A1-H1, A1-C3),\n' +
+          'or named by row letter (A). Group order becomes the legend order.',
+        );
+      }
+      const { loaded, result, echo } = await groupCommand(source, assign);
+
+      // The echo goes to stdout because it IS the deliverable of this verb:
+      // grouping is confirmed by a human before any figure is trusted.
+      process.stdout.write(`${echo}\n`);
+
+      if (args.flags.write === true) {
+        const out = typeof args.flags.out === 'string' ? args.flags.out : loaded.sourcePath;
+        await writeGroups(loaded, result, out);
+        process.stdout.write(`\nWritten to ${out}\n`);
+      } else {
+        process.stdout.write('\nNothing written. Re-run with --write to save this into the file.\n');
+      }
+      return 0;
+    }
+
     default:
       throw new CliError(`Unknown verb "${args.verb}".\n\n${USAGE}`);
   }

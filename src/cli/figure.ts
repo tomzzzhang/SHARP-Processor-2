@@ -26,6 +26,7 @@ import { loadSource, visibleWellsOf, type LoadedExperiment } from './load';
 import { computePlacements, inchesToPx, type PanelPlacement } from './layout';
 import { readImageSize } from './image-size';
 import { decorateLayout, referenceLineTraces } from './decorate';
+import { describeDilution, resolveDilution, statisticValues, substituteStatistics } from './dilution';
 import {
   SpecError, type ImagePanel, type PanelLabelSpec, type PlotPanel, type ResolvedSpec,
   type SpecStyle, type TablePanel, type WellSelection,
@@ -45,6 +46,10 @@ export interface PlotRenderPanel {
     channel: string;
     wells: string[];
     groups: string[];
+    /** For a dilution panel: the resolved step table, printed for confirmation
+     *  before the figure is trusted. A silently mis-assigned concentration
+     *  produces a figure that looks perfect and is wrong. */
+    dilution?: string;
   };
 }
 
@@ -366,7 +371,33 @@ async function buildPlotPanel(
     if (panel.legend.content) input.style.legendContent = panel.legend.content;
   }
 
-  assertPlotTypeAvailable(panel.plotType, expForChannel, panel.label!, analysisResults);
+  // A dilution panel needs the regression, not the curves. It is computed by
+  // `analyzeDilutionSeries` from the SAME analysis results this panel would
+  // plot, so a standard curve can never disagree with the amplification panel
+  // beside it.
+  let dilutionEcho: string | null = null;
+  if (panel.plotType === 'dilution') {
+    const ttByWell = new Map<string, number>();
+    for (const [well, r] of analysisResults) {
+      if (r.tt != null && !view.hiddenWells.has(well) && !view.deactivatedWells.has(well)) {
+        ttByWell.set(well, r.tt);
+      }
+    }
+    const resolved = resolveDilution(loaded, panel.dilution, ttByWell);
+    dilutionEcho = describeDilution(resolved, ttByWell);
+    const values = statisticValues(resolved.result);
+    input.dilution = {
+      result: resolved.result,
+      unit: panel.dilution?.unit ?? resolved.config.unit ?? '',
+      errorBars: panel.errorBars ?? 'sd',
+      showFit: pick(panel.showFit, true),
+      annotation: panel.fitAnnotation ? substituteStatistics(panel.fitAnnotation, values) : null,
+      yTitle: panel.yaxis?.title ?? null,
+      xTitle: panel.xaxis?.title ?? null,
+    };
+  } else {
+    assertPlotTypeAvailable(panel.plotType, expForChannel, panel.label!, analysisResults);
+  }
 
   const figure = buildFigure(panel.plotType, input);
 
@@ -395,6 +426,7 @@ async function buildPlotPanel(
       channel,
       wells: visibleWells,
       groups: [...new Set(visibleWells.map((w) => groups.get(w)).filter((g): g is string => Boolean(g)))],
+      ...(dilutionEcho ? { dilution: dilutionEcho } : {}),
     },
   };
 }

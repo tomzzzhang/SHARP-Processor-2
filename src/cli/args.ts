@@ -13,7 +13,7 @@ export interface ParsedArgs {
 }
 
 /** Flags that take a value; everything else is a boolean switch. */
-const VALUE_FLAGS = new Set(['out', 'panel', 'chrome', 'format', 'dpi', 'width', 'height']);
+const VALUE_FLAGS = new Set(['out', 'panel', 'chrome', 'format', 'dpi', 'width', 'height', 'assign', 'source']);
 
 export function parseArgs(argv: string[]): ParsedArgs {
   const [verb, ...rest] = argv;
