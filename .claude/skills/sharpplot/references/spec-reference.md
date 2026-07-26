@@ -122,11 +122,41 @@ does.** Never a silent skip.
     "order": ["10^7", "10^6", "NTC"]
   },
   "title": "Amplification",
-  "styleOverride": { "legendSize": 6 }
+  "styleOverride": { "legendSize": 6 },
+  "margin": { "l": 60, "r": 12, "t": 24, "b": 36 }
 }
 ```
 
 Line styles: `solid`, `dash`, `dot`, `dashdot`.
+
+`panel.margin` overrides the plot's computed pixel margins (96 px/in),
+per edge — omitted edges keep the computed value. This is the primary lever
+for hitting an exact inner-plot-area ratio and for aligning panel edges
+across a composite; see `references/figure-layout.md` for the full recipe.
+
+### Legend, beyond position/content
+
+```jsonc
+"legend": {
+  "show": true, "position": "upper left", "content": "group",
+  "title": "Input", "order": ["10^7", "10^6", "NTC"],
+  "frame": true,            // box around the legend (false = unboxed, common in print)
+  "bgcolor": "#ffffff",     // or "transparent"
+  "fontSize": 8,
+  "orientation": "h",       // "v" (default, one row per entry) | "h" (wraps, spends width not height)
+  "itemGap": 2,             // px between entries
+  "entryWidthPx": 90        // forces per-entry width in "h" mode — changes column count,
+                             // NOT the legend box's overall footprint. See figure-layout.md.
+}
+```
+
+`position` also accepts `"above"`: places a horizontal legend in reserved
+space over the axes (never over data) and pins the panel title above it.
+Only meaningful with `orientation: "h"`.
+
+Plotly costs ~`(fontSize + 12)` px per vertical row — a many-series legend
+needs real room; see `references/figure-layout.md` §4 before assuming a
+legend "should" fit and shrinking text to force it.
 
 ### Axes
 
@@ -139,13 +169,26 @@ Line styles: `solid`, `dash`, `dot`, `dashdot`.
   "scale": "linear",        // linear | log (base 10) | log2
   "dtick": 5,
   "tickFormat": ".1f",
-  "tickDirection": "outside",
+  "tickDirection": "outside", // "outside" | "inside" | "" (no ticks — pairs with gridlines)
   "minorTicks": true,
-  "frame": true             // full box instead of open L-shaped axes
+  "frame": true,             // full box instead of open L-shaped axes
+  "lineWidth": 1.1,          // frame/axis line weight, px (Plotly's default reads thin)
+  "lineColor": "#000000",
+  "gridDash": "dot",         // "solid" | "dot" | "dash" | "dashdot" — Plotly defaults to solid
+  "gridColor": "rgba(0,0,0,0.15)",
+  "zeroline": false,         // Plotly's separate y=0 line reads as a stray heavy gridline
+  "titleStandoff": 20        // px from tick labels to the title — see below
 }
 ```
 
 Pass `range` in data units even for a log axis — the conversion is handled.
+
+**`titleStandoff` — needed whenever two panels' y-axis titles should align.**
+Plotly positions a y-axis title relative to that axis's own tick-label
+width, not a fixed distance from the plot edge, so two panels with equal
+margins but different tick-label digit counts (`"7000"` vs `"20"`) get
+visibly offset titles. Tune per panel and verify by measuring rendered
+pixels — full recipe in `references/figure-layout.md` §5.
 
 ### Annotations and reference lines
 
@@ -182,9 +225,15 @@ one. Setting `legend` gives the line its own legend entry.
   "fitAnnotation": "slope {slope} min/log₂<br>R² = {r2}<br>n = {n}",
   "fitAnnotationPosition": "bottom-left",
   "pointColor": "#c42a30", "fitColor": "#555555", "markerSize": 7,
+  "markerSymbol": "square",
+  "dilution": { "xScale": "log2" },  // "concentration" (default, log10 axis) | "log2" (linear axis)
   "yaxis": { "title": "Time to threshold (min)" }
 }
 ```
+
+`dilution.xScale: "log2"` plots log₂(concentration) on a linear axis — the
+space the regression is actually solved in, so the slope reads directly as
+minutes per doubling. Default plots concentration on a log10 axis instead.
 
 Requires `thresholdEnabled` — time-to-threshold is what it plots.
 

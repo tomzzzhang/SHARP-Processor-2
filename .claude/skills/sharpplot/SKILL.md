@@ -115,6 +115,58 @@ Save the spec beside the figure so it can be re-edited later.
 types, selection, axes, annotations, reference lines, dilution config, image
 crop and table panels. Load it before writing anything beyond a basic panel.
 
+## Step 6 — matching a reference, and Tom's layout language
+
+Tom specifies composites by describing the **framed plotting rectangles**,
+not the outer panel boxes. "3 panel, 3:1 vertical, top 1 fig, bottom 2 at
+1:2 horizontal, ratios are the plotting areas" means: the inner axes frames
+land at that ratio; labels, ticks, titles and legend are added on top
+without disturbing it. `layout.widths`/`heights` in the spec size the
+*outer* cell (frame + labels + ticks + legend + title). Solve backward —
+pick margins for each panel's chrome, then set the outer cell sizes so what
+is left over is the frame ratio he asked for. **Read
+`references/figure-layout.md` before building or revising any multi-panel
+composite** — it has the margin-solving recipe and copy-paste verification
+snippets. Do not skip it and eyeball the result; every alignment claim in
+this workflow should be checked from the emitted geometry or measured pixels,
+because "looks right" has been wrong before.
+
+**Row edges must align.** When a panel spans two columns and the row below
+it doesn't, its left margin must equal the left panel's, and its right
+margin the right panel's, so the two rows' frames — and everything around
+them — share the same outer edges. Verify this by reading `figure`'s emitted
+`placement` + `margin`, never by eye.
+
+**Hand-drawn sketches are valid layout specs.** Tom may send one instead of
+describing panel arrangement in words — translate it the same way: panel
+count and position, relative sizes, which one spans.
+
+**Style defaults for this kind of figure**, unless told otherwise: framed
+(boxed) axes on all four sides, gridlines on and subtle, ticks **off** when
+gridlines are already shown (redundant otherwise), a moderate frame weight
+(not the Plotly default, which reads thin, and not so thick it looks heavy),
+tight margins and panel gaps, one shared legend when panels repeat the same
+colour key rather than one per panel.
+
+**Legend size is arithmetic, not negotiable below a floor.** Plotly costs
+about `(fontSize + 12)` px per vertical legend row — several times
+matplotlib's density. A figure with more categories than a reference
+figure (more dilution steps, more groups) needs a genuinely bigger legend;
+that is not a setting being withheld. The floor is real: don't shrink text
+past readability (≈7–8px) to force a fit. Instead trade panel height, legend
+shape (vertical column vs. horizontal wrapped), or position — see the
+reference doc for the decision process.
+
+**After any CLI code edit, re-stage before testing.** `npm run cli:install`
+rebuilds and re-copies to `~/.claude/tools/sharpplot/` — that global copy is
+a snapshot, not a link. Testing against the stale one has produced false
+bug reports before.
+
+**Once Tom accepts a figure, save one named file next to the source data**
+(`<name>.pdf`, `<name>.png`, `<name>.spec.json`) and overwrite those same
+three files on later revisions of the same figure, rather than accumulating
+versioned filenames. Use throwaway names for iteration in scratch.
+
 ## The two things that must never be guessed
 
 A figure that renders beautifully and is wrong is the worst output this tool
