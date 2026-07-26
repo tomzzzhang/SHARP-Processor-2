@@ -392,6 +392,10 @@ async function buildPlotPanel(
       errorBars: panel.errorBars ?? 'sd',
       showFit: pick(panel.showFit, true),
       annotation: panel.fitAnnotation ? substituteStatistics(panel.fitAnnotation, values) : null,
+      annotationPosition: panel.fitAnnotationPosition ?? undefined,
+      pointColor: panel.pointColor ?? undefined,
+      fitColor: panel.fitColor ?? undefined,
+      markerSize: panel.markerSize ?? undefined,
       yTitle: panel.yaxis?.title ?? null,
       xTitle: panel.xaxis?.title ?? null,
     };

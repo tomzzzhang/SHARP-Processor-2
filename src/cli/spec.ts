@@ -253,6 +253,12 @@ export interface PlotPanel extends BasePanel {
   /** Free text placed on the panel, with `{slope}`, `{r2}`, `{pValue}`,
    *  `{doublingTime}`, `{n}` substituted from the computed regression. */
   fitAnnotation?: string | null;
+  /** Corner the fit annotation sits in. Defaults to top-right. */
+  fitAnnotationPosition?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | null;
+  /** Marker and fit-line colours for a dilution panel. */
+  pointColor?: string | null;
+  fitColor?: string | null;
+  markerSize?: number | null;
 }
 
 /** Verbal-wizard equivalent of `DilutionWizard`: either derive the steps from
