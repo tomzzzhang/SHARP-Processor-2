@@ -81,11 +81,12 @@ cp -r .claude/skills/sharpplot ~/.claude/skills/
 `cli:install` is also the refresh command after changing the CLI — the staged
 files are a snapshot, not a link.
 
-**claude.ai / Cowork:** upload `sharpplot.skill` (a zip of the skill folder)
-via Settings → Skills → Add. Rebuild it after editing the skill with:
+**claude.ai / Cowork:** upload [`skills/sharpplot.skill`](../skills/sharpplot.skill)
+via Settings → Skills → Add — grab it straight from the repo, no build needed.
+Rebuild it after editing the skill source (`.claude/skills/sharpplot/`) with:
 
 ```bash
-npm run skill:pack                           # writes dist-skill/sharpplot.skill
+npm run skill:pack                           # updates skills/sharpplot.skill (tracked)
 ```
 
 **A colleague:** they clone the repo and do the same. The skill discovers the
