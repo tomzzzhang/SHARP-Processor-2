@@ -367,7 +367,11 @@ async function buildPlotPanel(
   // panel's `legend.show` is a convenience alias for the same thing.
   if (panel.legend) {
     if (panel.legend.show !== undefined && panel.legend.show !== null) input.style.showLegend = panel.legend.show;
-    if (panel.legend.position) input.style.legendPosition = panel.legend.position;
+    // `above` is a CLI-only placement resolved in decorateLayout; the app's
+    // position map has no equivalent, so seed it with the nearest corner.
+    if (panel.legend.position) {
+      input.style.legendPosition = panel.legend.position === 'above' ? 'upper left' : panel.legend.position;
+    }
     if (panel.legend.content) input.style.legendContent = panel.legend.content;
   }
 
@@ -525,6 +529,9 @@ function buildTablePanel(panel: TablePanel, spec: ResolvedSpec, placement: Panel
 function warnIfLegendClipped(panel: PlotRenderPanel): void {
   const layout = panel.figure.layout;
   if (!layout.showlegend) return;
+  // A horizontal legend flows across and wraps, so its height is not driven by
+  // the entry count and this check does not apply.
+  if ((layout.legend as { orientation?: string } | undefined)?.orientation === 'h') return;
   const entries = panel.figure.data.filter((t) => (t as { showlegend?: boolean }).showlegend).length;
   if (entries === 0) return;
 

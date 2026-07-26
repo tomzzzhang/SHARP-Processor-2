@@ -160,6 +160,13 @@ export interface LegendSpec {
   /** Vertical gap between entries, in pixels. */
   itemGap?: number | null;
   fontSize?: number | null;
+  /**
+   * `v` (default) stacks entries in a column; `h` flows them across and wraps.
+   * Horizontal spends width instead of height, which is what lets a
+   * many-series legend keep readable text without making the figure taller —
+   * Plotly clips a legend to the plot area, wherever it is positioned.
+   */
+  orientation?: 'v' | 'h' | null;
 }
 
 export interface AnnotationSpec {

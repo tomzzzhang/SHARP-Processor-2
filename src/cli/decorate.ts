@@ -214,11 +214,40 @@ export function decorateLayout(
     ] as Layout['annotations'];
   }
 
+  // `above` is not one of the app's legend positions: it places a horizontal
+  // legend in reserved space over the axes, which is how a many-series figure
+  // keeps a readable legend without covering the data. Handled here because it
+  // needs both the legend anchor and the top margin.
+  if (panel.legend?.position === 'above') {
+    const size = panel.legend.fontSize ?? style.legendSize;
+    layout.legend = {
+      ...((layout.legend ?? {}) as object),
+      orientation: 'h',
+      x: 0,
+      y: 1,
+      xanchor: 'left',
+      yanchor: 'bottom',
+    } as Layout['legend'];
+    const margin = (layout.margin ?? {}) as { l?: number; r?: number; t?: number; b?: number };
+    // Room for the title plus up to two wrapped legend rows.
+    layout.margin = { ...margin, t: Math.max(margin.t ?? 20, Math.round(size * 2.8 + 34)) };
+    // Pin the title to the top of the panel. Left to Plotly it centres itself
+    // in the enlarged top margin and lands on top of the legend.
+    layout.title = {
+      ...((layout.title ?? {}) as object),
+      y: 1,
+      yanchor: 'top',
+      yref: 'container',
+      pad: { t: 4 },
+    } as Layout['title'];
+  }
+
   // Legend appearance beyond position/content. `plot-figure.ts` hardcodes a
   // white fill with a 1px border — right for the app's on-screen legend, but
   // published figures usually want it unboxed and sitting on the plot.
   const lg = panel.legend;
-  if (lg && (lg.title || lg.frame !== undefined || lg.bgcolor || lg.itemGap != null || lg.fontSize != null)) {
+  if (lg && (lg.title || lg.frame !== undefined || lg.bgcolor || lg.itemGap != null
+    || lg.fontSize != null || lg.orientation)) {
     const legend = { ...((layout.legend ?? {}) as Record<string, unknown>) };
     if (lg.title) {
       legend.title = { text: lg.title, font: { family: style.fontFamily, size: lg.fontSize ?? style.legendSize } };
@@ -238,6 +267,7 @@ export function decorateLayout(
     if (lg.fontSize != null) {
       legend.font = { family: style.fontFamily, size: lg.fontSize };
     }
+    if (lg.orientation) legend.orientation = lg.orientation;
     layout.legend = legend as Layout['legend'];
   }
 }
