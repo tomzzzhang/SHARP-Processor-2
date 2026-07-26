@@ -15,6 +15,7 @@
  * GUI, so a one-line panel reproduces their figure and edits stay small.
  */
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 import type { Data, Layout } from 'plotly.js';
 import { buildFigure, type BuildFigureInput, type PlotFigureStyle, type PlotType } from '@/lib/plot-figure';
 import { computeChannelResults } from '@/hooks/useAnalysisResults';
@@ -23,16 +24,19 @@ import type { ChannelAnalysisState } from '@/hooks/useAppState';
 import { parseCurveKey } from '@/lib/curves';
 import { loadSource, visibleWellsOf, type LoadedExperiment } from './load';
 import { computePlacements, inchesToPx, type PanelPlacement } from './layout';
+import { readImageSize } from './image-size';
 import { decorateLayout, referenceLineTraces } from './decorate';
 import {
-  SpecError, type ImagePanel, type PlotPanel, type ResolvedSpec, type SpecStyle,
-  type TablePanel, type WellSelection,
+  SpecError, type ImagePanel, type PanelLabelSpec, type PlotPanel, type ResolvedSpec,
+  type SpecStyle, type TablePanel, type WellSelection,
 } from './spec';
 
 export interface PlotRenderPanel {
   kind: 'plot';
   label: string;
   placement: PanelPlacement;
+  /** Per-panel override of the composite label settings. */
+  labelOverride: Partial<PanelLabelSpec> | null;
   figure: { data: Data[]; layout: Partial<Layout> };
   /** What actually got drawn, for the confirmation echo. */
   summary: {
@@ -48,17 +52,22 @@ export interface ImageRenderPanel {
   kind: 'image';
   label: string;
   placement: PanelPlacement;
+  labelOverride: Partial<PanelLabelSpec> | null;
   /** Absolute path to the image on disk. */
   path: string;
   fit: 'contain' | 'cover' | 'fill';
   crop: { x: number; y: number; w: number; h: number } | null;
   background: string | null;
+  /** Intrinsic pixel size, when it could be read. Lets a cropped panel keep
+   *  the source's aspect ratio instead of stretching it. */
+  intrinsic: { width: number; height: number } | null;
 }
 
 export interface TableRenderPanel {
   kind: 'table';
   label: string;
   placement: PanelPlacement;
+  labelOverride: Partial<PanelLabelSpec> | null;
   columns: string[];
   rows: (string | number)[][];
   fontSize: number;
@@ -369,7 +378,7 @@ async function buildPlotPanel(
     height: inchesToPx(placement.h_in),
   };
 
-  decorateLayout(layout, panel, input.style);
+  decorateLayout(layout, panel, input.style, figure.data);
   // Reference lines that asked for a legend entry ride along as invisible
   // traces, since a Plotly shape cannot appear in the legend on its own.
   const data: Data[] = [...figure.data, ...(referenceLineTraces(panel) as Data[])];
@@ -378,6 +387,7 @@ async function buildPlotPanel(
     kind: 'plot',
     label: panel.label!,
     placement,
+    labelOverride: panel.panelLabel ?? null,
     figure: { data, layout },
     summary: {
       source,
@@ -419,15 +429,32 @@ function assertPlotTypeAvailable(
   }
 }
 
-function buildImagePanel(panel: ImagePanel, spec: ResolvedSpec, placement: PanelPlacement): ImageRenderPanel {
+async function buildImagePanel(panel: ImagePanel, spec: ResolvedSpec, placement: PanelPlacement): Promise<ImageRenderPanel> {
+  const abs = path.isAbsolute(panel.path) ? panel.path : path.resolve(spec.baseDir, panel.path);
+  if (!existsSync(abs)) {
+    throw new SpecError(`Image panel "${panel.label}" points at ${abs}, which does not exist.`);
+  }
+  const crop = panel.crop ?? null;
+  if (crop) {
+    const inRange = (v: number) => v >= 0 && v <= 1;
+    if (!inRange(crop.x) || !inRange(crop.y) || !(crop.w > 0) || !(crop.h > 0)
+      || crop.x + crop.w > 1.0001 || crop.y + crop.h > 1.0001) {
+      throw new SpecError(
+        `Image panel "${panel.label}" has an out-of-range crop. ` +
+        'x/y/w/h are fractions of the source image and the window must lie inside it.',
+      );
+    }
+  }
   return {
     kind: 'image',
     label: panel.label!,
     placement,
-    path: path.isAbsolute(panel.path) ? panel.path : path.resolve(spec.baseDir, panel.path),
+    labelOverride: panel.panelLabel ?? null,
+    path: abs,
     fit: panel.fit ?? 'contain',
-    crop: panel.crop ?? null,
+    crop,
     background: panel.background ?? null,
+    intrinsic: await readImageSize(abs),
   };
 }
 
@@ -437,6 +464,7 @@ function buildTablePanel(panel: TablePanel, spec: ResolvedSpec, placement: Panel
     kind: 'table',
     label: panel.label!,
     placement,
+    labelOverride: panel.panelLabel ?? null,
     columns: panel.columns,
     rows: panel.rows,
     fontSize: panel.fontSize ?? style.tickSize ?? 7,
@@ -445,6 +473,50 @@ function buildTablePanel(panel: TablePanel, spec: ResolvedSpec, placement: Panel
     fontFamily: panel.styleOverride?.fontFamily ?? style.fontFamily ?? 'Arial, Helvetica, sans-serif',
     color: style.textColor === 'white' ? '#ffffff' : '#000000',
   };
+}
+
+/**
+ * Warn when a legend has more entries than its panel can show.
+ *
+ * Plotly clips a legend taller than the plotting area without complaint, so
+ * the figure looks finished while silently omitting series — the same class of
+ * failure as dropping a well. Warn rather than fail: the caller may genuinely
+ * not care, and the fix (smaller legend font, a taller panel, `position`
+ * outside, or `legend.show: false`) is theirs to choose.
+ */
+function warnIfLegendClipped(panel: PlotRenderPanel): void {
+  const layout = panel.figure.layout;
+  if (!layout.showlegend) return;
+  const entries = panel.figure.data.filter((t) => (t as { showlegend?: boolean }).showlegend).length;
+  if (entries === 0) return;
+
+  const margin = (layout.margin ?? {}) as { t?: number; b?: number };
+  const plotHeight = (layout.height ?? 0) - (margin.t ?? 0) - (margin.b ?? 0);
+  const legendSize = (layout.legend as { font?: { size?: number } } | undefined)?.font?.size ?? 12;
+  // Plotly's per-entry height is roughly the font size plus fixed padding.
+  const entryHeight = legendSize * 1.3 + 12;
+  const needed = entries * entryHeight;
+  if (needed <= plotHeight) return;
+
+  const fits = Math.max(0, Math.floor(plotHeight / entryHeight));
+  process.stderr.write(
+    `sharpplot: panel "${panel.label}" legend has ${entries} entries but only about ${fits} fit ` +
+    `in ${Math.round(plotHeight)}px of plot height — Plotly will clip the rest.\n` +
+    '  Options: a taller panel, a smaller style.legendSize, legend.position "right", ' +
+    'legend.content "group", or legend.show false.\n',
+  );
+}
+
+/** With no font stated anywhere, take the one the first plot panel resolved
+ *  (which came from its source file), so labels match the axes. */
+function defaultLabelFont(panels: RenderPanel[]): string | undefined {
+  for (const p of panels) {
+    if (p.kind === 'plot') {
+      const font = (p.figure.layout.xaxis as { title?: { font?: { family?: string } } } | undefined)?.title?.font?.family;
+      if (font) return font;
+    }
+  }
+  return undefined;
 }
 
 /** Build every panel of a resolved spec. Pure: no browser involved. */
@@ -456,8 +528,12 @@ export async function buildBundle(spec: ResolvedSpec): Promise<FigureBundle> {
   for (const panel of spec.panels) {
     const placement = placements.get(panel.label!);
     if (!placement) throw new SpecError(`Panel "${panel.label}" has no place in the grid.`);
-    if (panel.kind === 'plot') panels.push(await buildPlotPanel(panel, spec, placement, cache));
-    else if (panel.kind === 'image') panels.push(buildImagePanel(panel, spec, placement));
+    if (panel.kind === 'plot') {
+      const built = await buildPlotPanel(panel, spec, placement, cache);
+      warnIfLegendClipped(built);
+      panels.push(built);
+    }
+    else if (panel.kind === 'image') panels.push(await buildImagePanel(panel, spec, placement));
     else panels.push(buildTablePanel(panel, spec, placement));
   }
 
@@ -465,7 +541,13 @@ export async function buildBundle(spec: ResolvedSpec): Promise<FigureBundle> {
     id: spec.id,
     output: spec.output,
     layout: spec.layout,
-    panelLabels: spec.panelLabels,
+    // Panel labels default to the composite font. Without this they fall back
+    // to the browser's serif default and a figure set in Arial gets Times
+    // letters, which is immediately visible in print.
+    panelLabels: {
+      ...spec.panelLabels,
+      fontFamily: spec.panelLabels.fontFamily ?? spec.style.fontFamily ?? defaultLabelFont(panels),
+    },
     panels,
   };
 }

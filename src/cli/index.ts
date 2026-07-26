@@ -14,8 +14,9 @@
  */
 import { parseArgs, type ParsedArgs } from './args';
 import { inspectCommand } from './inspect';
-import { buildBundle } from './figure';
-import { readSpec } from './read-spec';
+import { buildBundle, type FigureBundle } from './figure';
+import { isBundle, readJsonFile, readSpec } from './read-spec';
+import { renderBundle } from './render';
 import { CliError } from './util';
 
 const USAGE = `sharpplot — publication figures from SHARP Processor data
@@ -60,6 +61,36 @@ async function run(args: ParsedArgs): Promise<number> {
       }
       const bundle = await buildBundle(spec);
       await args.emit(bundle);
+      return 0;
+    }
+    case 'render':
+    case 'plot': {
+      const input = args.positional[0];
+      if (!input) throw new CliError(`${args.verb} needs a spec or figure file.`);
+
+      // `render` accepts either a spec (build it here) or a fig.json built
+      // earlier, possibly on another machine with no browser.
+      let bundle: FigureBundle;
+      let defaultStem: string;
+      const raw = await readJsonFile(input);
+      if (isBundle(raw)) {
+        bundle = raw;
+        defaultStem = bundle.id;
+      } else {
+        const spec = await readSpec(input);
+        bundle = await buildBundle(spec);
+        defaultStem = spec.id;
+      }
+
+      const out = typeof args.flags.out === 'string' ? args.flags.out : defaultStem;
+      const result = await renderBundle(bundle, {
+        out,
+        chrome: typeof args.flags.chrome === 'string' ? args.flags.chrome : null,
+        keepHtml: args.flags['keep-html'] === true,
+      });
+
+      for (const f of result.files) process.stdout.write(`${f}\n`);
+      if (result.harnessDir) process.stdout.write(`harness: ${result.harnessDir}\n`);
       return 0;
     }
     default:

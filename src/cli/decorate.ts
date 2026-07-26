@@ -123,13 +123,53 @@ export function referenceLineTraces(panel: PlotPanel): ReturnType<typeof referen
 }
 
 /**
+ * A legend placed outside the axes needs room that `computeMargins` does not
+ * allocate — it returns a fixed 20px right margin, so an outside legend is
+ * drawn past the figure edge and clipped.
+ *
+ * Widen the margin here rather than in `plot-figure.ts`: changing that
+ * function would change what the shipped app's Export Wizard produces for
+ * every existing figure, which this work is not allowed to do. (The same
+ * clipping affects the Export Wizard, and is worth fixing upstream as its own
+ * reviewed change.)
+ */
+function reserveOutsideLegend(layout: Partial<Layout>, data: readonly unknown[], style: PlotFigureStyle): void {
+  if (!style.showLegend) return;
+  const pos = style.legendPosition;
+  // The positions that sit outside the plotting area.
+  if (pos !== 'right' && pos !== 'outside right') return;
+
+  let longest = 0;
+  for (const trace of data) {
+    const t = trace as { name?: string; showlegend?: boolean };
+    if (t.showlegend === false || !t.name) continue;
+    longest = Math.max(longest, t.name.length);
+  }
+  if (longest === 0) return;
+
+  // Legend width ≈ swatch + gap + text. 0.6em per character is a reasonable
+  // average for proportional faces and errs slightly wide, which is the safe
+  // direction — extra whitespace beats a clipped label.
+  const width = 34 + longest * style.legendSize * 0.6;
+  const margin = (layout.margin ?? {}) as { l?: number; r?: number; t?: number; b?: number };
+  layout.margin = { ...margin, r: Math.max(margin.r ?? 20, Math.round(width)) };
+}
+
+/**
  * Apply a panel's decorations to a built layout, in place.
  *
  * Axis specs address the axes `plot-figure.ts` actually produced: a full melt
  * panel stacks RFU over the derivative, so its temperature axis is `xaxis2`
  * and the derivative's is `yaxis2`.
  */
-export function decorateLayout(layout: Partial<Layout>, panel: PlotPanel, style: PlotFigureStyle): void {
+export function decorateLayout(
+  layout: Partial<Layout>,
+  panel: PlotPanel,
+  style: PlotFigureStyle,
+  data: readonly unknown[] = [],
+): void {
+  reserveOutsideLegend(layout, data, style);
+
   const l = layout as unknown as Record<string, AxisLayout | unknown>;
 
   // On a stacked melt panel the labelled x-axis is the bottom one.
