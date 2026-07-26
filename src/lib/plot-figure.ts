@@ -15,10 +15,53 @@
  */
 import type { Data, Layout, Shape, PlotData } from 'plotly.js';
 import type { ExperimentData, XAxisMode } from '@/types/experiment';
-import { normalizeMeltCurves, type WellAnalysisResult } from '@/lib/analysis';
+import {
+  normalizeMeltCurves, tCriticalApprox,
+  type DilutionSeriesResult, type WellAnalysisResult,
+} from '@/lib/analysis';
 import { getPaletteColors } from '@/lib/constants';
 
-export type PlotType = 'amp' | 'melt' | 'melt_deriv' | 'doubling';
+export type PlotType = 'amp' | 'melt' | 'melt_deriv' | 'doubling' | 'dilution';
+
+/** Which spread the error bars on a dilution standard curve represent. */
+export type ErrorBarSource = 'sd' | 'sem' | 'ci95' | 'none';
+
+/**
+ * Everything a dilution standard-curve panel needs beyond the experiment
+ * itself. The regression is NOT computed here — `analyzeDilutionSeries` in
+ * `analysis.ts` produces it, and this builder only draws the result, so the
+ * numbers in a figure are the same ones the app's Standard Curve panel shows.
+ */
+export interface DilutionFigureInput {
+  result: DilutionSeriesResult;
+  /** Concentration unit, for the x-axis label. */
+  unit: string;
+  errorBars: ErrorBarSource;
+  showFit: boolean;
+  /**
+   * How the x-axis expresses input amount.
+   *
+   * `concentration` (default) plots concentration on a log10 axis, so a
+   * ten-fold series lands on even decades and the labels read in the units the
+   * user pipetted. `log2` plots log₂(concentration) on a linear axis — the
+   * space the regression is actually solved in, which makes the slope directly
+   * readable as minutes per doubling.
+   */
+  xScale?: 'concentration' | 'log2';
+  /** Plotly marker symbol, e.g. `circle` (default) or `square`. */
+  markerSymbol?: string;
+  /** Text drawn on the panel. Statistic substitution happens before this
+   *  point, so the builder stays free of formatting policy. */
+  annotation?: string | null;
+  /** Corner for the annotation. */
+  annotationPosition?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+  pointColor?: string;
+  fitColor?: string;
+  markerSize?: number;
+  /** Label for the measured quantity; defaults to Tt/Ct by x-axis unit. */
+  yTitle?: string | null;
+  xTitle?: string | null;
+}
 
 export interface PlotFigureStyle {
   palette: string;
@@ -62,6 +105,8 @@ export interface BuildFigureInput {
   meltNormalizeEnabled: boolean;
   smoothingEnabled: boolean;
   smoothingWindow: number;
+  /** Required only by the `dilution` plot type; ignored by every other. */
+  dilution?: DilutionFigureInput | null;
 }
 
 const X_AXIS_LABELS: Record<XAxisMode, string> = {
@@ -589,6 +634,142 @@ function buildDoubling(input: BuildFigureInput): { data: Data[]; layout: Partial
   return { data, layout };
 }
 
+// ── Dilution standard curve ────────────────────────────────────────
+
+/** Error-bar half-length per dilution step, for the requested spread. */
+function errorBarValues(result: DilutionSeriesResult, source: ErrorBarSource): number[] | null {
+  if (source === 'none') return null;
+  return result.groupStats.map((g) => {
+    if (source === 'sd') return g.stdTt;
+    if (source === 'sem') return g.semTt;
+    // 95% CI of the step mean, using the t-value for that step's own replicate
+    // count. With n = 3 the normal approximation would understate it by ~2x.
+    return g.n > 1 ? tCriticalApprox(0.025, g.n - 1) * g.semTt : 0;
+  });
+}
+
+const ANNOTATION_CORNERS = {
+  'top-left': { x: 0.02, y: 0.98, xanchor: 'left', yanchor: 'top' },
+  'top-right': { x: 0.98, y: 0.98, xanchor: 'right', yanchor: 'top' },
+  'bottom-left': { x: 0.02, y: 0.02, xanchor: 'left', yanchor: 'bottom' },
+  'bottom-right': { x: 0.98, y: 0.02, xanchor: 'right', yanchor: 'bottom' },
+} as const;
+
+/**
+ * Standard curve: mean time-to-threshold against input concentration, with
+ * the fitted regression from `analyzeDilutionSeries`.
+ *
+ * Concentration is drawn on a log10 axis so a ten-fold series lands on even
+ * decades, while the fit is evaluated in log2 — the space the regression was
+ * solved in — so the drawn line is the actual fitted model rather than a
+ * redrawing of it.
+ */
+function buildDilution(input: BuildFigureInput): { data: Data[]; layout: Partial<Layout> } {
+  const { style, xAxisMode } = input;
+  const dil = input.dilution;
+  if (!dil) return { data: [], layout: {} };
+
+  const { result } = dil;
+  const stats = result.groupStats;
+  const pointColor = dil.pointColor ?? '#c42a30';
+  const fitColor = dil.fitColor ?? '#555555';
+
+  const errors = errorBarValues(result, dil.errorBars);
+  const data: Data[] = [];
+  const useLog2 = dil.xScale === 'log2';
+
+  // x in the chosen space. The regression is solved in log2, so `log2` mode
+  // plots its native coordinates and `concentration` mode plots the same
+  // points on a log10 axis — the two differ only in labelling.
+  const xs = stats.map((g) => (useLog2 ? g.log2Conc : g.concentration));
+
+  if (dil.showFit && stats.length >= 2) {
+    // Two points suffice: the fit is a straight line in log2, and a log10 axis
+    // is a linear remapping of log2, so it stays straight either way.
+    const lo = Math.min(...xs);
+    const hi = Math.max(...xs);
+    const yAt = (x: number) => result.slope * (useLog2 ? x : Math.log2(x)) + result.intercept;
+    data.push({
+      x: [lo, hi],
+      y: [yAt(lo), yAt(hi)],
+      type: 'scatter',
+      mode: 'lines',
+      name: 'Fit',
+      line: { color: fitColor, width: style.lineWidth, dash: 'dash' },
+      hoverinfo: 'skip',
+      showlegend: false,
+    });
+  }
+
+  data.push({
+    x: xs,
+    y: stats.map((g) => g.meanTt),
+    type: 'scatter',
+    mode: 'markers',
+    name: 'Mean',
+    marker: {
+      color: pointColor,
+      size: dil.markerSize ?? 7,
+      symbol: dil.markerSymbol ?? 'circle',
+    },
+    ...(errors
+      ? { error_y: { type: 'data', array: errors, visible: true, color: pointColor, thickness: 1, width: 3 } }
+      : {}),
+    hoverinfo: 'x+y',
+    showlegend: false,
+  });
+
+  const plotBg = resolvePlotBg(style);
+  const yTitle = dil.yTitle
+    ?? (xAxisMode === 'cycle' ? 'Ct (cycles)' : `Tt (${xAxisMode === 'time_s' ? 's' : 'min'})`);
+  const xTitle = dil.xTitle
+    ?? (useLog2
+      ? 'log₂([template])'
+      : (dil.unit ? `Input (${dil.unit})` : 'Input'));
+
+  const annotations = dil.annotation
+    ? [{
+        ...ANNOTATION_CORNERS[dil.annotationPosition ?? 'top-right'],
+        text: dil.annotation,
+        xref: 'paper' as const,
+        yref: 'paper' as const,
+        showarrow: false,
+        align: 'left' as const,
+        font: {
+          family: style.fontFamily,
+          size: style.legendSize,
+          color: plotFontColor(style.isDark, style.textColor),
+        },
+      }]
+    : undefined;
+
+  const layout: Partial<Layout> = {
+    title: {
+      text: titleText(input.exp.experimentId ?? 'Standard Curve', style),
+      font: { family: style.fontFamily, size: style.titleSize },
+    },
+    xaxis: {
+      title: pfAxisLabel(xTitle, style),
+      type: useLog2 ? 'linear' : 'log',
+      ...pfTickProps(style),
+      ...gridStyle(style),
+    },
+    yaxis: {
+      title: pfAxisLabel(yTitle, style),
+      ...pfTickProps(style),
+      ...gridStyle(style),
+    },
+    annotations: annotations as Layout['annotations'],
+    showlegend: false,
+    margin: computeMargins(style),
+    plot_bgcolor: plotBg,
+    paper_bgcolor: plotBg,
+    font: { color: plotFontColor(style.isDark, style.textColor) },
+  };
+
+  return { data, layout };
+}
+
 // ── Public entry point ─────────────────────────────────────────────
 
 export function buildFigure(plotType: PlotType, input: BuildFigureInput): { data: Data[]; layout: Partial<Layout> } {
@@ -597,5 +778,6 @@ export function buildFigure(plotType: PlotType, input: BuildFigureInput): { data
     case 'melt': return buildMelt(input, false);
     case 'melt_deriv': return buildMelt(input, true);
     case 'doubling': return buildDoubling(input);
+    case 'dilution': return buildDilution(input);
   }
 }

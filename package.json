@@ -6,8 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "cli:build": "vite build --config vite.cli.config.ts",
+    "cli:install": "npm run cli:build && node dist-cli/sharpplot.mjs bundle --out $HOME/.claude/tools/sharpplot",
+    "skill:pack": "rm -rf dist-skill && mkdir -p dist-skill skills && cp -R .claude/skills/sharpplot dist-skill/sharpplot && (cd dist-skill && zip -r -X sharpplot.skill sharpplot -x '.*' > /dev/null) && rm -rf dist-skill/sharpplot && cp dist-skill/sharpplot.skill skills/sharpplot.skill && echo 'skills/sharpplot.skill (tracked) + dist-skill/sharpplot.skill (build output)'",
     "lint": "eslint .",
     "test:codex": "node scripts/codex-regression-tests.cjs",
+    "test:parity": "node scripts/parity-check.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

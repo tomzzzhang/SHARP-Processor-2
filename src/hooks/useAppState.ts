@@ -509,6 +509,79 @@ function inferContentTypes(data: ExperimentData): ExperimentData {
   return changed ? { ...data, wells } : data;
 }
 
+/**
+ * Resolve a freshly-loaded experiment into the view + per-channel analysis
+ * state the app adopts for it: normalize the channel model, infer NTC content
+ * types, restore any `.sharpx` session over the defaults, backfill curve
+ * selection for pre-curve sessions, and seed parser-detected empty wells into
+ * `deactivatedWells`.
+ *
+ * Pure — a function of `data` alone, with no dependency on current store state.
+ * Extracted verbatim from `loadExperiment` (which now calls it) so a headless
+ * consumer reconstructs exactly the state the GUI would show for the same file
+ * rather than reimplementing the merge and silently drifting from it.
+ */
+export function resolveExperimentState(input: ExperimentData): {
+  /** Normalized experiment with `amplification`/`melt` pointed at the active channel. */
+  data: ExperimentData;
+  view: ExperimentViewState;
+  channelStates: Map<string, ChannelAnalysisState>;
+  activeChannelState: ChannelAnalysisState;
+} {
+  let data = normalizeExperiment(input);
+  data = inferContentTypes(data);
+
+  // Restore working-session state when opening a `.sharpx` (shared view +
+  // per-channel analysis snapshots).
+  const parsed = data.session ? parseSession(data.session, data.channels) : null;
+  const view: ExperimentViewState = {
+    ...defaultViewState(data.wellsUsed, data.channels),
+    ...(parsed?.view ?? {}),
+  };
+  // Constrain the active channel to one that actually exists.
+  if (!data.channels.includes(view.activeChannel)) view.activeChannel = data.channels[0];
+
+  // Curve selection: a pre-curve `.sharpx` carries `selectedWells` but no
+  // `selectedCurves` — expand those wells across all channels. Always
+  // re-derive the `selectedWells` mirror from the resolved curve set so the
+  // two stay consistent regardless of which the session provided.
+  if (parsed) {
+    const sessionHadCurves = parsed.view.selectedCurves instanceof Set;
+    view.selectedCurves = sessionHadCurves
+      ? (parsed.view.selectedCurves as Set<string>)
+      : wellsToCurves(view.selectedWells, data.channels);
+    view.selectedWells = curvesToWells(view.selectedCurves);
+  }
+
+  // Seed parser-detected empty (never-loaded) wells into the deactivated set
+  // so they don't clutter plots/analysis — unless a saved session already
+  // carries a plate configuration (which then wins). Keep deactivated wells
+  // out of the initial selection.
+  if (!(parsed?.view.deactivatedWells instanceof Set) && data.autoEmptyWells?.length) {
+    view.deactivatedWells = new Set(data.autoEmptyWells);
+  }
+  if (view.deactivatedWells.size > 0) {
+    view.selectedCurves = new Set(
+      [...view.selectedCurves].filter((k) => !view.deactivatedWells.has(parseCurveKey(k).well)),
+    );
+    view.selectedWells = curvesToWells(view.selectedCurves);
+  }
+
+  // Seed one analysis-state entry per channel (from the session if present).
+  const channelStates = new Map<string, ChannelAnalysisState>();
+  for (const ch of data.channels) {
+    channelStates.set(ch, parsed?.channelMap.get(ch) ?? defaultChannelState());
+  }
+  const activeChannelState = channelStates.get(view.activeChannel) ?? defaultChannelState();
+
+  return {
+    data: withActiveChannel(data, view.activeChannel),
+    view,
+    channelStates,
+    activeChannelState,
+  };
+}
+
 interface AppState extends ExperimentViewState, ChannelAnalysisState {
   // Data (null entries represent empty "home" tabs)
   experiments: (ExperimentData | null)[];
@@ -766,57 +839,20 @@ export const useAppState = create<AppState>((set, get) => ({
     }),
 
   loadExperiment: (data, sourcePath?) => {
-    data = normalizeExperiment(data);
-    data = inferContentTypes(data);
+    // Pure, state-independent resolution (normalize → infer types → restore
+    // session over defaults → seed deactivated wells). Shared with the headless
+    // CLI so both reconstruct identical state from the same file.
+    const {
+      data: dataActive,
+      view: newView,
+      channelStates: chanMap,
+      activeChannelState,
+    } = resolveExperimentState(data);
     set((state) => {
       const snapshots = new Map(state._experimentSnapshots);
       const channelSnaps = new Map(state._channelSnapshots);
       const paths = new Map(state.sourceFilePaths);
       const currentIsEmpty = state.experiments[state.activeExperimentIndex] === null;
-
-      // Restore working-session state when opening a `.sharpx` (shared view +
-      // per-channel analysis snapshots).
-      const parsed = data.session ? parseSession(data.session, data.channels) : null;
-      const newView: ExperimentViewState = {
-        ...defaultViewState(data.wellsUsed, data.channels),
-        ...(parsed?.view ?? {}),
-      };
-      // Constrain the active channel to one that actually exists.
-      if (!data.channels.includes(newView.activeChannel)) newView.activeChannel = data.channels[0];
-
-      // Curve selection: a pre-curve `.sharpx` carries `selectedWells` but no
-      // `selectedCurves` — expand those wells across all channels. Always
-      // re-derive the `selectedWells` mirror from the resolved curve set so the
-      // two stay consistent regardless of which the session provided.
-      if (parsed) {
-        const sessionHadCurves = parsed.view.selectedCurves instanceof Set;
-        newView.selectedCurves = sessionHadCurves
-          ? (parsed.view.selectedCurves as Set<string>)
-          : wellsToCurves(newView.selectedWells, data.channels);
-        newView.selectedWells = curvesToWells(newView.selectedCurves);
-      }
-
-      // Seed parser-detected empty (never-loaded) wells into the deactivated set
-      // so they don't clutter plots/analysis — unless a saved session already
-      // carries a plate configuration (which then wins). Keep deactivated wells
-      // out of the initial selection.
-      if (!(parsed?.view.deactivatedWells instanceof Set) && data.autoEmptyWells?.length) {
-        newView.deactivatedWells = new Set(data.autoEmptyWells);
-      }
-      if (newView.deactivatedWells.size > 0) {
-        newView.selectedCurves = new Set(
-          [...newView.selectedCurves].filter((k) => !newView.deactivatedWells.has(parseCurveKey(k).well)),
-        );
-        newView.selectedWells = curvesToWells(newView.selectedCurves);
-      }
-
-      // Seed one analysis-state entry per channel (from the session if present).
-      const chanMap = new Map<string, ChannelAnalysisState>();
-      for (const ch of data.channels) {
-        chanMap.set(ch, parsed?.channelMap.get(ch) ?? defaultChannelState());
-      }
-      const activeChannelState = chanMap.get(newView.activeChannel) ?? defaultChannelState();
-      const dataActive = withActiveChannel(data, newView.activeChannel);
 
       if (currentIsEmpty) {
         // Replace the current empty/Welcome tab with this experiment

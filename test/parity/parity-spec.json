@@ -1,0 +1,11 @@
+{
+  "id": "parity_baseline",
+  "output": { "width_in": 7.0, "height_in": 4.5, "dpi": 300, "formats": ["pdf"] },
+  "layout": { "rows": 2, "cols": 2, "gap_in": 0.2 },
+  "panels": [
+    { "kind": "plot", "label": "amp", "source": "SOURCE", "plotType": "amp" },
+    { "kind": "plot", "label": "melt", "source": "SOURCE", "plotType": "melt" },
+    { "kind": "plot", "label": "deriv", "source": "SOURCE", "plotType": "melt_deriv" },
+    { "kind": "plot", "label": "dbl", "source": "SOURCE", "plotType": "doubling", "fittingEnabled": true }
+  ]
+}

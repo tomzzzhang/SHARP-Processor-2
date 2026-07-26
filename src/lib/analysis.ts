@@ -905,8 +905,11 @@ export function analyzeDilutionSeries(
   };
 }
 
-/** Approximate t-critical value for two-tailed test at significance level alpha per tail */
-function tCriticalApprox(_alpha: number, df: number): number {
+/** Approximate t-critical value for two-tailed test at significance level alpha per tail.
+ *  Exported so figure builders can size a 95% CI error bar with the same
+ *  t-value the regression's own CI uses — at n = 3 replicates the normal
+ *  approximation (1.96) understates the interval by more than half. */
+export function tCriticalApprox(_alpha: number, df: number): number {
   // For large df, t → z. For small df, use a lookup with interpolation.
   if (df >= 120) return 1.96;
   // Common t-critical values at alpha=0.025 (95% CI)
