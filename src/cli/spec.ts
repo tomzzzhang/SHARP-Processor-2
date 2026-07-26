@@ -133,6 +133,15 @@ export interface AxisSpec {
   minorTicks?: boolean | null;
   /** Draw a full box/frame around the axes rather than open L-shaped axes. */
   frame?: boolean | null;
+  /** Gridline style. Plotly draws solid by default; `dot` matches the
+   *  convention used by most matplotlib-derived figures. */
+  gridDash?: 'solid' | 'dot' | 'dash' | 'dashdot' | null;
+  gridColor?: string | null;
+  /** Colour of the axis line and frame. */
+  lineColor?: string | null;
+  /** Show a line at zero. Plotly defaults this on and it often reads as a
+   *  stray heavy gridline. */
+  zeroline?: boolean | null;
 }
 
 export interface LegendSpec {
@@ -143,6 +152,14 @@ export interface LegendSpec {
   title?: string | null;
   /** Explicit legend entry order, by entry name. */
   order?: string[] | null;
+  /** Draw the box around the legend. Defaults to the app's framed look; set
+   *  false for the unboxed legend common in published figures. */
+  frame?: boolean | null;
+  /** Legend fill. `"transparent"` lets the plot show through. */
+  bgcolor?: string | null;
+  /** Vertical gap between entries, in pixels. */
+  itemGap?: number | null;
+  fontSize?: number | null;
 }
 
 export interface AnnotationSpec {
@@ -243,6 +260,13 @@ export interface PlotPanel extends BasePanel {
   title?: string | null;
   annotations?: AnnotationSpec[] | null;
   referenceLines?: ReferenceLineSpec[] | null;
+  /**
+   * Override the computed plot margins, in pixels at 96/in. `plot-figure.ts`
+   * sizes margins generously from the font sizes, which suits the app but is
+   * looser than a typical published figure — set these to control exactly how
+   * much of the panel the axes occupy. Omitted edges keep the computed value.
+   */
+  margin?: { l?: number; r?: number; t?: number; b?: number } | null;
 
   // ── Dilution / standard-curve panels ──
   /** Explicit dilution config. When absent the file's saved `dilutionConfig`
@@ -255,10 +279,11 @@ export interface PlotPanel extends BasePanel {
   fitAnnotation?: string | null;
   /** Corner the fit annotation sits in. Defaults to top-right. */
   fitAnnotationPosition?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | null;
-  /** Marker and fit-line colours for a dilution panel. */
+  /** Marker and fit-line appearance for a dilution panel. */
   pointColor?: string | null;
   fitColor?: string | null;
   markerSize?: number | null;
+  markerSymbol?: string | null;
 }
 
 /** Verbal-wizard equivalent of `DilutionWizard`: either derive the steps from
@@ -276,6 +301,13 @@ export interface DilutionSpec {
   copiesExponent?: number;
   /** Explicit steps, overriding the derived ones. */
   steps?: { concentration: number; wells: string[]; enabled?: boolean }[];
+  /**
+   * How the x-axis expresses input. `concentration` (default) puts
+   * concentration on a log10 axis; `log2` plots log₂(concentration) on a
+   * linear axis — the space the fit is solved in, so the slope reads directly
+   * as minutes per doubling.
+   */
+  xScale?: 'concentration' | 'log2';
 }
 
 export interface ImagePanel extends BasePanel {

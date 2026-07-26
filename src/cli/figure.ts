@@ -396,6 +396,8 @@ async function buildPlotPanel(
       pointColor: panel.pointColor ?? undefined,
       fitColor: panel.fitColor ?? undefined,
       markerSize: panel.markerSize ?? undefined,
+      markerSymbol: panel.markerSymbol ?? undefined,
+      xScale: panel.dilution?.xScale ?? undefined,
       yTitle: panel.yaxis?.title ?? null,
       xTitle: panel.xaxis?.title ?? null,
     };

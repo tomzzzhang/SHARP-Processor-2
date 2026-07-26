@@ -19,6 +19,13 @@ import type { AnnotationSpec, AxisSpec, PlotPanel, ReferenceLineSpec } from './s
 
 type AxisLayout = Record<string, unknown>;
 
+/** Drop keys whose value is undefined, so a partial override leaves the rest. */
+function stripUndefined<T extends object>(obj: T): Partial<T> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) if (v !== undefined && v !== null) out[k] = v;
+  return out as Partial<T>;
+}
+
 /** log2 has no native Plotly axis type. Plot on a log10 axis and relabel the
  *  ticks in powers of two, which is what a log2 axis actually is. */
 function applyLog2Ticks(axis: AxisLayout, range: [number, number] | null): void {
@@ -60,6 +67,10 @@ function applyAxisSpec(axis: AxisLayout | undefined, spec: AxisSpec | null | und
     axis.showline = spec.frame;
     if (spec.frame) axis.linecolor = style.isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)';
   }
+  if (spec.lineColor) axis.linecolor = spec.lineColor;
+  if (spec.gridDash) axis.griddash = spec.gridDash;
+  if (spec.gridColor) axis.gridcolor = spec.gridColor;
+  if (spec.zeroline !== undefined && spec.zeroline !== null) axis.zeroline = spec.zeroline;
 }
 
 function toPlotlyAnnotation(a: AnnotationSpec, style: PlotFigureStyle) {
@@ -185,6 +196,11 @@ export function decorateLayout(
     };
   }
 
+  if (panel.margin) {
+    const current = (layout.margin ?? {}) as { l?: number; r?: number; t?: number; b?: number };
+    layout.margin = { ...current, ...stripUndefined(panel.margin) };
+  }
+
   if (panel.referenceLines?.length) {
     const shapes = [...((layout.shapes ?? []) as Partial<Shape>[]), ...panel.referenceLines.map(toPlotlyShape)];
     layout.shapes = shapes as Layout['shapes'];
@@ -198,10 +214,30 @@ export function decorateLayout(
     ] as Layout['annotations'];
   }
 
-  if (panel.legend?.title) {
-    layout.legend = {
-      ...(layout.legend ?? {}),
-      title: { text: panel.legend.title, font: { family: style.fontFamily, size: style.legendSize } },
-    } as Layout['legend'];
+  // Legend appearance beyond position/content. `plot-figure.ts` hardcodes a
+  // white fill with a 1px border — right for the app's on-screen legend, but
+  // published figures usually want it unboxed and sitting on the plot.
+  const lg = panel.legend;
+  if (lg && (lg.title || lg.frame !== undefined || lg.bgcolor || lg.itemGap != null || lg.fontSize != null)) {
+    const legend = { ...((layout.legend ?? {}) as Record<string, unknown>) };
+    if (lg.title) {
+      legend.title = { text: lg.title, font: { family: style.fontFamily, size: lg.fontSize ?? style.legendSize } };
+    }
+    if (lg.frame === false) {
+      legend.borderwidth = 0;
+      legend.bgcolor = 'rgba(0,0,0,0)';
+    } else if (lg.frame === true) {
+      legend.borderwidth = 1;
+    }
+    if (lg.bgcolor) {
+      legend.bgcolor = lg.bgcolor === 'transparent' ? 'rgba(0,0,0,0)' : lg.bgcolor;
+    }
+    // Every trace carries its own legendgroup, so the group gap is what
+    // actually controls the spacing between entries.
+    if (lg.itemGap != null) legend.tracegroupgap = lg.itemGap;
+    if (lg.fontSize != null) {
+      legend.font = { family: style.fontFamily, size: lg.fontSize };
+    }
+    layout.legend = legend as Layout['legend'];
   }
 }

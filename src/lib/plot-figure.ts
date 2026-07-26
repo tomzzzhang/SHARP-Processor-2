@@ -38,6 +38,18 @@ export interface DilutionFigureInput {
   unit: string;
   errorBars: ErrorBarSource;
   showFit: boolean;
+  /**
+   * How the x-axis expresses input amount.
+   *
+   * `concentration` (default) plots concentration on a log10 axis, so a
+   * ten-fold series lands on even decades and the labels read in the units the
+   * user pipetted. `log2` plots log₂(concentration) on a linear axis — the
+   * space the regression is actually solved in, which makes the slope directly
+   * readable as minutes per doubling.
+   */
+  xScale?: 'concentration' | 'log2';
+  /** Plotly marker symbol, e.g. `circle` (default) or `square`. */
+  markerSymbol?: string;
   /** Text drawn on the panel. Statistic substitution happens before this
    *  point, so the builder stays free of formatting policy. */
   annotation?: string | null;
@@ -664,19 +676,22 @@ function buildDilution(input: BuildFigureInput): { data: Data[]; layout: Partial
 
   const errors = errorBarValues(result, dil.errorBars);
   const data: Data[] = [];
+  const useLog2 = dil.xScale === 'log2';
+
+  // x in the chosen space. The regression is solved in log2, so `log2` mode
+  // plots its native coordinates and `concentration` mode plots the same
+  // points on a log10 axis — the two differ only in labelling.
+  const xs = stats.map((g) => (useLog2 ? g.log2Conc : g.concentration));
 
   if (dil.showFit && stats.length >= 2) {
-    // Span the measured range; two points suffice for a straight line in the
-    // fit's own coordinates, and Plotly draws it straight on the log axis.
-    const concs = stats.map((g) => g.concentration);
-    const lo = Math.min(...concs);
-    const hi = Math.max(...concs);
+    // Two points suffice: the fit is a straight line in log2, and a log10 axis
+    // is a linear remapping of log2, so it stays straight either way.
+    const lo = Math.min(...xs);
+    const hi = Math.max(...xs);
+    const yAt = (x: number) => result.slope * (useLog2 ? x : Math.log2(x)) + result.intercept;
     data.push({
       x: [lo, hi],
-      y: [
-        result.slope * Math.log2(lo) + result.intercept,
-        result.slope * Math.log2(hi) + result.intercept,
-      ],
+      y: [yAt(lo), yAt(hi)],
       type: 'scatter',
       mode: 'lines',
       name: 'Fit',
@@ -687,12 +702,16 @@ function buildDilution(input: BuildFigureInput): { data: Data[]; layout: Partial
   }
 
   data.push({
-    x: stats.map((g) => g.concentration),
+    x: xs,
     y: stats.map((g) => g.meanTt),
     type: 'scatter',
     mode: 'markers',
     name: 'Mean',
-    marker: { color: pointColor, size: dil.markerSize ?? 7 },
+    marker: {
+      color: pointColor,
+      size: dil.markerSize ?? 7,
+      symbol: dil.markerSymbol ?? 'circle',
+    },
     ...(errors
       ? { error_y: { type: 'data', array: errors, visible: true, color: pointColor, thickness: 1, width: 3 } }
       : {}),
@@ -703,7 +722,10 @@ function buildDilution(input: BuildFigureInput): { data: Data[]; layout: Partial
   const plotBg = resolvePlotBg(style);
   const yTitle = dil.yTitle
     ?? (xAxisMode === 'cycle' ? 'Ct (cycles)' : `Tt (${xAxisMode === 'time_s' ? 's' : 'min'})`);
-  const xTitle = dil.xTitle ?? (dil.unit ? `Input (${dil.unit})` : 'Input');
+  const xTitle = dil.xTitle
+    ?? (useLog2
+      ? 'log₂([template])'
+      : (dil.unit ? `Input (${dil.unit})` : 'Input'));
 
   const annotations = dil.annotation
     ? [{
@@ -728,7 +750,7 @@ function buildDilution(input: BuildFigureInput): { data: Data[]; layout: Partial
     },
     xaxis: {
       title: pfAxisLabel(xTitle, style),
-      type: 'log',
+      type: useLog2 ? 'linear' : 'log',
       ...pfTickProps(style),
       ...gridStyle(style),
     },
