@@ -66,19 +66,31 @@ and the resulting `fig.json` can be rendered anywhere a browser exists.
 Sources: `.sharpx`, `.sharp`, `.pcrd`, `.tlpd`, `.eds`, `.amxd`, or a Bio-Rad
 CFX export folder.
 
-## Installing it
+## Installing the skill
 
-For use from anywhere, install the skill globally and stage the CLI beside it:
+The skill source lives at `.claude/skills/sharpplot/` and is packaged three
+ways, from one set of files:
+
+**Claude Code (this machine, every project):**
 
 ```bash
-npm run cli:install      # builds, then stages to ~/.claude/tools/sharpplot/
+npm run cli:install                          # build + stage CLI to ~/.claude/tools/sharpplot/
 cp -r .claude/skills/sharpplot ~/.claude/skills/
 ```
 
-`cli:install` is also how you refresh the global copy after changing the CLI —
-the staged files are a snapshot, not a link. The skill looks for
-`~/.claude/tools/sharpplot/sharpplot.mjs` first and falls back to a checkout,
-so it works in any project.
+`cli:install` is also the refresh command after changing the CLI — the staged
+files are a snapshot, not a link.
+
+**claude.ai / Cowork:** upload `sharpplot.skill` (a zip of the skill folder)
+via Settings → Skills → Add. Rebuild it after editing the skill with:
+
+```bash
+npm run skill:pack                           # writes dist-skill/sharpplot.skill
+```
+
+**A colleague:** they clone the repo and do the same. The skill discovers the
+CLI (staged copy, then a checkout) rather than hardcoding a path, so it works
+wherever it lands.
 
 ## Porting it to another machine
 
