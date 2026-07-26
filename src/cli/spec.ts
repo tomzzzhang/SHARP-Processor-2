@@ -139,6 +139,8 @@ export interface AxisSpec {
   gridColor?: string | null;
   /** Colour of the axis line and frame. */
   lineColor?: string | null;
+  /** Width of the axis line / frame, in px. Plotly's default reads thin. */
+  lineWidth?: number | null;
   /** Show a line at zero. Plotly defaults this on and it often reads as a
    *  stray heavy gridline. */
   zeroline?: boolean | null;
@@ -167,6 +169,13 @@ export interface LegendSpec {
    * Plotly clips a legend to the plot area, wherever it is positioned.
    */
   orientation?: 'v' | 'h' | null;
+  /**
+   * Force each entry to claim this many px, so a horizontal legend wraps into
+   * a compact multi-row grid instead of one row spanning the panel's full
+   * width. Unset lets Plotly size entries to their text, which is how a wide
+   * panel produces a legend as wide as the panel.
+   */
+  entryWidthPx?: number | null;
 }
 
 export interface AnnotationSpec {

@@ -68,6 +68,7 @@ function applyAxisSpec(axis: AxisLayout | undefined, spec: AxisSpec | null | und
     if (spec.frame) axis.linecolor = style.isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)';
   }
   if (spec.lineColor) axis.linecolor = spec.lineColor;
+  if (spec.lineWidth != null) axis.linewidth = spec.lineWidth;
   if (spec.gridDash) axis.griddash = spec.gridDash;
   if (spec.gridColor) axis.gridcolor = spec.gridColor;
   if (spec.zeroline !== undefined && spec.zeroline !== null) axis.zeroline = spec.zeroline;
@@ -268,6 +269,10 @@ export function decorateLayout(
       legend.font = { family: style.fontFamily, size: lg.fontSize };
     }
     if (lg.orientation) legend.orientation = lg.orientation;
+    if (lg.entryWidthPx != null) {
+      legend.entrywidth = lg.entryWidthPx;
+      legend.entrywidthmode = 'pixels';
+    }
     layout.legend = legend as Layout['legend'];
   }
 }
