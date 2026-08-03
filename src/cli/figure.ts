@@ -18,14 +18,16 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import type { Data, Layout } from 'plotly.js';
 import { buildFigure, type BuildFigureInput, type PlotFigureStyle, type PlotType } from '@/lib/plot-figure';
+import { getPaletteColors } from '@/lib/constants';
 import { computeChannelResults } from '@/hooks/useAnalysisResults';
 import { computeDriftSlope, type WellAnalysisResult } from '@/lib/analysis';
 import type { ChannelAnalysisState } from '@/hooks/useAppState';
+import type { XAxisMode } from '@/types/experiment';
 import { parseCurveKey } from '@/lib/curves';
 import { loadSource, visibleWellsOf, type LoadedExperiment } from './load';
 import { computePlacements, inchesToPx, type PanelPlacement } from './layout';
 import { readImageSize } from './image-size';
-import { decorateLayout, referenceLineTraces } from './decorate';
+import { assignLegend2, decorateLayout, referenceLineTraces } from './decorate';
 import { describeDilution, resolveDilution, statisticValues, substituteStatistics } from './dilution';
 import {
   SpecError, type ImagePanel, type PanelLabelSpec, type PlotPanel, type ResolvedSpec,
@@ -63,6 +65,7 @@ export interface ImageRenderPanel {
   fit: 'contain' | 'cover' | 'fill';
   crop: { x: number; y: number; w: number; h: number } | null;
   background: string | null;
+  align: { x?: 'left' | 'center' | 'right'; y?: 'top' | 'center' | 'bottom' } | null;
   /** Intrinsic pixel size, when it could be read. Lets a cropped panel keep
    *  the source's aspect ratio instead of stretching it. */
   intrinsic: { width: number; height: number } | null;
@@ -296,6 +299,129 @@ function resolveLegendOrder(loaded: LoadedExperiment, panel: PlotPanel): string[
   return loaded.view.legendOrder;
 }
 
+/**
+ * Build a `BuildFigureInput` for one file — the primary source or a
+ * `mergeSources` entry alike. Shared so a merged file goes through the exact
+ * same well-resolution/analysis path a single-source panel uses; a merge is
+ * not a second, looser code path.
+ *
+ * `xAxisMode` and `legendContent` are forced rather than resolved from this
+ * file's own saved view — every source in a merged panel has to agree on
+ * both so their traces land on one shared axis and one shared legend.
+ */
+async function buildSourceInput(
+  absSource: string,
+  select: WellSelection | null | undefined,
+  groupsOverride: Record<string, string> | null | undefined,
+  panel: PlotPanel,
+  spec: ResolvedSpec,
+  cache: SourceCache,
+  forced: { xAxisMode: XAxisMode; legendContent: PlotFigureStyle['legendContent'] },
+): Promise<BuildFigureInput> {
+  const loaded = await loadCached(cache, absSource);
+  const { exp, view } = loaded;
+
+  const channel = panel.channel ?? view.activeChannel;
+  if (!exp.channels.includes(channel)) {
+    throw new SpecError(
+      `Panel "${panel.label}"'s source "${absSource}" has no channel "${channel}". ` +
+      `Available: ${exp.channels.join(', ')}`,
+    );
+  }
+  const savedCs = loaded.channelStates.get(channel);
+  if (!savedCs) throw new SpecError(`Panel "${panel.label}"'s source "${absSource}": no analysis state for channel "${channel}".`);
+  const cs = resolveChannelState(savedCs, panel);
+
+  const amp = exp.amplificationByChannel[channel] ?? null;
+  const active = exp.wellsUsed.filter((w) => !view.deactivatedWells.has(w));
+  const drift = amp && cs.driftCorrectionEnabled ? computeDriftSlope(amp, active).slope : 0;
+  const analysisResults = computeChannelResults(amp, active, forced.xAxisMode, cs, drift);
+
+  // `groups`/`groupColors`/`wellStyleOverrides` are keyed by well name, which
+  // is only meaningful against THIS source — passing the panel through as-is
+  // for a merged file would apply the primary source's overrides to a
+  // different file's same-named wells.
+  const panelForThisSource: PlotPanel = { ...panel, groups: groupsOverride ?? null, groupColors: null, wellStyleOverrides: null };
+  const groups = effectiveGroups(loaded, channel, panelForThisSource);
+  const wellStyleOverrides = effectiveStyleOverrides(loaded, channel, panelForThisSource, groups);
+  const visibleWells = resolveSelection(loaded, select, groups, panel.label!);
+  if (visibleWells.length === 0) {
+    throw new SpecError(`Panel "${panel.label}"'s source "${absSource}" selects no wells — nothing would be drawn from it.`);
+  }
+
+  const expForChannel = {
+    ...exp,
+    amplification: exp.amplificationByChannel[channel] ?? null,
+    melt: exp.meltByChannel[channel] ?? null,
+  };
+  const style = resolveStyle(loaded, spec.style, panel.styleOverride);
+  style.legendContent = forced.legendContent;
+
+  return {
+    exp: expForChannel,
+    visibleWells,
+    wellGroups: groups,
+    wellStyleOverrides,
+    analysisResults,
+    legendOrder: resolveLegendOrder(loaded, panel),
+    style,
+    xAxisMode: forced.xAxisMode,
+    logScale: pick(panel.logScale, view.logScale),
+    baselineEnabled: cs.baselineEnabled,
+    normalizeEnabled: cs.normalizeEnabled,
+    thresholdEnabled: cs.thresholdEnabled,
+    thresholdRfu: cs.thresholdRfu,
+    meltThresholdEnabled: cs.meltThresholdEnabled,
+    meltThresholdValue: cs.meltThresholdValue,
+    meltNormalizeEnabled: cs.meltNormalizeEnabled,
+    smoothingEnabled: cs.smoothingEnabled,
+    smoothingWindow: cs.smoothingWindow,
+  };
+}
+
+/**
+ * Recolor and reorder every trace in a merged panel as one palette.
+ *
+ * Each source was built by its own `buildFigure` call, so each independently
+ * assigned palette colors starting from its own index 0 — a merged panel's
+ * second source reuses the first source's colors rather than continuing them.
+ * This reassigns `line.color`/`legendrank`/`showlegend` from one shared
+ * ordering instead, the same way a single-source panel's own legend ordering
+ * works (`legendOrder`, prefixed `grp:`/`well:` — see `resolveLegendOrder`).
+ *
+ * Groups the ordering doesn't mention are appended in first-seen order
+ * rather than dropped, so an incomplete `legend.order` still colors
+ * everything (just not necessarily the way the caller intended — this is
+ * a fallback, not silent data loss).
+ */
+function recolorMergedTraces(data: Data[], style: PlotFigureStyle, legendOrder: string[]): void {
+  type LooseTrace = { legendgroup?: string; line?: { color?: string; dash?: string; width?: number }; showlegend?: boolean; legendrank?: number };
+  const order = [...legendOrder];
+  const seen = new Set(order);
+  for (const trace of data) {
+    const key = (trace as LooseTrace).legendgroup;
+    if (key && !seen.has(key)) { seen.add(key); order.push(key); }
+  }
+  if (order.length === 0) return;
+
+  let colors = getPaletteColors(style.palette, order.length);
+  if (style.paletteReversed) colors = [...colors].reverse();
+  const colorOf = new Map(order.map((key, i) => [key, colors[i % colors.length]]));
+  const rankOf = new Map(order.map((key, i) => [key, 10 + i]));
+
+  const repFound = new Set<string>();
+  for (const trace of data) {
+    const t = trace as LooseTrace;
+    if (!t.legendgroup) continue;
+    if (t.line) t.line = { ...t.line, color: colorOf.get(t.legendgroup) ?? t.line.color };
+    t.legendrank = rankOf.get(t.legendgroup) ?? 1000;
+    if (t.showlegend) {
+      t.showlegend = !repFound.has(t.legendgroup);
+      repFound.add(t.legendgroup);
+    }
+  }
+}
+
 async function buildPlotPanel(
   panel: PlotPanel,
   spec: ResolvedSpec,
@@ -411,6 +537,23 @@ async function buildPlotPanel(
 
   const figure = buildFigure(panel.plotType, input);
 
+  // Wells from other files, drawn into this same panel — see `MergeSourceSpec`.
+  // Each merged source is resolved through the identical `buildSourceInput`
+  // path the primary source just went through, then only its traces are
+  // kept; the primary's `.layout` (axes, title, legend chrome) is what ships.
+  if (panel.mergeSources?.length) {
+    for (const merge of panel.mergeSources) {
+      const abs = path.isAbsolute(merge.source) ? merge.source : path.resolve(spec.baseDir, merge.source);
+      const mergedInput = await buildSourceInput(abs, merge.select, merge.groups, panel, spec, cache, {
+        xAxisMode,
+        legendContent: input.style.legendContent,
+      });
+      const mergedFigure = buildFigure(panel.plotType, mergedInput);
+      figure.data.push(...mergedFigure.data);
+    }
+    recolorMergedTraces(figure.data, input.style, resolveLegendOrder(loaded, panel));
+  }
+
   // Exact pixel box. Plotly is told its size rather than inferring it from the
   // CSS box — an autosized layout clips axis labels in headless Chrome.
   const layout: Partial<Layout> = {
@@ -423,6 +566,9 @@ async function buildPlotPanel(
   // Reference lines that asked for a legend entry ride along as invisible
   // traces, since a Plotly shape cannot appear in the legend on its own.
   const data: Data[] = [...figure.data, ...(referenceLineTraces(panel) as Data[])];
+  // Runs after reference-line traces are merged in, since `legend2.groups`
+  // can name a reference line's legend text as well as a data group.
+  if (panel.legend2?.groups?.length) assignLegend2(data, panel.legend2.groups);
 
   return {
     kind: 'plot',
@@ -496,6 +642,7 @@ async function buildImagePanel(panel: ImagePanel, spec: ResolvedSpec, placement:
     fit: panel.fit ?? 'contain',
     crop,
     background: panel.background ?? null,
+    align: panel.align ?? null,
     intrinsic: await readImageSize(abs),
   };
 }
@@ -532,7 +679,12 @@ function warnIfLegendClipped(panel: PlotRenderPanel): void {
   // A horizontal legend flows across and wraps, so its height is not driven by
   // the entry count and this check does not apply.
   if ((layout.legend as { orientation?: string } | undefined)?.orientation === 'h') return;
-  const entries = panel.figure.data.filter((t) => (t as { showlegend?: boolean }).showlegend).length;
+  // Entries reassigned to legend2 (see Legend2Spec) are sized against that
+  // legend's own space, not counted here.
+  const entries = panel.figure.data.filter((t) => {
+    const tr = t as { showlegend?: boolean; legend?: string };
+    return tr.showlegend && tr.legend !== 'legend2';
+  }).length;
   if (entries === 0) return;
 
   const margin = (layout.margin ?? {}) as { t?: number; b?: number };

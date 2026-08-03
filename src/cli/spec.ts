@@ -110,6 +110,24 @@ export const DEFAULT_LAYOUT: LayoutSpec = {
 
 // ── Panels ──────────────────────────────────────────────────────────
 
+/**
+ * An additional file to draw wells from, merged into a panel that already
+ * has a primary `source`. Each entry is resolved exactly like a normal panel
+ * source — its own file, its own saved groups/session, its own `select` —
+ * so this is the same well-resolution path a single-source panel uses, just
+ * called once per extra file.
+ *
+ * Traces from every source are combined into one Plotly figure sharing the
+ * primary source's x-axis mode, then recolored as one palette (see
+ * `recolorMergedTraces` in figure.ts) so the same group doesn't fight two
+ * independently-assigned colors.
+ */
+export interface MergeSourceSpec {
+  source: string;
+  select?: WellSelection | null;
+  groups?: Record<string, string> | null;
+}
+
 export interface WellSelection {
   /** Explicit well names. A name that does not exist is a hard error. */
   wells?: string[];
@@ -153,6 +171,15 @@ export interface AxisSpec {
    * to pin them to a shared left edge.
    */
   titleStandoff?: number | null;
+  /**
+   * Literal tick labels at explicit positions, overriding whatever Plotly
+   * would auto-generate (including its own log-axis exponent formatting).
+   * `tickVals` are in data units — for a log-scale axis that means the
+   * actual value (e.g. `1e7`), not its log. Both arrays must be the same
+   * length; `tickText.length` must equal `tickVals.length`.
+   */
+  tickVals?: number[] | null;
+  tickText?: string[] | null;
 }
 
 export interface LegendSpec {
@@ -185,6 +212,32 @@ export interface LegendSpec {
    * panel produces a legend as wide as the panel.
    */
   entryWidthPx?: number | null;
+  /**
+   * Paper-fraction (0-1) anchor overriding `position`'s computed x/y, while
+   * still taking that position's xanchor/yanchor. Lets a legend be pinned at
+   * an exact offset — used to place `legend2` immediately beside `legend`
+   * once the entry widths of the first are known.
+   */
+  x?: number | null;
+  y?: number | null;
+}
+
+/**
+ * A second, independent Plotly legend for this panel. Entries whose group
+ * name (or a reference line's `legend` text) is listed in `groups` are
+ * pulled out of the primary legend and drawn in this one instead.
+ *
+ * This is the only way to get genuine side-by-side legend columns: Plotly's
+ * own multi-column layout exists solely via row-major horizontal wrapping
+ * (`legend.orientation: "h"`), which always claims the panel's full width
+ * regardless of entry count — there is no way to say "these specific entries
+ * go in a second column" within one legend object. Two legend objects,
+ * anchored independently, is the native mechanism for that.
+ */
+export interface Legend2Spec extends LegendSpec {
+  /** Group names (as used in `groups`/`legend.order`) or reference-line
+   *  `legend` text to move into this legend. */
+  groups: string[];
 }
 
 export interface AnnotationSpec {
@@ -248,6 +301,8 @@ export interface PlotPanel extends BasePanel {
   /** Which fluorescence channel to plot. Defaults to the file's active channel. */
   channel?: string | null;
   select?: WellSelection | null;
+  /** Wells from other files, drawn into this same panel. See `MergeSourceSpec`. */
+  mergeSources?: MergeSourceSpec[] | null;
 
   // ── Everything below mirrors BuildFigureInput / the app's view state.
   //    Omit a field to inherit the value saved in the source file. ──
@@ -278,6 +333,7 @@ export interface PlotPanel extends BasePanel {
   fitEndFraction?: number | null;
 
   legend?: LegendSpec | null;
+  legend2?: Legend2Spec | null;
   xaxis?: AxisSpec | null;
   yaxis?: AxisSpec | null;
   /** Extra y-axis spec for the derivative subplot of a full `melt` panel. */
@@ -342,6 +398,16 @@ export interface ImagePanel extends BasePanel {
   /** Fractional crop of the source image, 0–1. */
   crop?: { x: number; y: number; w: number; h: number } | null;
   background?: string;
+  /**
+   * Where the image sits within its panel box when `fit: "contain"` leaves
+   * slack space (the box's aspect doesn't match the image's). Defaults to
+   * centered on both axes, matching every image panel before this field
+   * existed. Set this instead of `crop` to move an uncropped image inside a
+   * box wider or taller than it needs — e.g. a panel box that spans the
+   * same column as the plot above it (so panel labels line up), with the
+   * image itself pinned to one side of that box.
+   */
+  align?: { x?: 'left' | 'center' | 'right'; y?: 'top' | 'center' | 'bottom' } | null;
 }
 
 export interface TablePanel extends BasePanel {

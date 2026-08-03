@@ -115,7 +115,9 @@ const X_AXIS_LABELS: Record<XAxisMode, string> = {
   time_min: 'Time (min)',
 };
 
-const LEGEND_POS_MAP: Record<string, { x: number; y: number; xanchor: string; yanchor: string }> = {
+/** Exported so CLI-only figure decorations (a second legend, for instance)
+ *  can resolve the same named corners without duplicating the table. */
+export const LEGEND_POS_MAP: Record<string, { x: number; y: number; xanchor: string; yanchor: string }> = {
   'upper right': { x: 1, y: 1, xanchor: 'right', yanchor: 'top' },
   'upper left': { x: 0, y: 1, xanchor: 'left', yanchor: 'top' },
   'lower left': { x: 0, y: 0, xanchor: 'left', yanchor: 'bottom' },

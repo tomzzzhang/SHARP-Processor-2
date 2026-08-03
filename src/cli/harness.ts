@@ -48,11 +48,22 @@ function labelStyle(cfg: PanelLabelSpec): string {
   return `${vertical};${horizontal}`;
 }
 
+const ALIGN_PCT = { left: '0%', center: '50%', right: '100%', top: '0%', bottom: '100%' } as const;
+
+/** CSS `object-position`, which `object-fit: contain` honors wherever it
+ *  leaves slack space. Unset on both axes reproduces the old always-centered
+ *  behavior exactly — 50% 50% is `object-position`'s own default. */
+function objectPositionOf(align: Extract<RenderPanel, { kind: 'image' }>['align']): string {
+  const x = ALIGN_PCT[align?.x ?? 'center'];
+  const y = ALIGN_PCT[align?.y ?? 'center'];
+  return `${x} ${y}`;
+}
+
 function imagePanelHtml(panel: Extract<RenderPanel, { kind: 'image' }>, boxW: number, boxH: number): string {
   const url = fileUrl(panel.path);
   const bg = panel.background ? `background:${panel.background};` : '';
   if (!panel.crop) {
-    return `<img class="pimg" src="${url}" style="object-fit:${panel.fit};${bg}">`;
+    return `<img class="pimg" src="${url}" style="object-fit:${panel.fit};object-position:${objectPositionOf(panel.align)};${bg}">`;
   }
 
   // Fractional crop. The window (x, y, w, h) must end up filling the viewport,

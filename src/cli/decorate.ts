@@ -14,8 +14,8 @@
  * written as pure layout transforms to keep that lift mechanical.
  */
 import type { Layout, Shape } from 'plotly.js';
-import type { PlotFigureStyle } from '@/lib/plot-figure';
-import type { AnnotationSpec, AxisSpec, PlotPanel, ReferenceLineSpec } from './spec';
+import { LEGEND_POS_MAP, type PlotFigureStyle } from '@/lib/plot-figure';
+import { SpecError, type AnnotationSpec, type AxisSpec, type LegendSpec, type PlotPanel, type ReferenceLineSpec } from './spec';
 
 type AxisLayout = Record<string, unknown>;
 
@@ -80,6 +80,15 @@ function applyAxisSpec(axis: AxisLayout | undefined, spec: AxisSpec | null | und
   if (spec.gridDash) axis.griddash = spec.gridDash;
   if (spec.gridColor) axis.gridcolor = spec.gridColor;
   if (spec.zeroline !== undefined && spec.zeroline !== null) axis.zeroline = spec.zeroline;
+
+  if (spec.tickVals?.length && spec.tickText?.length) {
+    if (spec.tickVals.length !== spec.tickText.length) {
+      throw new SpecError('xaxis/yaxis tickVals and tickText must be the same length.');
+    }
+    axis.tickmode = 'array';
+    axis.tickvals = spec.tickVals;
+    axis.ticktext = spec.tickText;
+  }
 }
 
 function toPlotlyAnnotation(a: AnnotationSpec, style: PlotFigureStyle) {
@@ -140,6 +149,66 @@ function referenceLineLegendTrace(line: ReferenceLineSpec) {
 /** Reference lines that carry a legend entry, as Plotly traces. */
 export function referenceLineTraces(panel: PlotPanel): ReturnType<typeof referenceLineLegendTrace>[] {
   return (panel.referenceLines ?? []).filter((l) => l.legend).map(referenceLineLegendTrace);
+}
+
+/**
+ * Move the named entries into the panel's second legend.
+ *
+ * Matches a data trace by its bare group name (traces carry `grp:<name>` as
+ * `legendgroup` in group-content mode) and a reference-line legend trace by
+ * its literal `name` (reference lines have no legendgroup). Plotly reads a
+ * trace's target legend from its own `legend` field — `"legend2"` for the
+ * second, undefined/`"legend"` for the first — a feature `@types/plotly.js`
+ * does not model, hence the loose cast.
+ */
+export function assignLegend2(data: readonly unknown[], groups: readonly string[]): void {
+  if (groups.length === 0) return;
+  const set = new Set(groups);
+  for (const trace of data) {
+    const t = trace as { legendgroup?: string; name?: string; showlegend?: boolean; legend?: string };
+    if (!t.showlegend) continue;
+    const bareGroup = t.legendgroup?.startsWith('grp:') ? t.legendgroup.slice(4) : undefined;
+    if ((bareGroup && set.has(bareGroup)) || (t.name && set.has(t.name))) {
+      t.legend = 'legend2';
+    }
+  }
+}
+
+/** Shared styling for a legend layout patch — used for both `legend` and
+ *  `legend2`, which follow identical appearance rules. */
+function buildLegendLayout(
+  lg: LegendSpec,
+  style: PlotFigureStyle,
+  base: Partial<Layout['legend']> = {},
+): Record<string, unknown> {
+  const pos = lg.position === 'best' ? LEGEND_POS_MAP['upper right'] : (LEGEND_POS_MAP[lg.position ?? 'upper right'] ?? LEGEND_POS_MAP['upper right']);
+  const legend: Record<string, unknown> = {
+    font: { family: style.fontFamily, size: lg.fontSize ?? style.legendSize },
+    x: lg.x ?? pos.x,
+    y: lg.y ?? pos.y,
+    xanchor: pos.xanchor,
+    yanchor: pos.yanchor,
+    bgcolor: style.isDark ? '#1f1f1f' : '#ffffff',
+    bordercolor: style.isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)',
+    borderwidth: 1,
+    tracegroupgap: 0,
+    ...base,
+  };
+  if (lg.title) legend.title = { text: lg.title, font: { family: style.fontFamily, size: lg.fontSize ?? style.legendSize } };
+  if (lg.frame === false) {
+    legend.borderwidth = 0;
+    legend.bgcolor = 'rgba(0,0,0,0)';
+  } else if (lg.frame === true) {
+    legend.borderwidth = 1;
+  }
+  if (lg.bgcolor) legend.bgcolor = lg.bgcolor === 'transparent' ? 'rgba(0,0,0,0)' : lg.bgcolor;
+  if (lg.itemGap != null) legend.tracegroupgap = lg.itemGap;
+  if (lg.orientation) legend.orientation = lg.orientation;
+  if (lg.entryWidthPx != null) {
+    legend.entrywidth = lg.entryWidthPx;
+    legend.entrywidthmode = 'pixels';
+  }
+  return legend;
 }
 
 /**
@@ -282,5 +351,13 @@ export function decorateLayout(
       legend.entrywidthmode = 'pixels';
     }
     layout.legend = legend as Layout['legend'];
+  }
+
+  // A second legend for entries pulled out of the first (see Legend2Spec).
+  // `assignLegend2` does the actual trace reassignment once the panel's full
+  // data array — including reference-line legend traces, added after this
+  // function runs — is known; see `buildPlotPanel` in figure.ts.
+  if (panel.legend2) {
+    (layout as Record<string, unknown>).legend2 = buildLegendLayout(panel.legend2, style, { orientation: 'v' });
   }
 }

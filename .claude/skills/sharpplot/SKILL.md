@@ -115,6 +115,13 @@ Save the spec beside the figure so it can be re-edited later.
 types, selection, axes, annotations, reference lines, dilution config, image
 crop and table panels. Load it before writing anything beyond a basic panel.
 
+**Read `references/multi-source-and-alignment.md` before combining wells
+from two files, adding a second legend, forcing literal tick labels, or
+positioning an image inside a differently-sized panel box** — `mergeSources`,
+`legend2`, `tickVals`/`tickText`, and `image.align`, plus the inset-panel
+technique and the half-page conversion rule. Marked uncommitted where that
+matters — check `git status` in the repo before relying on it elsewhere.
+
 ## Step 6 — matching a reference, and Tom's layout language
 
 Tom specifies composites by describing the **framed plotting rectangles**,
