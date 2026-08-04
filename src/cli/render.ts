@@ -46,6 +46,10 @@ const CHROME_CANDIDATES: Record<string, string[]> = {
   win32: [
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    // Edge ships with Windows itself, so a locked-down corporate machine
+    // with no Chrome install still has a Chromium browser available.
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
   ],
 };
 
