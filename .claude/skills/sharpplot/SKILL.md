@@ -15,12 +15,21 @@ and the tool. Show figures and plain language, nothing else.
 
 ## Step 1 — find the CLI, and say so if it is missing
 
-This needs a shell. Try, in order:
+This needs a shell. On macOS/Linux, try in order:
 
 ```bash
 node ~/.claude/tools/sharpplot/sharpplot.mjs --help
 node "$HOME/Documents/SHARP Dx/SHARP Processor 2/dist-cli/sharpplot.mjs" --help
 find / -name sharpplot.mjs -not -path "*/node_modules/*" 2>/dev/null | head -3
+```
+
+**On Windows** the paths and the shell differ — `~` and `$HOME` do not expand
+in `cmd.exe`, and `find` is not the same program. Use PowerShell:
+
+```powershell
+node "$env:USERPROFILE\.claude\tools\sharpplot\sharpplot.mjs" --help
+Get-ChildItem -Path $env:USERPROFILE -Filter sharpplot.mjs -Recurse -ErrorAction SilentlyContinue |
+  Where-Object { $_.FullName -notlike '*node_modules*' } | Select-Object -First 3 FullName
 ```
 
 If none answer, look for a SHARP Processor 2 checkout and build it:
