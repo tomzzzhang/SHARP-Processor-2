@@ -8,8 +8,10 @@ a **second consumer of the Processor's core, not a fork of it**: parsers,
 `analysis.ts`, `curvefit/` and `plot-figure.ts` are called directly, so every
 number and every trace comes from the code the shipped app runs.
 
-It is a developer tool on the `feature/sharpplot-cli` branch. It is not part of
-the shipped application and `dist-cli/` is not in the Tauri bundle.
+It is a developer tool, merged to `main` (PR #13). It is deliberately **not
+part of the shipped application** — `src/cli/` is excluded from the Tauri
+bundle and `dist-cli/` is gitignored, so installing the app does not provide
+the CLI. Teammates install it separately; see "Installing the skill" below.
 
 ## Build and run
 
