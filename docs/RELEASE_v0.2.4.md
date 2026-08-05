@@ -1,10 +1,10 @@
 # Release v0.2.4 — QuantStudio `.eds` support, correct time axis, colour/palette model
 
-**Last Updated:** 2026-07-13 PST — Claude (macOS DMG built + published; release now cross-platform complete)
+**Last Updated:** 2026-08-05 00:23 EDT — Claude (macOS DMG built + published; release now cross-platform complete)
 
 Internal record. Public-facing notes live in `README.md` → *What's New in v0.2.4* and on the GitHub release page. Everything below is implementation detail and stays here.
 
-Driven by the plan at OneDrive `a private validation plan (not tracked)` (which now carries a full Implementation Record). Test file: `a private QuantStudio fixture` (QuantStudio 6 Pro, the operator, 2026-07-06), with ground truth in `private ground-truth worksheet` (21 loaded wells of 96) and the Results / Multicomponent / Melt-Raw CSV exports.
+Implementation was validated against a private QuantStudio 6 Pro fixture and a separate private ground-truth worksheet (21 loaded wells of 96), plus Results, Multicomponent, and Melt-Raw CSV exports. None of those private files is tracked here.
 
 ---
 
@@ -57,7 +57,7 @@ Second trap: the modern `[conditions]` block is a tab-separated **header row + v
 | 3 | Channel labelled by target (`16s`) not dye | `targetName → reporter` map from `plate_setup.targets`. `modernReactionChannel` precedence: dye field on the reaction → target's reporter (`SYBR`) → target name → generic. `channelFluorophore` = `SYBR`. |
 | 4 | Blank well labels | `sample = sampleName || wellName` at **both** sites (plate-setup loop and the analysis-only fallback). Content stays `Unkn`. |
 
-Real sample identities (1e7…NTC, EXCL vs corrected) exist only in `private ground-truth worksheet` and are unrecoverable from the `.eds` — the operator would need to type sample names into the QuantStudio software before export.
+Real sample identities exist only in the private ground-truth worksheet and are unrecoverable from the `.eds`; they must be entered in the QuantStudio software before export.
 
 ## 5. Empty-well detection + a real `deactivated` state
 

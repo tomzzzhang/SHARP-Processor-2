@@ -1,5 +1,7 @@
 # Paste everything below into Claude Code
 
+**Last Updated:** 2026-08-05 00:23 EDT
+
 Open Claude Code **in this folder** (the one containing `sharpplot-cli/` and
 `sharpplot-skill/`), then paste the whole block below as your first message.
 

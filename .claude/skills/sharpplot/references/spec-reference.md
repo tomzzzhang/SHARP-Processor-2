@@ -1,5 +1,7 @@
 # sharpplot spec — complete field reference
 
+**Last Updated:** 2026-08-05 00:23 EDT
+
 Read this before writing anything beyond a single basic panel.
 
 **The inheritance rule governs everything here:** omitting a field, or setting

@@ -19,6 +19,24 @@ import { execFileSync } from 'child_process';
 const pkg = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
 
 /**
+ * Rolldown's readable bundles include `//#region` comments containing absolute
+ * source paths. Those paths identify the build machine and must not enter a
+ * shared or public artifact. Removing comments is behavior-neutral.
+ */
+function stripAbsoluteModulePathComments() {
+  return {
+    name: 'strip-absolute-module-path-comments',
+    generateBundle(_options: unknown, bundle: Record<string, { type: string; code?: string }>) {
+      for (const output of Object.values(bundle)) {
+        if (output.type === 'chunk' && output.code) {
+          output.code = output.code.replace(/^\/\/#(?:end)?region.*(?:\r?\n|$)/gm, '');
+        }
+      }
+    },
+  };
+}
+
+/**
  * Which commit this bundle was built from.
  *
  * `sharpplot.mjs` gets copied around — staged to `~/.claude/tools/`, zipped
@@ -50,6 +68,7 @@ function gitCommit(): string {
 }
 
 export default defineConfig({
+  plugins: [stripAbsoluteModulePathComments()],
   resolve: {
     alias: {
       '@tauri-apps/plugin-fs': path.resolve(__dirname, './src/cli/shims/tauri-fs.ts'),

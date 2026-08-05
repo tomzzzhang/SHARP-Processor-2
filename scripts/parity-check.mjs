@@ -33,8 +33,8 @@ function arg(name) {
   return i !== -1 ? process.argv[i + 1] : null;
 }
 
-// The baseline fixture is a real external party file, so it cannot live in the repo
-// and the source has to come from outside. SHARPPLOT_PARITY_SOURCE lets a
+// The baseline fixture is private and cannot live in the public repo. The
+// source has to come from outside. SHARPPLOT_PARITY_SOURCE lets a
 // machine record its location once and then run the gate as a bare
 // `npm run test:parity`, which is how every handoff has described it.
 const source = arg('source') ?? process.env.SHARPPLOT_PARITY_SOURCE ?? null;
@@ -43,8 +43,7 @@ const record = process.argv.includes('--record');
 if (!source) {
   console.error('usage: node scripts/parity-check.mjs --source <file.sharpx> [--record]');
   console.error('   or: set SHARPPLOT_PARITY_SOURCE to the fixture path and run with no args.');
-  console.error(`   baseline was recorded from: ${
-    existsSync(BASELINE) ? JSON.parse(readFileSync(BASELINE, 'utf-8')).source : '(none recorded)'}`);
+  console.error('   use the same private fixture that was used to record the baseline.');
   process.exit(2);
 }
 if (!existsSync(source)) {
@@ -97,7 +96,7 @@ try {
   }
 
   if (record || !existsSync(BASELINE)) {
-    writeFileSync(BASELINE, `${JSON.stringify({ source: path.basename(source), panels: current }, null, 2)}\n`);
+    writeFileSync(BASELINE, `${JSON.stringify({ fixtureId: 'sharpplot-parity-v1', panels: current }, null, 2)}\n`);
     console.log(`Recorded parity baseline for ${Object.keys(current).length} plot types:`);
     for (const [k, v] of Object.entries(current)) {
       console.log(`  ${k.padEnd(6)} ${v.hash}  ${v.traces} traces, ${v.wells} wells`);
@@ -106,14 +105,6 @@ try {
   }
 
   const baseline = JSON.parse(readFileSync(BASELINE, 'utf-8'));
-  if (baseline.source !== path.basename(source)) {
-    console.error(
-      `Baseline was recorded from "${baseline.source}" but this run used "${path.basename(source)}". ` +
-      'Compare like with like, or re-record with --record.',
-    );
-    process.exit(2);
-  }
-
   let failed = 0;
   for (const [label, want] of Object.entries(baseline.panels)) {
     const got = current[label];

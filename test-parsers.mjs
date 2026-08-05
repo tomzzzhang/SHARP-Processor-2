@@ -250,14 +250,10 @@ function testEds(filePath) {
 // -------------------------------------------------------------------------
 
 const testFiles = {
-  pcrd: [
-    'C:/Users/Tom/OneDrive - SHARP Diagnostics/qPCR/2025-06-05 14-09-20_Unwinding_New_PcrA2.pcrd',
-  ],
-  tlpd: [
-    'C:/Users/Tom/OneDrive - SHARP Diagnostics/SHARED Files/12_Software/SHARP/SHARP_Processor/Try this data set - representative well SHARP(1) 100ul.tlpd',
-  ],
+  pcrd: process.env.SHARP_TEST_PCRD ? [process.env.SHARP_TEST_PCRD] : [],
+  tlpd: process.env.SHARP_TEST_TLPD ? [process.env.SHARP_TEST_TLPD] : [],
   eds: [
-    'G:/Melt Curve Fast.eds',
+    ...(process.env.SHARP_TEST_EDS ? [process.env.SHARP_TEST_EDS] : []),
     'C:/QuantStudio Design & Analysis Software/examples/4Plex_Multiplex_MMx_10uL.eds',
     'C:/QuantStudio Design & Analysis Software/examples/PCR_w_Melt_SYBR_Select_MMx_10uL.eds',
     'C:/QuantStudio Design & Analysis Software/examples/QS5_96_0.1mL_Melt_Only.eds',

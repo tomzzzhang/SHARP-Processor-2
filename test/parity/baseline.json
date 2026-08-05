@@ -1,5 +1,5 @@
 {
-  "source": "a private serial-dilution fixture",
+  "fixtureId": "sharpplot-parity-v1",
   "panels": {
     "amp": {
       "hash": "f18fbf676bba9264",

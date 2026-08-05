@@ -1,5 +1,7 @@
 # sharpplot in Claude Cowork — the recommended path for the team
 
+**Last Updated:** 2026-08-05 00:23 EDT
+
 **One file to upload. Nothing to install. No Node, no Chrome, no PATH.**
 
 The Cowork build of the skill carries the engine inside it: `SKILL.md`, the
@@ -67,8 +69,8 @@ what to expect.
   Sans, which is metrically identical — every dimension, margin and alignment
   is right — but the letterforms are not pixel-identical. Fine for review and
   for iterating. A final publication render belongs on a Mac with real Arial.
-- **third-party confidential data.** Attaching a file to a Cowork conversation puts it in that
-  workspace. Check before uploading anything that belongs to a external party.
+- **Third-party confidential data.** Attaching a file to a Cowork conversation puts it in that
+  workspace. Check authorization before uploading anything that is not ours.
 
 ## If you would rather use Claude Code
 

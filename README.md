@@ -2,6 +2,8 @@
   <img src="public/sharp-logo.png" alt="SHARP Logo" width="120" />
 </p>
 
+**Last Updated:** 2026-08-05 00:23 EDT
+
 <h1 align="center">SHARP Processor 2</h1>
 
 <p align="center">
@@ -406,6 +408,7 @@ dist-release/
 
 ### Documentation
 
+- [`SECURITY.md`](SECURITY.md) — mandatory confidentiality rules and privacy gate
 - [`CLAUDE.md`](CLAUDE.md) — Developer guide, architecture, implementation notes
 - [`docs/SHARP_FORMAT.md`](docs/SHARP_FORMAT.md) — `.sharp` file format specification (current: v1.2)
 - [`docs/ALGORITHMS.md`](docs/ALGORITHMS.md) — Active vs archived analysis algorithms

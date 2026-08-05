@@ -1,6 +1,6 @@
 # SHARP Processor 2 — v0.2.3 (Kinetics Report: residuals + melt-Tm hover + data/fit) — Dev Documentation
 
-**Last Updated:** 2026-07-06 PST — Claude (Mac session — cut v0.2.3: committed the report work + version bump (`32f5faf`), tagged `v0.2.3`, built + verified the macOS aarch64 DMG, and published the **`v0.2.3` GitHub pre-release** with the DMG. `v0.2.2` stays "Latest"; the Windows installers were then built + uploaded (Windows session, from `3ee52ac`) so v0.2.3 now carries all 5 assets; it was then promoted to the **"Latest"** release (`gh release edit v0.2.3 --prerelease=false --latest`; `v0.2.2` no longer Latest but kept available for rollback) — see OneDrive `WINDOWS_BUILD_HANDOFF_2026-07-06.md`.)
+**Last Updated:** 2026-08-05 00:23 EDT — Claude (Mac session — cut v0.2.3: committed the report work + version bump (`32f5faf`), tagged `v0.2.3`, built + verified the macOS aarch64 DMG, and published the **`v0.2.3` GitHub pre-release** with the DMG. `v0.2.2` stays "Latest"; the Windows installers were then built + uploaded (Windows session, from `3ee52ac`) so v0.2.3 now carries all 5 assets; it was then promoted to the **"Latest"** release (`gh release edit v0.2.3 --prerelease=false --latest`; `v0.2.2` no longer Latest but kept available for rollback) — see OneDrive `WINDOWS_BUILD_HANDOFF_2026-07-06.md`.)
 
 > This is the **internal** engineering record for 0.2.3. User-facing notes live in
 > `README.md` ("What's New in v0.2.3") and the GitHub release body.

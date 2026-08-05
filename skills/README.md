@@ -1,5 +1,7 @@
 # skills/
 
+**Last Updated:** 2026-08-05 00:23 EDT
+
 Packaged skill bundles from this repo, ready to grab — not part of the app
 build or release.
 

@@ -3,6 +3,8 @@ name: sharpplot
 description: Build publication figures from SHARP Data Processor 2 data — .sharpx, .sharp, .pcrd, .tlpd, .eds, .amxd, or Bio-Rad CFX folders. Amplification curves, melt curves, melt derivatives, dilution standard curves, and multi-panel composites with gel images and metrics tables, at an exact physical size as vector PDF plus PNG. Use whenever the user wants a figure, plot, panel or composite from qPCR / isothermal amplification data, mentions a .sharpx or .pcrd file, or asks for a standard curve, amplification plot, melt plot or figure panel.
 ---
 
+**Last Updated:** 2026-08-05 00:23 EDT
+
 # sharpplot — figures from Processor data, by conversation
 
 `sharpplot` is a command-line entry point into SHARP Data Processor 2's own
@@ -149,7 +151,7 @@ Rules that go with it:
 - **Spec paths are relative to the figure folder** — `source/run.sharpx`, not
   an absolute path. The folder must survive being moved or copied.
 - **Source data: copy it in when it is ours; point at it when it is not.**
-  external party or shared data does not get duplicated into a proposal folder.
+  Third-party or shared data does not get duplicated into a proposal folder.
   Write `source/source.json` instead — absolute path plus a SHA-256, so a
   later session can prove the file has not changed:
   ```jsonc
