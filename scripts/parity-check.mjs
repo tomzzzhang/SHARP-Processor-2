@@ -33,11 +33,22 @@ function arg(name) {
   return i !== -1 ? process.argv[i + 1] : null;
 }
 
-const source = arg('source');
+// The baseline fixture is a real external party file, so it cannot live in the repo
+// and the source has to come from outside. SHARPPLOT_PARITY_SOURCE lets a
+// machine record its location once and then run the gate as a bare
+// `npm run test:parity`, which is how every handoff has described it.
+const source = arg('source') ?? process.env.SHARPPLOT_PARITY_SOURCE ?? null;
 const record = process.argv.includes('--record');
 
 if (!source) {
   console.error('usage: node scripts/parity-check.mjs --source <file.sharpx> [--record]');
+  console.error('   or: set SHARPPLOT_PARITY_SOURCE to the fixture path and run with no args.');
+  console.error(`   baseline was recorded from: ${
+    existsSync(BASELINE) ? JSON.parse(readFileSync(BASELINE, 'utf-8')).source : '(none recorded)'}`);
+  process.exit(2);
+}
+if (!existsSync(source)) {
+  console.error(`Parity source not found: ${source}`);
   process.exit(2);
 }
 if (!existsSync(CLI)) {

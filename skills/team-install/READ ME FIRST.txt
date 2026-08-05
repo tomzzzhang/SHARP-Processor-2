@@ -12,16 +12,27 @@ This is SEPARATE from the SHARP Processor 2 application. Installing the app
 does not install this, and this does not change the app.
 
 
-WHAT YOU NEED
--------------
-- Claude Code, on Windows
-- Node.js 20 or newer  ->  https://nodejs.org  (LTS installer)
-- Chrome or Edge, only if you want to render PDFs/PNGs (Edge is preinstalled
-  on Windows, and works)
+PICK A PATH
+-----------
+There are two, and for most people it is the first one.
+
+  1. CLAUDE COWORK  (claude.ai)  <-- recommended for the team
+     One file to upload, nothing to install. No Node, no Chrome, no
+     terminal. The engine ships inside the skill.
+     Read:  "Cowork install.md"
+
+  2. CLAUDE CODE  (terminal, on your own machine)
+     Needs Node.js 20 or newer (https://nodejs.org, LTS installer), plus
+     Chrome or Edge to render. Works offline, and renders with real Arial
+     if you are on a Mac. Use it if you already work in a terminal.
+     Read:  "PROMPT - paste into Claude Code.md"
+
+Both produce the same figures from the same engine. The only difference is
+where the code runs and what you have to set up.
 
 
-HOW TO INSTALL
---------------
+HOW TO INSTALL -- THE CLAUDE CODE PATH
+--------------------------------------
 1. Put this whole folder somewhere on your machine (Desktop is fine).
 2. Open Claude Code in this folder.
 3. Open "PROMPT - paste into Claude Code.md", copy the block it tells you to,
@@ -34,32 +45,41 @@ rather than installing software or changing your system settings.
 
 WHAT'S IN HERE
 --------------
-  PROMPT - paste into Claude Code.md   the thing you copy
+  Cowork install.md                    the recommended path
+  PROMPT - paste into Claude Code.md   the terminal path
   sharpplot-skill/                     the skill (goes to .claude\skills\)
   sharpplot-cli/                       the engine (goes to .claude\tools\)
+
+The last two only exist in a bundle produced by "npm run team:pack", and
+only the Claude Code path uses them. The Cowork path needs a single
+"sharpplot-cowork.skill" file instead, from "npm run skill:pack:cowork".
 
 sharpplot-cli is self-contained -- no npm install, no network, nothing to
 build. It is 3 JavaScript files that run on any machine with Node 20+.
 
 
-USING IT
---------
+USING IT (either path)
+----------------------
 Point Claude at a data file (.sharpx, .pcrd, .tlpd, .eds, .amxd, or a
 Bio-Rad CFX export folder) and describe the figure you want, e.g.
 
-    inspect this file and tell me what's in it: C:\path\to\run.sharpx
+    inspect this file and tell me what's in it
 
     make me an amplification plot from that, 3.4 inches wide, PDF
 
+On the Claude Code path, give the full path to the file. In Cowork, attach
+it to the conversation.
+
 Figures come out as vector PDF (drop straight into Word or Illustrator),
-plus PNG if you have poppler installed.
+plus PNG where poppler is available.
 
 
 A NOTE ON PNG
 -------------
-PNG output needs "pdftoppm" (from poppler), which Windows doesn't ship. PDF
-output needs only a browser, and PDF is the better format for Word and
-Illustrator anyway. Try PDF first.
+PNG is rasterized from the PDF by "pdftoppm" (part of poppler), which Windows
+doesn't ship -- so on the Claude Code path on Windows you are PDF-only in
+practice. PDF output needs only a browser, and PDF is the better format for
+Word and Illustrator anyway. Try PDF first.
 
 
 QUESTIONS

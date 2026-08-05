@@ -83,17 +83,33 @@ cp -r .claude/skills/sharpplot ~/.claude/skills/
 `cli:install` is also the refresh command after changing the CLI — the staged
 files are a snapshot, not a link.
 
-**claude.ai / Cowork:** upload [`skills/sharpplot.skill`](../skills/sharpplot.skill)
-via Settings → Skills → Add — grab it straight from the repo, no build needed.
-Rebuild it after editing the skill source (`.claude/skills/sharpplot/`) with:
+**claude.ai / Cowork — the path for anyone who does not already work in a
+terminal.** Build a self-contained skill and upload that:
 
 ```bash
-npm run skill:pack                           # updates skills/sharpplot.skill (tracked)
+npm run skill:pack:cowork                    # dist-skill/sharpplot-cowork.skill (~1.9 MB)
 ```
 
-**A colleague:** they clone the repo and do the same. The skill discovers the
-CLI (staged copy, then a checkout) rather than hardcoding a path, so it works
-wherever it lands.
+It carries the engine in a `bin/` folder beside `SKILL.md` — `sharpplot.mjs`,
+its side chunks and `plotly.min.js` — and `SKILL.md` looks there first. So the
+recipient uploads one file and is done: no Node install, no Chrome install, no
+PATH. The sandbox supplies Node and a Playwright chromium, both of which
+`render` already knows how to find.
+
+Deliberately **not** tracked: it is 1.9 MB of build output that changes on
+every CLI edit, and a stale copy in git is exactly the drift this replaces.
+Rebuild and re-upload after changing the skill or the CLI.
+
+[`skills/sharpplot.skill`](../skills/sharpplot.skill) (`npm run skill:pack`)
+remains the docs-only package — SKILL.md plus references, no engine. It is
+useful only where the CLI is already installed separately; it will not render
+anything on its own.
+
+**A colleague on Claude Code:** they clone the repo and do the same as above,
+or run the bundle produced by `npm run team:pack`. The skill discovers the CLI
+(beside SKILL.md, then the staged copy, then a checkout) rather than
+hardcoding a path, so it works wherever it lands. See
+[`skills/team-install/`](../skills/team-install/) for the hand-off docs.
 
 ## Porting it to another machine
 
