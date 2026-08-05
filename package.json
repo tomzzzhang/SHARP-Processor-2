@@ -12,7 +12,8 @@
     "lint": "eslint .",
     "test:codex": "node scripts/codex-regression-tests.cjs",
     "test:parity": "node scripts/parity-check.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "team:pack": "npm run cli:build && rm -rf dist-team && mkdir -p dist-team/'sharpplot for team' && cp -R skills/team-install/. dist-team/'sharpplot for team'/ && cp -R .claude/skills/sharpplot dist-team/'sharpplot for team'/sharpplot-skill && node dist-cli/sharpplot.mjs bundle --out dist-team/'sharpplot for team'/sharpplot-cli > /dev/null && echo 'dist-team/sharpplot for team/ \u2014 send this folder'"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",

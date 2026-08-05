@@ -43,3 +43,4 @@ CLAUDE.local.md
 *.pyc
 # packaged .skill bundle for claude.ai upload (rebuild with npm run skill:pack)
 dist-skill/
+dist-team/

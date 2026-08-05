@@ -1,0 +1,67 @@
+sharpplot — figure-making skill for SHARP Processor 2 data
+==========================================================
+
+WHAT THIS IS
+------------
+A Claude skill that builds publication-ready figures (amplification curves,
+melt curves, standard curves, multi-panel composites with gel images) straight
+from SHARP Processor 2 data files. It calls the Processor's own analysis code,
+so the numbers always agree with the desktop app.
+
+This is SEPARATE from the SHARP Processor 2 application. Installing the app
+does not install this, and this does not change the app.
+
+
+WHAT YOU NEED
+-------------
+- Claude Code, on Windows
+- Node.js 20 or newer  ->  https://nodejs.org  (LTS installer)
+- Chrome or Edge, only if you want to render PDFs/PNGs (Edge is preinstalled
+  on Windows, and works)
+
+
+HOW TO INSTALL
+--------------
+1. Put this whole folder somewhere on your machine (Desktop is fine).
+2. Open Claude Code in this folder.
+3. Open "PROMPT - paste into Claude Code.md", copy the block it tells you to,
+   and paste it as your first message.
+4. Claude does the rest and reports back. Restart Claude Code afterward.
+
+The prompt tells Claude to check things and stop if anything looks wrong,
+rather than installing software or changing your system settings.
+
+
+WHAT'S IN HERE
+--------------
+  PROMPT - paste into Claude Code.md   the thing you copy
+  sharpplot-skill/                     the skill (goes to .claude\skills\)
+  sharpplot-cli/                       the engine (goes to .claude\tools\)
+
+sharpplot-cli is self-contained -- no npm install, no network, nothing to
+build. It is 3 JavaScript files that run on any machine with Node 20+.
+
+
+USING IT
+--------
+Point Claude at a data file (.sharpx, .pcrd, .tlpd, .eds, .amxd, or a
+Bio-Rad CFX export folder) and describe the figure you want, e.g.
+
+    inspect this file and tell me what's in it: C:\path\to\run.sharpx
+
+    make me an amplification plot from that, 3.4 inches wide, PDF
+
+Figures come out as vector PDF (drop straight into Word or Illustrator),
+plus PNG if you have poppler installed.
+
+
+A NOTE ON PNG
+-------------
+PNG output needs "pdftoppm" (from poppler), which Windows doesn't ship. PDF
+output needs only a browser, and PDF is the better format for Word and
+Illustrator anyway. Try PDF first.
+
+
+QUESTIONS
+---------
+Ask Tom.
