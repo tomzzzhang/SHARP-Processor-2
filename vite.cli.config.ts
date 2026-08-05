@@ -34,7 +34,11 @@ function gitCommit(): string {
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
-    const dirty = execFileSync('git', ['status', '--porcelain'], {
+    // `-c core.fileMode=false` so a permission bit is not mistaken for a
+    // change. build.sh / dev.sh carry long-standing, deliberately-unstaged
+    // chmod +x deltas; without this every build would be stamped `-dirty`
+    // and the flag would stop meaning anything.
+    const dirty = execFileSync('git', ['-c', 'core.fileMode=false', 'status', '--porcelain'], {
       cwd: __dirname,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
