@@ -139,9 +139,9 @@ example "thresholdEnabled is off, so no well has a Tt".
 
 ### Layout
 
-Multi-panel composites on a grid, with panels allowed to span cells. NSF
-figure 3 is a plot over a gel; the *private validation* figure is one wide amplification
-panel over a standard curve and a melt derivative.
+Multi-panel composites on a grid, with panels allowed to span cells — an
+amplification plot over a gel image, say, or one wide amplification panel above
+a standard curve and a melt derivative side by side.
 
 You can describe layout in plain words — *"3 panel, top one full width, bottom
 two side by side, ratios are the plotting areas"* — or **send a hand-drawn

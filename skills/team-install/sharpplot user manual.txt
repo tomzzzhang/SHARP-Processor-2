@@ -210,9 +210,9 @@ PANEL TYPES
 
 LAYOUT
 
-Multi-panel composites on a grid, panels allowed to span cells. NSF figure 3
-is a plot over a gel. The private validation figure is one wide amplification panel over
-a standard curve and a melt derivative.
+Multi-panel composites on a grid, panels allowed to span cells -- an
+amplification plot over a gel image, say, or one wide amplification panel
+above a standard curve and a melt derivative side by side.
 
 Describe the layout in plain words --
 

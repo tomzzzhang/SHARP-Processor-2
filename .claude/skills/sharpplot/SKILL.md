@@ -155,8 +155,9 @@ Rules that go with it:
   ```jsonc
   { "files": [ { "role": "amp panel A", "path": "/abs/path/run.sharpx",
                  "sha256": "…", "recorded": "2026-08-04",
-                 "why_not_copied": "third-party confidential data (private collaborator)" } ] }
+                 "why_not_copied": "third-party confidential data" } ] }
   ```
+  Say *that* it is third-party confidential data, not whose. This file is public.
   Verify with `shasum -a 256 <path>` before trusting an old figure's numbers.
 - **Archive accepted versions only, not every render.** Iterate in a scratch
   directory; archive when the user says a version is good and then asks for a
