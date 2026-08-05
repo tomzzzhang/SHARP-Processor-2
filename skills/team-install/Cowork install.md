@@ -1,6 +1,6 @@
 # sharpplot in Claude Cowork — the recommended path for the team
 
-**Last Updated:** 2026-08-05 15:52 EDT
+**Last Updated:** 2026-08-05 17:44 EDT
 
 **One file to upload. Nothing to install. No Node, no Chrome, no PATH.**
 

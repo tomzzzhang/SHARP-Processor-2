@@ -1,6 +1,6 @@
 # sharpplot — user manual
 
-**Last Updated:** 2026-08-05 15:52 EDT
+**Last Updated:** 2026-08-05 17:44 EDT
 
 Making publication figures from SHARP Processor data by talking to Claude.
 
@@ -156,6 +156,7 @@ versus what to ask Claude for.
 | **Panel titles** | off by default for publication — you write the caption |
 | **Panel letters (A/B/C)** | added by the figure spec, not the app |
 | **Which channel is "active"** | inherited, but in a multi-panel figure you usually name channels explicitly |
+| **Which kinetic landmarks are toggled on in the app** | the state is saved in `.sharpx` 1.3 for reopening the experiment, but a publication figure declares its own requested markers so the same figure recipe is deterministic |
 
 ### The precedence rule
 
@@ -181,6 +182,7 @@ Small requests stay small.
 | `melt_deriv` | melt derivative, −dF/dT | melt data |
 | `dilution` | **standard curve** — Tt against concentration, with a fit, error bars (SD / SEM / 95% CI) and a doubling time | a threshold set, so wells have a Tt |
 | `doubling` | doubling time per well | threshold + fitting on |
+| `kinetics_residuals` | observed − fitted FreeShoulder curve, with the pooled run-noise band | amplification curves with a usable fit |
 
 If a plot type is impossible for your file, `inspect` says so **and why** — for
 example "thresholdEnabled is off, so no well has a Tt".
@@ -191,6 +193,44 @@ example "thresholdEnabled is off, so no well has a Tt".
 - **`image`** — a gel photo, a diagram, a product shot. Croppable by fraction,
   and it keeps the source aspect ratio rather than stretching it.
 - **`table`** — a small metrics table drawn in the same font as the figure.
+- **`kinetics_table`** — any selected columns from the Kinetics Report readouts
+  or the FreeShoulder fit-parameter table, generated directly from the data.
+
+### The Kinetics Report is reusable figure content
+
+You can ask for the whole Processor 2 Kinetics Report as a figure, or only the
+pieces needed for the current paper, proposal, poster, or QC note. For example:
+
+> Show the amplification data with fitted curves and t_lod / t_onset10 markers.
+
+> Add residuals underneath and include only t_lod, Td20, yield, and Tm in a table.
+
+> Put A, B, C, D, foot, shoulder, r2, and RMSE beside the plot.
+
+> Reuse the fit-parameter table as panel D of this composite.
+
+The available native sections are:
+
+- amplification data, fitted FreeShoulder curves, and any subset of `t_lod`,
+  `t_onset10`, and inflection markers;
+- residual curves with the shaded ±1 pooled run-σ noise band;
+- melt derivative curves with Tm markers;
+- kinetics readouts, with all columns or a requested subset;
+- fit parameters, with all columns or a requested subset.
+
+These are not screenshots. Plots remain vector graphics in the PDF and tables
+use the figure's own font, so each section can be resized or combined with any
+other plot/image/table panel. The report calculation is performed once for a
+source/channel and shared across every section in the composite.
+
+Fitted curves obey the same censoring rules as the Processor report. A fit that
+did not converge, has no observed plateau, or puts its transition outside the
+measured window is not drawn as if it were measured. `t_lod` is detection-based
+and can still be shown when the model fit is censored.
+
+Tables can show values as `value ± SE`, put SE in a separate column, or omit
+uncertainty. Times may be seconds or minutes; rate parameters and slopes are
+converted with the unit rather than merely relabelled.
 
 ### Layout
 
@@ -271,9 +311,9 @@ sharpplot --version
 ```
 
 ```
-  Processor version   0.2.4
-  built from commit   8cb799040
-  built at            2026-08-05T03:31:29Z  (0 days ago)
+  Processor version   0.2.5
+  built from commit   d38fd17f3
+  built at            2026-08-05T21:25:00Z  (0 days ago)
   .sharpx format      understands up to 1.3
 ```
 

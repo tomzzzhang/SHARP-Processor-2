@@ -19,10 +19,11 @@ import {
   normalizeMeltCurves, tCriticalApprox,
   type DilutionSeriesResult, type WellAnalysisResult,
 } from '@/lib/analysis';
-import type { WellLandmark } from '@/lib/report/kinetics-report';
+import { curveAt, type FivePLParams } from '@/lib/curvefit';
+import type { KineticsReport, ReportRow, WellLandmark } from '@/lib/report/kinetics-report';
 import { getPaletteColors } from '@/lib/constants';
 
-export type PlotType = 'amp' | 'melt' | 'melt_deriv' | 'doubling' | 'dilution';
+export type PlotType = 'amp' | 'melt' | 'melt_deriv' | 'doubling' | 'dilution' | 'kinetics_residuals';
 
 /** Which spread the error bars on a dilution standard curve represent. */
 export type ErrorBarSource = 'sd' | 'sem' | 'ci95' | 'none';
@@ -87,6 +88,21 @@ export interface PlotFigureStyle {
   isDark: boolean;
 }
 
+/** Opt-in report rendering. When omitted, every existing plot stays on the
+ * ordinary Processor figure path and therefore remains byte-identical. */
+export interface KineticsFigureOptions {
+  /** Draw the measured amplification curves. Defaults to true. */
+  showData?: boolean;
+  /** Overlay the FreeShoulder fitted curves. Defaults to false. */
+  showFit?: boolean;
+  /** Report amplification is either raw or fit-baseline-corrected. */
+  signal?: 'corrected' | 'raw';
+  /** Any subset; an empty/omitted list draws no kinetic markers. */
+  markers?: ('t_lod' | 't_onset10' | 'inflection')[];
+  /** Mark fitted melt temperatures on a melt or melt-derivative panel. */
+  showMeltTm?: boolean;
+}
+
 export interface BuildFigureInput {
   exp: ExperimentData;
   visibleWells: string[];
@@ -119,6 +135,10 @@ export interface BuildFigureInput {
    * stays a pure drawing layer.
    */
   landmarkPoints?: Map<string, WellLandmark> | null;
+  /** Full source-backed report used only by opt-in kinetics rendering. */
+  kineticsReport?: KineticsReport | null;
+  /** Explicit report rendering options. Omitted preserves ordinary plots. */
+  kinetics?: KineticsFigureOptions | null;
   /** Required only by the `dilution` plot type; ignored by every other. */
   dilution?: DilutionFigureInput | null;
 }
@@ -389,6 +409,19 @@ function lineStyleFor(well: string, input: BuildFigureInput): { dash?: string; w
   return { dash: ov?.lineStyle, width: ov?.lineWidth };
 }
 
+function rowFitParams(row: ReportRow | undefined): FivePLParams | null {
+  if (!row || row.fit_A === null || row.fit_B === null || row.fit_C === null
+    || row.fit_D === null || row.fit_foot === null || row.fit_shoulder === null) return null;
+  return {
+    A: row.fit_A, B: row.fit_B, C: row.fit_C, D: row.fit_D,
+    foot: row.fit_foot, shoulder: row.fit_shoulder,
+  };
+}
+
+function reportRowsByWell(report: KineticsReport | null | undefined): Map<string, ReportRow> {
+  return new Map((report?.rows ?? []).map((row) => [row.well, row]));
+}
+
 // ── Amplification ───────────────────────────────────────────────────
 
 function buildAmp(input: BuildFigureInput): { data: Data[]; layout: Partial<Layout> } {
@@ -405,12 +438,28 @@ function buildAmp(input: BuildFigureInput): { data: Data[]; layout: Partial<Layo
   const colorMap = computeColorMap(input);
   const legendGroups = computeLegendGroups(input);
   const legendRanks = buildLegendRanks(input.legendOrder);
+  const kinetics = input.kinetics ?? null;
+  const reportByWell = reportRowsByWell(input.kineticsReport);
+  const kineticsTime = input.kineticsReport?.timeS?.length
+    ? input.kineticsReport.timeS
+    : (amp.timeS?.length ? amp.timeS : amp.cycle);
+  const showData = kinetics?.showData ?? true;
+  const showFit = kinetics?.showFit ?? false;
+  const signal = kinetics?.signal ?? 'corrected';
 
   // Landmark points, accumulated across wells and emitted below as one marker
   // trace per landmark type — same shape as the on-screen plot, so a figure
   // exported from a saved view shows exactly the markers that view had.
-  const lm = input.landmarks;
-  const anyLandmark = Boolean(lm && (lm.lod || lm.onset || lm.infl) && input.landmarkPoints?.size);
+  const requested = new Set(kinetics?.markers ?? []);
+  const lm: LandmarkVisibility | null = kinetics
+    ? {
+        lod: requested.has('t_lod'),
+        onset: requested.has('t_onset10'),
+        infl: requested.has('inflection'),
+      }
+    : (input.landmarks ?? null);
+  const hasLmData = kinetics ? reportByWell.size > 0 : Boolean(input.landmarkPoints?.size);
+  const anyLandmark = Boolean(lm && (lm.lod || lm.onset || lm.infl) && hasLmData);
   const lmPoints: Record<string, { x: number[]; y: number[]; c: string[] }> = {
     lod: { x: [], y: [], c: [] },
     onset: { x: [], y: [], c: [] },
@@ -421,33 +470,72 @@ function buildAmp(input: BuildFigureInput): { data: Data[]; layout: Partial<Layo
     const raw = amp.wells[well];
     if (!raw) continue;
     const analysis = analysisResults.get(well);
-    const y = (normalizeEnabled && analysis?.normalizedRfu)
-      || (baselineEnabled && analysis?.correctedRfu)
-      || raw;
+    const reportRow = reportByWell.get(well);
+    const reportOffset = signal === 'corrected' ? (reportRow?.baseline_offset ?? 0) : 0;
+    const y = kinetics
+      ? (reportOffset ? raw.map((v) => v - reportOffset) : raw)
+      : ((normalizeEnabled && analysis?.normalizedRfu)
+        || (baselineEnabled && analysis?.correctedRfu)
+        || raw);
     const color = colorMap.get(well) ?? '#999';
     const lsOv = lineStyleFor(well, input);
     const lg = legendGroups.get(well)!;
-    data.push({
-      x: xData, y,
-      type: 'scatter', mode: 'lines',
-      name: traceName(well, input),
-      legendgroup: lg.group,
-      legendrank: legendRanks.get(lg.group) ?? 1000,
-      line: {
-        color,
-        width: lsOv.width ?? style.lineWidth,
-        dash: (lsOv.dash as PlotData['line']['dash']) ?? 'solid',
-      },
-      hoverinfo: 'name',
-      showlegend: lg.isRep,
-    });
+    if (showData) {
+      data.push({
+        x: xData, y,
+        type: 'scatter', mode: 'lines',
+        name: traceName(well, input),
+        legendgroup: lg.group,
+        legendrank: legendRanks.get(lg.group) ?? 1000,
+        line: {
+          color,
+          width: lsOv.width ?? style.lineWidth,
+          dash: (lsOv.dash as PlotData['line']['dash']) ?? 'solid',
+        },
+        hoverinfo: 'name',
+        showlegend: lg.isRep,
+      });
+    }
+
+    const params = rowFitParams(reportRow);
+    const fitY = params ? kineticsTime.map((t) => curveAt(t, params) - reportOffset) : null;
+    if (showFit && fitY) {
+      data.push({
+        x: xData, y: fitY,
+        type: 'scatter', mode: 'lines',
+        name: traceName(well, input),
+        legendgroup: lg.group,
+        legendrank: legendRanks.get(lg.group) ?? 1000,
+        line: {
+          color,
+          width: Math.max(0.8, (lsOv.width ?? style.lineWidth) * 0.65),
+          dash: (lsOv.dash as PlotData['line']['dash']) ?? 'solid',
+        },
+        opacity: 0.5,
+        meta: { sharpplotRole: 'kinetics-fit' },
+        hoverinfo: 'name',
+        showlegend: !showData && lg.isRep,
+      } as Data);
+    }
 
     if (anyLandmark) {
-      const wl = input.landmarkPoints!.get(well);
+      const wl: WellLandmark | null = kinetics
+        ? (reportRow
+          ? {
+              tLod: reportRow.t_lod,
+              tOnset10: reportRow.t_onset10,
+              inflectionT: reportRow.fit_inflection_t,
+              fired: reportRow.fired,
+            }
+          : null)
+        : (input.landmarkPoints?.get(well) ?? null);
       if (wl) {
         for (const spec of LANDMARK_SPECS) {
           if (!lm![spec.key]) continue;
-          const p = pointAtSec(wl[spec.field], amp.timeS, xData, y);
+          // Detection lives on the measured curve; fit-derived landmarks live
+          // on the fitted model whenever one is available (report parity).
+          const markerY = spec.key === 'lod' ? y : (fitY ?? y);
+          const p = pointAtSec(wl[spec.field], kineticsTime, xData, markerY);
           if (!p) continue;
           const bucket = lmPoints[spec.key];
           bucket.x.push(p.x);
@@ -483,7 +571,7 @@ function buildAmp(input: BuildFigureInput): { data: Data[]; layout: Partial<Layo
 
   const shapes: Partial<Shape>[] = [];
   // Threshold line is in raw-RFU units — hide it when the plot is normalized.
-  if (input.thresholdEnabled && !normalizeEnabled) {
+  if (input.thresholdEnabled && !normalizeEnabled && (!kinetics || signal === 'raw')) {
     shapes.push({
       type: 'line', x0: 0, x1: 1, xref: 'paper',
       y0: input.thresholdRfu, y1: input.thresholdRfu, yref: 'y',
@@ -503,7 +591,9 @@ function buildAmp(input: BuildFigureInput): { data: Data[]; layout: Partial<Layo
     },
     yaxis: {
       title: pfAxisLabel(
-        normalizeEnabled ? 'Normalized fluorescence' : baselineEnabled ? 'RFU (corrected)' : 'RFU',
+        kinetics
+          ? (signal === 'corrected' ? 'Baseline-corrected RFU' : 'RFU')
+          : normalizeEnabled ? 'Normalized fluorescence' : baselineEnabled ? 'RFU (corrected)' : 'RFU',
         style,
       ),
       type: logScale ? 'log' : 'linear',
@@ -600,6 +690,35 @@ function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Dat
     }
   }
 
+  // Static report equivalent of the interactive report's Tm callout: one
+  // marker trace carries every requested curve's fitted melt temperature.
+  if (hasDerivative && input.kinetics?.showMeltTm && input.kineticsReport) {
+    const rows = reportRowsByWell(input.kineticsReport);
+    const tmX: number[] = [], tmY: number[] = [], tmC: string[] = [];
+    for (const well of visibleWells) {
+      const tm = rows.get(well)?.melt_tm;
+      const der = melt.derivative[well];
+      if (tm === null || tm === undefined || !Number.isFinite(tm) || !der) continue;
+      const p = pointAtSec(tm, melt.temperatureC, melt.temperatureC, der);
+      if (!p) continue;
+      tmX.push(p.x); tmY.push(p.y); tmC.push(colorMap.get(well) ?? '#999');
+    }
+    if (tmX.length) {
+      data.push({
+        x: tmX, y: tmY,
+        type: 'scatter', mode: 'markers', name: 'Tm', legendgroup: 'kinetics:tm',
+        legendrank: 10004,
+        marker: {
+          symbol: 'triangle-down', size: 9, color: tmC,
+          line: { color: style.isDark ? '#000' : '#fff', width: 1 },
+        },
+        hoverinfo: 'skip', showlegend: style.showLegend,
+        xaxis: derivativeOnly ? 'x' : 'x2',
+        yaxis: derivativeOnly ? 'y' : 'y2',
+      } as Data);
+    }
+  }
+
   const plotBg = resolvePlotBg(style);
   const legendPos = resolveLegendPosition(style.legendPosition, data);
   const shapes: Partial<Shape>[] = [];
@@ -692,6 +811,93 @@ function buildMelt(input: BuildFigureInput, derivativeOnly = false): { data: Dat
         domain: [0, 0.45], anchor: 'x2',
         ...gridStyle(style),
       },
+    },
+  };
+}
+
+// ── Kinetics residuals (observed − FreeShoulder fit) ────────────────
+
+function buildKineticsResiduals(input: BuildFigureInput): { data: Data[]; layout: Partial<Layout> } {
+  const { exp, visibleWells, style, xAxisMode } = input;
+  const amp = exp.amplification;
+  const report = input.kineticsReport;
+  if (!amp || !report) return { data: [], layout: {} };
+
+  const xData = xAxisMode === 'cycle' ? amp.cycle : xAxisMode === 'time_s' ? amp.timeS : amp.timeMin;
+  const fitTime = report.timeS.length ? report.timeS : (amp.timeS.length ? amp.timeS : amp.cycle);
+  const rows = reportRowsByWell(report);
+  const colorMap = computeColorMap(input);
+  const legendGroups = computeLegendGroups(input);
+  const legendRanks = buildLegendRanks(input.legendOrder);
+  const data: Data[] = [];
+  let maxAbs = 0;
+
+  for (const well of visibleWells) {
+    const raw = amp.wells[well];
+    const params = rowFitParams(rows.get(well));
+    if (!raw || !params) continue;
+    const residual = fitTime.map((t, i) => raw[i] - curveAt(t, params));
+    for (const v of residual) if (Number.isFinite(v)) maxAbs = Math.max(maxAbs, Math.abs(v));
+    const color = colorMap.get(well) ?? '#999';
+    const lsOv = lineStyleFor(well, input);
+    const lg = legendGroups.get(well)!;
+    data.push({
+      x: xData, y: residual,
+      type: 'scatter', mode: 'lines',
+      name: traceName(well, input),
+      legendgroup: lg.group,
+      legendrank: legendRanks.get(lg.group) ?? 1000,
+      line: {
+        color,
+        width: lsOv.width ?? style.lineWidth,
+        dash: (lsOv.dash as PlotData['line']['dash']) ?? 'solid',
+      },
+      hoverinfo: 'name', showlegend: lg.isRep,
+    });
+  }
+
+  const band = Number.isFinite(report.runSigma) ? report.runSigma : 0;
+  const range = Math.max(4 * band, 1.1 * maxAbs, 1);
+  const shapes: Partial<Shape>[] = [
+    {
+      type: 'rect', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: -band, y1: band,
+      fillcolor: style.isDark ? '#ffffff' : '#000000', opacity: 0.07,
+      line: { width: 0 }, layer: 'below',
+    },
+    {
+      type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: 0, y1: 0,
+      line: { color: style.isDark ? '#777' : '#aeb2bb', width: 1 },
+    },
+  ];
+  const plotBg = resolvePlotBg(style);
+  const legendPos = resolveLegendPosition(style.legendPosition, data);
+  const rawTitle = `${exp.experimentId ?? ''} — Fit residuals`.trim().replace(/^—\s*/, '');
+  return {
+    data,
+    layout: {
+      title: { text: titleText(rawTitle || 'Fit residuals', style), font: { family: style.fontFamily, size: style.titleSize } },
+      xaxis: {
+        title: pfAxisLabel(X_AXIS_LABELS[xAxisMode], style),
+        ...pfTickProps(style), ...gridStyle(style),
+      },
+      yaxis: {
+        title: pfAxisLabel('Residual (RFU)', style), range: [-range, range],
+        ...pfTickProps(style), ...gridStyle(style),
+      },
+      shapes: shapes as Layout['shapes'],
+      showlegend: style.showLegend,
+      legend: {
+        font: { family: style.fontFamily, size: style.legendSize },
+        x: legendPos.x, y: legendPos.y,
+        xanchor: legendPos.xanchor as 'left' | 'right' | 'center',
+        yanchor: legendPos.yanchor as 'top' | 'bottom' | 'middle',
+        bgcolor: style.isDark ? '#1f1f1f' : '#ffffff',
+        bordercolor: style.isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)',
+        borderwidth: 1,
+      },
+      margin: computeMargins(style),
+      plot_bgcolor: plotBg, paper_bgcolor: plotBg,
+      font: { color: plotFontColor(style.isDark, style.textColor) },
     },
   };
 }
@@ -895,5 +1101,6 @@ export function buildFigure(plotType: PlotType, input: BuildFigureInput): { data
     case 'melt_deriv': return buildMelt(input, true);
     case 'doubling': return buildDoubling(input);
     case 'dilution': return buildDilution(input);
+    case 'kinetics_residuals': return buildKineticsResiduals(input);
   }
 }

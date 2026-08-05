@@ -1,6 +1,6 @@
 # Release v0.2.5 — kinetic landmarks become saved view state (`.sharpx` format 1.3)
 
-**Last Updated:** 2026-08-05 15:52 EDT — Claude (Mac session — version bumped, macOS DMG built, release published)
+**Last Updated:** 2026-08-05 17:44 EDT
 
 Internal record. Public-facing notes live in `README.md` → *What's New in v0.2.5* and on the GitHub release page. Everything below is implementation detail and stays here.
 

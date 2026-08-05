@@ -1,13 +1,14 @@
 ===============================================================================
   sharpplot -- user manual
   Making publication figures from SHARP Processor data by talking to Claude
-  Updated 2026-08-04
+  Updated 2026-08-05
 ===============================================================================
 
 CONTENTS
 
   1. The one idea worth understanding
   2. How you actually use it
+  2A. Figures made this way remain reworkable
   3. What is inside a .sharpx
   4. What carries over into the figure   <-- the important one
   5. What it can make
@@ -67,6 +68,36 @@ between Claude and the tool. Talk in normal words.
 Raw instrument files work too -- .pcrd, .tlpd, .eds, .amxd, or a zipped
 Bio-Rad CFX export folder. They just have no saved setup, so grouping and
 colours start from defaults and you describe them out loud instead.
+
+
+===============================================================================
+2A. FIGURES MADE THIS WAY REMAIN REWORKABLE
+===============================================================================
+
+A completed SharpPlot figure is a folder, not only a PDF:
+
+    Figure name/
+      Figure name.spec.json   editable recipe and source of truth
+      Figure name.pdf         accepted vector output
+      Figure name.png         accepted preview
+      source/                 source data/images or safe source references
+      archive/                superseded accepted versions
+      NOTES.md                decisions, interpretation and draft caption
+
+Give Claude the whole folder later and say what the new purpose is:
+
+    continue from this figure and make a half-column paper version
+
+    reuse this as the top panel of a proposal composite
+
+    keep the analysis but adapt the layout and labels for a poster
+
+Before editing, SharpPlot rerenders the unchanged recipe and requires it to
+match the accepted PNG. That catches changed data, fonts, browser behavior or
+an accidental edit before the revision begins. The old accepted version then
+stays in archive/. This makes a figure reusable months or years later, in a
+new chat or on another computer. Keep the full folder; the PDF/PNG alone are
+the final outputs, not the editable figure.
 
 
 ===============================================================================
@@ -170,6 +201,11 @@ DOES NOT CARRY OVER
 
   Panel letters       A / B / C are added by the figure, not by the app.
 
+  Kinetic marker      The on/off state is saved in .sharpx 1.3 so Processor
+  toggles             can reopen the experiment. A publication figure states
+                      which markers it wants, so the same figure recipe is
+                      deterministic.
+
 
 WHEN TWO THINGS DISAGREE
 ------------------------
@@ -196,6 +232,8 @@ PLOT TYPES
                 error bars (SD, SEM or 95% CI) and a doubling time.
                 Needs a threshold set, so wells have a Tt.
   doubling      doubling time per well. Needs threshold + fitting on.
+  kinetics_     observed minus fitted FreeShoulder curve, with the pooled
+  residuals     run-noise band. Needs a usable fit.
 
 If a plot type is impossible for your file, it says so AND why -- for example
 "thresholdEnabled is off, so no well has a Tt".
@@ -207,6 +245,40 @@ PANEL TYPES
   image         a gel photo, diagram or product shot. Croppable by fraction,
                 and it keeps the real aspect ratio rather than stretching
   table         a small metrics table, drawn in the figure's own font
+  kinetics_     selected Kinetics Report readouts or fit parameters,
+  table         generated directly from the source data
+
+
+KINETICS REPORT FIGURES
+
+The whole Processor 2 Kinetics Report -- or any subset -- can be native figure
+content. You can ask for:
+
+  * amplification data with fitted FreeShoulder curves
+  * any subset of t_lod, t_onset10 and inflection markers
+  * residual curves with the shaded +/-1 pooled run-sigma band
+  * melt derivative curves with Tm markers
+  * all or selected kinetics readout columns
+  * all or selected fit parameters (A, B, C, D, foot, shoulder, r2, RMSE, etc.)
+
+Examples in ordinary language:
+
+    show fitted curves and t_lod / t_onset10 on the amplification plot
+
+    add residuals below and a table with only t_lod, Td20, yield and Tm
+
+    use the fit-parameter table as panel D of this composite
+
+These are not screenshots. Plots stay vector in the PDF and tables use the
+figure font, so every section can be resized or combined with unrelated plot,
+image and table panels. The report is computed once per source/channel and
+shared by all its sections.
+
+Fits obey the Processor report's censoring rules. A failed fit, an unobserved
+plateau or a transition outside the measured window is not drawn as if it were
+measured. t_lod is detection-based and may still exist when the fit is
+censored. Tables may show value +/- SE, separate SE columns, or values only;
+seconds/minutes conversion also converts rates and slopes.
 
 
 LAYOUT
@@ -303,10 +375,10 @@ ASK WHAT BUILD YOU ARE ON
   Claude reports the build date when it first says what it can do. Or ask it
   to run "sharpplot --version", which prints:
 
-      Processor version   0.2.4
-      built from commit   9bb7742d1
-      built at            2026-08-05T03:37:49Z  (0 days ago)
-      .sharpx format      understands up to 1.2
+      Processor version   0.2.5
+      built from commit   d38fd17f3
+      built at            2026-08-05T21:25:00Z  (0 days ago)
+      .sharpx format      understands up to 1.3
 
 THE CHECK THAT MATTERS IS AUTOMATIC
   A .sharpx records the format version it was written as. If you open a file

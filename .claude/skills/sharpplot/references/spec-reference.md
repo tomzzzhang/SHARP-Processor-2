@@ -1,6 +1,6 @@
 # sharpplot spec — complete field reference
 
-**Last Updated:** 2026-08-05 15:52 EDT
+**Last Updated:** 2026-08-05 17:44 EDT
 
 Read this before writing anything beyond a single basic panel.
 
@@ -82,7 +82,7 @@ For print, set `plotBgColor: "#ffffff"` and `textColor: "black"`.
   "kind": "plot",
   "label": "A",
   "source": "run.sharpx",              // relative paths resolve against the spec file
-  "plotType": "amp",                   // amp | melt | melt_deriv | doubling | dilution
+  "plotType": "amp",                   // amp | melt | melt_deriv | doubling | dilution | kinetics_residuals
   "channel": null,                     // defaults to the file's active channel
   "select": { "groups": ["10^7"], "exclude": ["A3"] }
 }
@@ -115,6 +115,42 @@ does.** Never a silent skip.
 
 `doubling` panels need both `thresholdEnabled` (for Tt) and `fittingEnabled`
 (for doubling time), or nothing is plotted.
+
+### Kinetics Report plots
+
+Kinetics content is opt-in and source-backed. Omit `kinetics` to keep the
+ordinary Processor plot path exactly unchanged.
+
+```jsonc
+{
+  "kind": "plot", "label": "A", "source": "run.sharpx", "plotType": "amp",
+  "thresholdEnabled": false,
+  "kinetics": {
+    "signal": "corrected",             // corrected (default) | raw
+    "showData": true,                  // default true
+    "showFit": true,                   // default false
+    "markers": ["t_lod", "t_onset10", "inflection"]
+  }
+}
+```
+
+`t_lod` is placed on the measured curve; the other two markers are placed on
+the fitted model. Requested fits are drawn only when the FreeShoulder fit is
+usable and uncensored. If no selected well has one, the panel stops rather
+than drawing an extrapolated curve.
+
+```jsonc
+{ "kind": "plot", "label": "B", "source": "run.sharpx",
+  "plotType": "kinetics_residuals" }
+
+{ "kind": "plot", "label": "C", "source": "run.sharpx",
+  "plotType": "melt_deriv", "kinetics": { "showMeltTm": true } }
+```
+
+Residuals are observed − fit with a shaded ±1 pooled run-σ band. All report
+sections over the same source/channel share one report computation. SharpPlot
+does not inherit the saved `.sharpx` landmark toggle; markers are declared in
+the figure spec so the same spec is deterministic.
 
 ### Appearance
 
@@ -294,6 +330,39 @@ after the original image is removed.
   "columns": ["Metric", "SHARP", "PCR"],
   "rows": [["On-target %", "99.1", "98.7"], ["Median Q", "18.4", "18.1"]] }
 ```
+
+### Source-backed kinetics tables
+
+```jsonc
+{
+  "kind": "kinetics_table", "label": "D", "source": "run.sharpx",
+  "section": "readouts",               // readouts | fit_parameters | all
+  "columns": ["well", "sample", "t_lod", "t_onset10", "td_20", "yield_raw", "melt_tm", "call"],
+  "timeUnit": "min",                   // s | min
+  "uncertainty": "plusminus",          // plusminus | separate | none
+  "amplifyingOnly": false,
+  "sort": { "by": "t_lod", "direction": "asc" },
+  "fontSize": 7
+}
+```
+
+`columns` is optional and controls subset/order. The `readouts` and
+`fit_parameters` presets match the Processor report tables; `all` exposes
+every supported scalar report field. Available ids:
+
+`well`, `sample`, `channel`, `curve_key`, `baseline_offset`,
+`baseline_from_fit`, `baseline_observed`, `plateau_observed`, `well_sigma`,
+`run_sigma`, `quality`, `t_lod`, `fired`, `t_mid`, `slope_mid`, `t_onset10`,
+`td_5`, `td_20`, `td_50`, `td_slowdown`, `yield_raw`, `plateau_start_s`,
+`fit_A`, `fit_B`, `fit_C`, `fit_D`, `fit_foot`, `fit_shoulder`,
+`fit_inflection_t`, `fit_max_slope`, `fit_rmse`, `fit_r2`, `fit_converged`,
+`shape_at_bound`, `call`, `melt_has_peak`, `melt_peak_count`, `melt_tm`,
+`melt_peak_height`.
+
+Standard errors are attached automatically when a selected field has one.
+Changing `timeUnit` converts time, rate, slope, and their SEs; it never merely
+relabels a value. `channel`, `select`, `groups`, `sourceRef`, `panelLabel`, and
+`styleOverride` work as on other panels.
 
 ## Verbal grouping
 

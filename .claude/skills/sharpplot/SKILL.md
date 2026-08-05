@@ -1,9 +1,9 @@
 ---
 name: sharpplot
-description: Build publication figures from SHARP Data Processor 2 data — .sharpx, .sharp, .pcrd, .tlpd, .eds, .amxd, or Bio-Rad CFX folders. Amplification curves, melt curves, melt derivatives, dilution standard curves, and multi-panel composites with gel images and metrics tables, at an exact physical size as vector PDF plus PNG. Use whenever the user wants a figure, plot, panel or composite from qPCR / isothermal amplification data, mentions a .sharpx or .pcrd file, or asks for a standard curve, amplification plot, melt plot or figure panel.
+description: Build publication figures from SHARP Data Processor 2 data — .sharpx, .sharp, .pcrd, .tlpd, .eds, .amxd, or Bio-Rad CFX folders. Amplification and melt plots, fitted curves, kinetic landmarks, Kinetics Report sections and fit-parameter tables, dilution standard curves, and multi-panel composites with images/tables, at an exact physical size as vector PDF plus PNG. Use whenever the user wants a figure, plot, report panel or composite from qPCR / isothermal amplification data, mentions a .sharpx or .pcrd file, or asks for a standard curve, amplification plot, melt plot, kinetics report, fitted curve, kinetic marker or fit parameters.
 ---
 
-**Last Updated:** 2026-08-05 15:52 EDT
+**Last Updated:** 2026-08-05 17:44 EDT
 
 # sharpplot — figures from Processor data, by conversation
 
@@ -227,6 +227,13 @@ Resolution runs *app default → what the file saved → composite style → pan
 **Apply only the deltas they ask for.** "Half column, no grid" changes two
 fields. Keep the spec small so the next edit stays small.
 
+**Kinetics are an explicit figure delta.** If the user asks for fitted curves,
+`t_lod` / `t_onset10` / inflection markers, residuals, Tm marks, kinetics
+readouts, fit parameters, or all/part of the Kinetics Report, read
+`references/kinetics-report.md` before writing the spec. SharpPlot deliberately
+does not inherit the `.sharpx` landmark-toggle state: the requested report
+content belongs in the figure recipe, so the same recipe stays deterministic.
+
 ## Step 6 — render and show
 
 Iterate in a scratch directory — renders are cheap and most of them are wrong:
@@ -253,7 +260,7 @@ version, run `archive` as shown above; do not move the spec by hand.
   "panelLabels": { "mode": "letter", "bold": true, "size": 10 },
   "layout": { "rows": 1, "cols": 3, "widths": [1.35, 1, 1], "gap_in": 0.16,
               "margin_in": 0.14 },
-  "panels": [ /* plot | image | table */ ]
+  "panels": [ /* plot | image | table | kinetics_table */ ]
 }
 ```
 
@@ -262,6 +269,10 @@ version, run `archive` as shown above; do not move the spec by hand.
 **Read `references/spec-reference.md` for the complete field list** — panel
 types, selection, axes, annotations, reference lines, dilution config, image
 crop and table panels. Load it before writing anything beyond a basic panel.
+
+**Read `references/kinetics-report.md` for any kinetics request** — fitted
+curves, landmark markers, residuals, Tm markers, selectable report tables,
+fit-parameter tables, and the full-report composite recipe.
 
 **Read `references/multi-source-and-alignment.md` before combining wells
 from two files, adding a second legend, forcing literal tick labels, or

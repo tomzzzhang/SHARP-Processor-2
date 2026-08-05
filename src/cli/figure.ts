@@ -22,6 +22,7 @@ import { buildFigure, type BuildFigureInput, type PlotFigureStyle, type PlotType
 import { getPaletteColors } from '@/lib/constants';
 import { computeChannelResults } from '@/hooks/useAnalysisResults';
 import { computeDriftSlope, type WellAnalysisResult } from '@/lib/analysis';
+import { computeExperimentReport, type KineticsReport, type ReportRow } from '@/lib/report/kinetics-report';
 import type { ChannelAnalysisState } from '@/hooks/useAppState';
 import type { XAxisMode } from '@/types/experiment';
 import { parseCurveKey } from '@/lib/curves';
@@ -33,8 +34,9 @@ import { describeDilution, resolveDilution, statisticValues, substituteStatistic
 import { resolveInputPath } from './source-ref';
 import { buildInfo } from './version';
 import {
-  SpecError, type ImagePanel, type PanelLabelSpec, type PlotPanel, type ResolvedSpec,
-  type SpecStyle, type TablePanel, type WellSelection,
+  SpecError, type ImagePanel, type KineticsColumn, type KineticsTablePanel,
+  type PanelLabelSpec, type PlotPanel, type ResolvedSpec, type SpecStyle,
+  type TablePanel, type WellSelection,
 } from './spec';
 
 export interface PlotRenderPanel {
@@ -114,12 +116,34 @@ export interface FigureBundle {
 
 /** Cache so a composite with three panels over one file loads it once. */
 type SourceCache = Map<string, Promise<LoadedExperiment>>;
+type ReportCache = Map<string, Promise<KineticsReport>>;
 
 function loadCached(cache: SourceCache, absPath: string): Promise<LoadedExperiment> {
   const hit = cache.get(absPath);
   if (hit) return hit;
   const p = loadSource(absPath);
   cache.set(absPath, p);
+  return p;
+}
+
+/** Full report is the expensive path (covariance + MC uncertainty), so every
+ * panel over the same source/channel shares one computation. Hidden wells are
+ * present only when explicitly selected, but never move the pooled run sigma. */
+function reportCached(
+  cache: ReportCache,
+  loaded: LoadedExperiment,
+  channel: string,
+): Promise<KineticsReport> {
+  const key = `${loaded.sourcePath}\u0000${channel}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const p = Promise.resolve().then(() => computeExperimentReport(
+    loaded.exp,
+    channel,
+    new Set(loaded.view.deactivatedWells),
+    new Set(loaded.view.hiddenWells),
+  ));
+  cache.set(key, p);
   return p;
 }
 
@@ -197,7 +221,11 @@ function stripNullish<T extends object>(obj: T): Partial<T> {
  * curve-centric migration, so reading only `wellGroups` silently loses every
  * group on a recently-saved file.
  */
-function effectiveGroups(loaded: LoadedExperiment, channel: string, panel: PlotPanel): Map<string, string> {
+function effectiveGroups(
+  loaded: LoadedExperiment,
+  channel: string,
+  panel: { groups?: Record<string, string> | null },
+): Map<string, string> {
   const out = new Map<string, string>();
   for (const [well, g] of loaded.view.wellGroups) out.set(well, g);
   for (const [key, g] of loaded.view.curveGroups) {
@@ -333,6 +361,7 @@ async function buildSourceInput(
   panel: PlotPanel,
   spec: ResolvedSpec,
   cache: SourceCache,
+  reportCache: ReportCache,
   forced: { xAxisMode: XAxisMode; legendContent: PlotFigureStyle['legendContent'] },
 ): Promise<BuildFigureInput> {
   const loaded = await loadCached(cache, absSource);
@@ -374,7 +403,7 @@ async function buildSourceInput(
   const style = resolveStyle(loaded, spec.style, panel.styleOverride);
   style.legendContent = forced.legendContent;
 
-  return {
+  const input: BuildFigureInput = {
     exp: expForChannel,
     visibleWells,
     wellGroups: groups,
@@ -394,6 +423,11 @@ async function buildSourceInput(
     smoothingEnabled: cs.smoothingEnabled,
     smoothingWindow: cs.smoothingWindow,
   };
+  if (panel.kinetics || panel.plotType === 'kinetics_residuals') {
+    input.kinetics = panel.kinetics ?? {};
+    input.kineticsReport = await reportCached(reportCache, loaded, channel);
+  }
+  return input;
 }
 
 /**
@@ -444,6 +478,7 @@ async function buildPlotPanel(
   spec: ResolvedSpec,
   placement: PanelPlacement,
   cache: SourceCache,
+  reportCache: ReportCache,
 ): Promise<PlotRenderPanel> {
   const resolvedSource = await resolveInputPath(
     spec.baseDir,
@@ -512,6 +547,11 @@ async function buildPlotPanel(
     smoothingWindow: cs.smoothingWindow,
   };
 
+  if (panel.kinetics || panel.plotType === 'kinetics_residuals') {
+    input.kinetics = panel.kinetics ?? {};
+    input.kineticsReport = await reportCached(reportCache, loaded, channel);
+  }
+
   // Legend visibility/position/content are style fields, applied above; the
   // panel's `legend.show` is a convenience alias for the same thing.
   if (panel.legend) {
@@ -573,7 +613,7 @@ async function buildPlotPanel(
         `Plot panel "${panel.label}" merged source`,
       );
       const abs = resolvedMerge.absolutePath;
-      const mergedInput = await buildSourceInput(abs, merge.select, merge.groups, panel, spec, cache, {
+      const mergedInput = await buildSourceInput(abs, merge.select, merge.groups, panel, spec, cache, reportCache, {
         xAxisMode,
         legendContent: input.style.legendContent,
       });
@@ -581,6 +621,24 @@ async function buildPlotPanel(
       figure.data.push(...mergedFigure.data);
     }
     recolorMergedTraces(figure.data, input.style, resolveLegendOrder(loaded, panel));
+  }
+
+  if (panel.plotType === 'kinetics_residuals' && figure.data.length === 0) {
+    throw new SpecError(
+      `Panel "${panel.label}" selected no curves with a usable, uncensored FreeShoulder fit, ` +
+      'so no residuals can be drawn.',
+    );
+  }
+  if (panel.plotType === 'amp' && panel.kinetics?.showFit) {
+    const hasFit = figure.data.some((trace) => (
+      (trace as { meta?: { sharpplotRole?: string } }).meta?.sharpplotRole === 'kinetics-fit'
+    ));
+    if (!hasFit) {
+      throw new SpecError(
+        `Panel "${panel.label}" requested fitted curves, but none of its selected wells has ` +
+        'a usable, uncensored FreeShoulder fit.',
+      );
+    }
   }
 
   // Exact pixel box. Plotly is told its size rather than inferring it from the
@@ -625,6 +683,9 @@ function assertPlotTypeAvailable(
 ): void {
   if (plotType === 'amp' && !exp.amplification) {
     throw new SpecError(`Panel "${label}" is an amp plot but the source has no amplification data.`);
+  }
+  if (plotType === 'kinetics_residuals' && !exp.amplification) {
+    throw new SpecError(`Panel "${label}" is a kinetics_residuals plot but the source has no amplification data.`);
   }
   if ((plotType === 'melt' || plotType === 'melt_deriv') && !exp.melt) {
     throw new SpecError(`Panel "${label}" is a ${plotType} plot but the source has no melt data.`);
@@ -716,6 +777,190 @@ function buildTablePanel(panel: TablePanel, spec: ResolvedSpec, placement: Panel
   };
 }
 
+// ── Source-backed kinetics tables ─────────────────────────────────
+
+interface KineticsColumnDef {
+  label: (unit: 's' | 'min') => string;
+  field: keyof ReportRow | 'curve_key';
+  se?: keyof ReportRow;
+  align?: 'left' | 'center' | 'right';
+  digits?: number;
+}
+
+const KC: Record<KineticsColumn, KineticsColumnDef> = {
+  well: { label: () => 'Well', field: 'well', align: 'left' },
+  sample: { label: () => 'Sample', field: 'sample', align: 'left' },
+  channel: { label: () => 'Channel', field: 'channel', align: 'left' },
+  curve_key: { label: () => 'Curve', field: 'curve_key', align: 'left' },
+  baseline_offset: { label: () => 'Baseline (RFU)', field: 'baseline_offset', digits: 0 },
+  baseline_from_fit: { label: () => 'Fit baseline', field: 'baseline_from_fit', align: 'center' },
+  baseline_observed: { label: () => 'Base', field: 'baseline_observed', align: 'center' },
+  plateau_observed: { label: () => 'Plateau', field: 'plateau_observed', align: 'center' },
+  well_sigma: { label: () => 'σwell (RFU)', field: 'well_sigma', digits: 0 },
+  run_sigma: { label: () => 'σrun (RFU)', field: 'run_sigma', digits: 0 },
+  quality: { label: () => 'Quality', field: 'quality', align: 'left' },
+  t_lod: { label: (u) => `t_lod (${u})`, field: 't_lod', se: 't_lod_se' },
+  fired: { label: () => 'Fired', field: 'fired', align: 'center' },
+  t_mid: { label: (u) => `t_mid (${u})`, field: 't_mid' },
+  slope_mid: { label: (u) => `Slope (${u === 'min' ? 'RFU/min' : 'RFU/s'})`, field: 'slope_mid' },
+  t_onset10: { label: (u) => `t_onset10 (${u})`, field: 't_onset10', se: 't_onset10_se' },
+  td_5: { label: (u) => `Td₅ (${u})`, field: 'td_5', se: 'td_5_se' },
+  td_20: { label: (u) => `Td₂₀ (${u})`, field: 'td_20', se: 'td_20_se' },
+  td_50: { label: (u) => `Td₅₀ (${u})`, field: 'td_50', se: 'td_50_se' },
+  td_slowdown: { label: () => 'Td slowdown', field: 'td_slowdown', digits: 2 },
+  yield_raw: { label: () => 'Yield (RFU)', field: 'yield_raw', se: 'yield_raw_se', digits: 0 },
+  plateau_start_s: { label: (u) => `Plateau start (${u})`, field: 'plateau_start_s' },
+  fit_A: { label: () => 'A (RFU)', field: 'fit_A', se: 'fit_A_se' },
+  fit_B: { label: (u) => `B (${u}⁻¹)`, field: 'fit_B', se: 'fit_B_se', digits: 4 },
+  fit_C: { label: (u) => `C (${u})`, field: 'fit_C', se: 'fit_C_se' },
+  fit_D: { label: () => 'D (RFU)', field: 'fit_D', se: 'fit_D_se' },
+  fit_foot: { label: () => 'foot', field: 'fit_foot', se: 'fit_foot_se', digits: 2 },
+  fit_shoulder: { label: () => 'shoulder', field: 'fit_shoulder', se: 'fit_shoulder_se', digits: 2 },
+  fit_inflection_t: { label: (u) => `Inflection (${u})`, field: 'fit_inflection_t', se: 'fit_inflection_t_se' },
+  fit_max_slope: { label: (u) => `Max slope (${u === 'min' ? 'RFU/min' : 'RFU/s'})`, field: 'fit_max_slope', se: 'fit_max_slope_se' },
+  fit_rmse: { label: () => 'RMSE', field: 'fit_rmse' },
+  fit_r2: { label: () => 'r²', field: 'fit_r2', digits: 3 },
+  fit_converged: { label: () => 'Converged', field: 'fit_converged', align: 'center' },
+  shape_at_bound: { label: () => 'Shape bound', field: 'shape_at_bound', align: 'center' },
+  call: { label: () => 'Call', field: 'call', align: 'center' },
+  melt_has_peak: { label: () => 'Melt peak', field: 'melt_has_peak', align: 'center' },
+  melt_peak_count: { label: () => 'Peaks', field: 'melt_peak_count', digits: 0 },
+  melt_tm: { label: () => 'Tm (°C)', field: 'melt_tm', se: 'melt_tm_se', digits: 2 },
+  melt_peak_height: { label: () => 'Melt height', field: 'melt_peak_height', se: 'melt_peak_height_se', digits: 0 },
+};
+
+const READOUT_COLUMNS: KineticsColumn[] = [
+  'well', 'sample', 't_lod', 't_onset10', 'td_5', 'td_20', 'td_50',
+  'yield_raw', 'melt_tm', 'baseline_observed', 'plateau_observed', 'call',
+];
+const FIT_COLUMNS: KineticsColumn[] = [
+  'well', 'sample', 'fit_A', 'fit_B', 'fit_C', 'fit_D', 'fit_foot',
+  'fit_shoulder', 'fit_r2', 'fit_rmse',
+];
+const ALL_COLUMNS = Object.keys(KC) as KineticsColumn[];
+const TIME_COLUMNS = new Set<KineticsColumn>([
+  't_lod', 't_mid', 't_onset10', 'td_5', 'td_20', 'td_50',
+  'plateau_start_s', 'fit_C', 'fit_inflection_t',
+]);
+const RATE_COLUMNS = new Set<KineticsColumn>(['slope_mid', 'fit_B', 'fit_max_slope']);
+
+function rawColumnValue(row: ReportRow, def: KineticsColumnDef): unknown {
+  return def.field === 'curve_key' ? row.curveKey : row[def.field];
+}
+
+function convertKineticsNumber(id: KineticsColumn, value: number, unit: 's' | 'min'): number {
+  if (unit === 'min' && TIME_COLUMNS.has(id)) return value / 60;
+  if (unit === 'min' && RATE_COLUMNS.has(id)) return value * 60;
+  return value;
+}
+
+function formatKineticsValue(id: KineticsColumn, raw: unknown, unit: 's' | 'min', digits: number): string {
+  if (raw === null || raw === undefined || (typeof raw === 'number' && !Number.isFinite(raw))) return '—';
+  if (typeof raw === 'boolean') return raw ? '✓' : '—';
+  if (id === 'call') return raw === 'positive' ? '+' : raw === 'negative' ? '−' : '—';
+  if (typeof raw === 'number') return convertKineticsNumber(id, raw, unit).toFixed(digits);
+  return String(raw);
+}
+
+async function buildKineticsTablePanel(
+  panel: KineticsTablePanel,
+  spec: ResolvedSpec,
+  placement: PanelPlacement,
+  sourceCache: SourceCache,
+  reportCache: ReportCache,
+): Promise<TableRenderPanel> {
+  const resolvedSource = await resolveInputPath(
+    spec.baseDir,
+    panel.source,
+    panel.sourceRef,
+    `Kinetics table "${panel.label}"`,
+  );
+  const loaded = await loadCached(sourceCache, resolvedSource.absolutePath);
+  const channel = panel.channel ?? loaded.view.activeChannel;
+  if (!loaded.exp.channels.includes(channel)) {
+    throw new SpecError(
+      `Kinetics table "${panel.label}" asks for channel "${channel}", which the file does not have. ` +
+      `Available: ${loaded.exp.channels.join(', ')}`,
+    );
+  }
+  const groups = effectiveGroups(loaded, channel, panel);
+  const wells = resolveSelection(loaded, panel.select, groups, panel.label!);
+  if (wells.length === 0) throw new SpecError(`Kinetics table "${panel.label}" selects no wells.`);
+  const keep = new Set(wells);
+  const report = await reportCached(reportCache, loaded, channel);
+  let rows = report.rows.filter((row) => keep.has(row.well) && (!panel.amplifyingOnly || row.fired));
+
+  const columns = panel.columns ?? (
+    panel.section === 'readouts' ? READOUT_COLUMNS
+      : panel.section === 'fit_parameters' ? FIT_COLUMNS
+        : ALL_COLUMNS
+  );
+  if (columns.length === 0) throw new SpecError(`Kinetics table "${panel.label}" has no columns.`);
+  for (const id of columns) {
+    if (!Object.prototype.hasOwnProperty.call(KC, id)) {
+      throw new SpecError(`Kinetics table "${panel.label}" names unknown column "${String(id)}".`);
+    }
+  }
+
+  if (panel.sort) {
+    const def = KC[panel.sort.by];
+    if (!def) throw new SpecError(`Kinetics table "${panel.label}" sorts by unknown column "${String(panel.sort.by)}".`);
+    const dir = panel.sort.direction === 'desc' ? -1 : 1;
+    rows = [...rows].sort((a, b) => {
+      const av = rawColumnValue(a, def);
+      const bv = rawColumnValue(b, def);
+      if (av === null || av === undefined) return bv === null || bv === undefined ? 0 : 1;
+      if (bv === null || bv === undefined) return -1;
+      if (typeof av === 'number' && typeof bv === 'number') return dir * (av - bv);
+      return dir * String(av).localeCompare(String(bv), undefined, { numeric: true });
+    });
+  }
+
+  const unit = panel.timeUnit ?? 's';
+  const uncertainty = panel.uncertainty ?? 'plusminus';
+  const headers: string[] = [];
+  const aligns: ('left' | 'center' | 'right')[] = [];
+  for (const id of columns) {
+    const def = KC[id];
+    headers.push(def.label(unit));
+    aligns.push(def.align ?? 'right');
+    if (uncertainty === 'separate' && def.se) {
+      headers.push('SE');
+      aligns.push('right');
+    }
+  }
+
+  const renderedRows = rows.map((row) => {
+    const out: (string | number)[] = [];
+    for (const id of columns) {
+      const def = KC[id];
+      const digits = def.digits ?? 1;
+      const value = formatKineticsValue(id, rawColumnValue(row, def), unit, digits);
+      const rawSe = def.se ? row[def.se] : null;
+      const se = def.se ? formatKineticsValue(id, rawSe, unit, digits) : '—';
+      if (uncertainty === 'plusminus' && def.se && se !== '—' && value !== '—') out.push(`${value} ± ${se}`);
+      else out.push(value);
+      if (uncertainty === 'separate' && def.se) out.push(se);
+    }
+    return out;
+  });
+
+  const style = spec.style;
+  return {
+    kind: 'table',
+    label: panel.label!,
+    placement,
+    labelOverride: panel.panelLabel ?? null,
+    columns: headers,
+    rows: renderedRows,
+    fontSize: panel.fontSize ?? style.tickSize ?? 7,
+    align: panel.align ?? aligns,
+    header: panel.header ?? true,
+    fontFamily: panel.styleOverride?.fontFamily ?? style.fontFamily ?? 'Arial, Helvetica, sans-serif',
+    color: style.textColor === 'white' ? '#ffffff' : '#000000',
+  };
+}
+
 /**
  * Warn when a legend has more entries than its panel can show.
  *
@@ -772,17 +1017,21 @@ function defaultLabelFont(panels: RenderPanel[]): string | undefined {
 export async function buildBundle(spec: ResolvedSpec): Promise<FigureBundle> {
   const placements = computePlacements(spec);
   const cache: SourceCache = new Map();
+  const reportCache: ReportCache = new Map();
 
   const panels: RenderPanel[] = [];
   for (const panel of spec.panels) {
     const placement = placements.get(panel.label!);
     if (!placement) throw new SpecError(`Panel "${panel.label}" has no place in the grid.`);
     if (panel.kind === 'plot') {
-      const built = await buildPlotPanel(panel, spec, placement, cache);
+      const built = await buildPlotPanel(panel, spec, placement, cache, reportCache);
       warnIfLegendClipped(built);
       panels.push(built);
     }
     else if (panel.kind === 'image') panels.push(await buildImagePanel(panel, spec, placement));
+    else if (panel.kind === 'kinetics_table') {
+      panels.push(await buildKineticsTablePanel(panel, spec, placement, cache, reportCache));
+    }
     else panels.push(buildTablePanel(panel, spec, placement));
   }
 

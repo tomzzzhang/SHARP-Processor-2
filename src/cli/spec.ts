@@ -20,7 +20,7 @@
  * exactly as the Processor GUI last showed it, because the `.sharpx` carries
  * the groups, colours, hidden wells, threshold and fonts.
  */
-import type { PlotType, PlotFigureStyle } from '@/lib/plot-figure';
+import type { KineticsFigureOptions, PlotType, PlotFigureStyle } from '@/lib/plot-figure';
 import type { XAxisMode } from '@/types/experiment';
 
 // ── Output ──────────────────────────────────────────────────────────
@@ -373,6 +373,15 @@ export interface PlotPanel extends BasePanel {
   fitColor?: string | null;
   markerSize?: number | null;
   markerSymbol?: string | null;
+
+  // ── Kinetics-report overlays / sections ──
+  /**
+   * Opt-in kinetics rendering for amplification, melt-derivative, and
+   * `kinetics_residuals` panels. Omitted means the panel remains byte-for-byte
+   * on the ordinary Processor figure path; saved app landmark toggles are not
+   * read by SharpPlot because a figure spec must render deterministically.
+   */
+  kinetics?: KineticsFigureOptions | null;
 }
 
 /** Verbal-wizard equivalent of `DilutionWizard`: either derive the steps from
@@ -430,7 +439,46 @@ export interface TablePanel extends BasePanel {
   header?: boolean;
 }
 
-export type PanelSpec = PlotPanel | ImagePanel | TablePanel;
+/** Columns available to a source-backed kinetics table. Standard-error
+ * columns are generated from the matching value column according to
+ * `uncertainty`, rather than named separately in the spec. */
+export type KineticsColumn =
+  | 'well' | 'sample' | 'channel' | 'curve_key'
+  | 'baseline_offset' | 'baseline_from_fit' | 'baseline_observed' | 'plateau_observed'
+  | 'well_sigma' | 'run_sigma' | 'quality'
+  | 't_lod' | 'fired' | 't_mid' | 'slope_mid'
+  | 't_onset10' | 'td_5' | 'td_20' | 'td_50' | 'td_slowdown'
+  | 'yield_raw' | 'plateau_start_s'
+  | 'fit_A' | 'fit_B' | 'fit_C' | 'fit_D' | 'fit_foot' | 'fit_shoulder'
+  | 'fit_inflection_t' | 'fit_max_slope' | 'fit_rmse' | 'fit_r2'
+  | 'fit_converged' | 'shape_at_bound'
+  | 'call'
+  | 'melt_has_peak' | 'melt_peak_count' | 'melt_tm' | 'melt_peak_height';
+
+export interface KineticsTablePanel extends BasePanel {
+  kind: 'kinetics_table';
+  /** Same source contract as a plot panel. */
+  source?: string;
+  sourceRef?: string;
+  channel?: string | null;
+  select?: WellSelection | null;
+  groups?: Record<string, string> | null;
+  /** A useful default column set, or every supported report field. */
+  section: 'readouts' | 'fit_parameters' | 'all';
+  /** Optional subset/order. Omit to use the section preset. */
+  columns?: KineticsColumn[] | null;
+  /** Report times are stored in seconds; tables may display seconds or minutes. */
+  timeUnit?: 's' | 'min' | null;
+  /** Compact `value ± SE`, separate value/SE columns, or values only. */
+  uncertainty?: 'plusminus' | 'separate' | 'none' | null;
+  amplifyingOnly?: boolean | null;
+  sort?: { by: KineticsColumn; direction?: 'asc' | 'desc' } | null;
+  fontSize?: number;
+  align?: ('left' | 'center' | 'right')[];
+  header?: boolean;
+}
+
+export type PanelSpec = PlotPanel | ImagePanel | TablePanel | KineticsTablePanel;
 
 // ── The spec ────────────────────────────────────────────────────────
 
@@ -510,8 +558,11 @@ export function resolveSpec(spec: FigureSpec, baseDir: string): ResolvedSpec {
     // would leave `p` as `never` on the error path a hand-written JSON spec
     // can still reach.
     const kind = (p as { kind: string }).kind;
-    if (kind !== 'plot' && kind !== 'image' && kind !== 'table') {
-      throw new SpecError(`Panel "${label}" has unknown kind "${kind}" (expected plot, image or table).`);
+    if (kind !== 'plot' && kind !== 'image' && kind !== 'table' && kind !== 'kinetics_table') {
+      throw new SpecError(
+        `Panel "${label}" has unknown kind "${kind}" ` +
+        '(expected plot, image, table or kinetics_table).',
+      );
     }
     if (p.kind === 'plot' && Boolean(p.source) === Boolean(p.sourceRef)) {
       throw new SpecError(`Plot panel "${p.label}" needs exactly one of "source" or "sourceRef".`);
@@ -525,11 +576,40 @@ export function resolveSpec(spec: FigureSpec, baseDir: string): ResolvedSpec {
         }
       }
     }
+    if (p.kind === 'plot' && p.kinetics) {
+      const supported = new Set(['amp', 'melt', 'melt_deriv', 'kinetics_residuals']);
+      if (!supported.has(p.plotType)) {
+        throw new SpecError(
+          `Plot panel "${p.label}" uses "kinetics" with plotType "${p.plotType}"; ` +
+          'kinetics options apply only to amp, melt, melt_deriv or kinetics_residuals.',
+        );
+      }
+      if (p.kinetics.signal && p.kinetics.signal !== 'raw' && p.kinetics.signal !== 'corrected') {
+        throw new SpecError(`Plot panel "${p.label}" has unknown kinetics.signal "${String(p.kinetics.signal)}".`);
+      }
+      const validMarkers = new Set(['t_lod', 't_onset10', 'inflection']);
+      for (const marker of p.kinetics.markers ?? []) {
+        if (!validMarkers.has(marker)) {
+          throw new SpecError(`Plot panel "${p.label}" has unknown kinetic marker "${String(marker)}".`);
+        }
+      }
+    }
     if (p.kind === 'image' && Boolean(p.path) === Boolean(p.pathRef)) {
       throw new SpecError(`Image panel "${p.label}" needs exactly one of "path" or "pathRef".`);
     }
     if (p.kind === 'table' && (!Array.isArray(p.columns) || !Array.isArray(p.rows))) {
       throw new SpecError(`Table panel "${p.label}" needs "columns" and "rows".`);
+    }
+    if (p.kind === 'kinetics_table') {
+      if (Boolean(p.source) === Boolean(p.sourceRef)) {
+        throw new SpecError(`Kinetics table "${p.label}" needs exactly one of "source" or "sourceRef".`);
+      }
+      if (!['readouts', 'fit_parameters', 'all'].includes(p.section)) {
+        throw new SpecError(
+          `Kinetics table "${p.label}" has unknown section "${String(p.section)}" ` +
+          '(expected readouts, fit_parameters or all).',
+        );
+      }
     }
   }
 

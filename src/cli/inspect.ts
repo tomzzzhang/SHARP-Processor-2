@@ -77,6 +77,11 @@ export interface InspectReport {
   availablePlotTypes: PlotType[];
   /** Plot types the file cannot support, with the reason. */
   unavailablePlotTypes: { plotType: string; reason: string }[];
+  kinetics: {
+    available: boolean;
+    plotFeatures: string[];
+    tableSections: string[];
+  };
   xAxisUnits: string[];
   groups: GroupReport[];
   legendOrder: string[];
@@ -181,6 +186,9 @@ export function buildReport(loaded: LoadedExperiment): InspectReport {
   if (amp && amp.cycle.length > 0) available.push('amp');
   else unavailable.push({ plotType: 'amp', reason: 'no amplification data in the file' });
 
+  if (amp && amp.cycle.length > 0) available.push('kinetics_residuals');
+  else unavailable.push({ plotType: 'kinetics_residuals', reason: 'no amplification data in the file' });
+
   if (hasMeltRfu) available.push('melt');
   else unavailable.push({ plotType: 'melt', reason: 'no melt RFU curves in the file' });
 
@@ -241,6 +249,13 @@ export function buildReport(loaded: LoadedExperiment): InspectReport {
     })),
     availablePlotTypes: available,
     unavailablePlotTypes: unavailable,
+    kinetics: {
+      available: Boolean(amp && amp.cycle.length > 0),
+      plotFeatures: amp && amp.cycle.length > 0
+        ? ['fitted_curves', 't_lod', 't_onset10', 'inflection', 'residuals', ...(hasMeltDeriv ? ['melt_tm'] : [])]
+        : [],
+      tableSections: amp && amp.cycle.length > 0 ? ['readouts', 'fit_parameters', 'all'] : [],
+    },
     xAxisUnits: ['cycle', 'time_s', 'time_min'],
     groups,
     legendOrder: view.legendOrder,

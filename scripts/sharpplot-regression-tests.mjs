@@ -9,6 +9,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import JSZip from 'jszip';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'dist-cli', 'sharpplot.mjs');
@@ -127,7 +128,106 @@ try {
   assert.equal(readFileSync(path.join(archiveDir, 'Archive Figure.spec.json'), 'utf-8').includes('source/tiny.png'), true);
   console.log('ok  archive copies the accepted triplet and preserves rerunnable paths');
 
-  console.log('\nAll 5 synthetic sharpplot regression checks passed.');
+  // Source-backed kinetics: exact synthetic FreeShoulder curves give the real
+  // report engine a stable, public fixture (no private run data or browser).
+  const sigmoid = (t, p) => {
+    const s = 1 / (1 + Math.exp(-p.B * (t - p.C)));
+    const warp = 1 - Math.pow(1 - Math.pow(s, p.foot), p.shoulder);
+    return p.A + (p.D - p.A) * warp;
+  };
+  const wells = {
+    A1: { sample: 'Fast', p: { A: 120, B: 0.014, C: 470, D: 6200, foot: 0.9, shoulder: 1.2 } },
+    A2: { sample: 'Slow', p: { A: 180, B: 0.011, C: 650, D: 5700, foot: 1.1, shoulder: 0.85 } },
+  };
+  const times = Array.from({ length: 61 }, (_, i) => i * 20);
+  const ampRows = times.map((t, i) => [
+    i + 1, t, t / 60,
+    ...Object.values(wells).map(({ p }, wi) => sigmoid(t, p) + Math.sin(i * 0.73 + wi) * 3),
+  ]);
+  const temps = Array.from({ length: 41 }, (_, i) => 70 + i * 0.5);
+  const derivRows = temps.map((temp) => [
+    temp,
+    900 * Math.exp(-0.5 * Math.pow((temp - 82.5) / 0.8, 2)),
+    760 * Math.exp(-0.5 * Math.pow((temp - 84.0) / 1.0, 2)),
+  ]);
+  const meltRows = temps.map((temp, i) => [temp, 7000 - i * 100, 6800 - i * 90]);
+
+  const kineticsZip = new JSZip();
+  kineticsZip.file('metadata.json', JSON.stringify({
+    format_version: '1.1',
+    experiment_id: 'public-kinetics-fixture',
+    data_summary: { wells_used: Object.keys(wells) },
+    plate_layout: { rows: 1, cols: 2 },
+    protocol: { type: 'isothermal' },
+    run_info: {},
+    wells: Object.fromEntries(Object.entries(wells).map(([well, v]) => [well, { sample: v.sample, content: 'Unkn' }])),
+  }));
+  kineticsZip.file(
+    'amplification.csv',
+    ['cycle,time_s,time_min,A1,A2', ...ampRows.map((row) => row.join(','))].join('\n'),
+  );
+  kineticsZip.file(
+    'melt_rfu.csv',
+    ['temperature_C,A1,A2', ...meltRows.map((row) => row.join(','))].join('\n'),
+  );
+  kineticsZip.file(
+    'melt_derivative.csv',
+    ['temperature_C,A1,A2', ...derivRows.map((row) => row.join(','))].join('\n'),
+  );
+  const kineticsSource = path.join(work, 'public-kinetics.sharp');
+  writeFileSync(kineticsSource, await kineticsZip.generateAsync({ type: 'nodebuffer' }));
+
+  const kineticsSpec = path.join(work, 'kinetics.spec.json');
+  writeJson(kineticsSpec, {
+    id: 'kinetics_sections',
+    output: { width_in: 10, height_in: 8, dpi: 96, formats: ['pdf'] },
+    layout: { rows: 3, cols: 2, gap_in: 0.1 },
+    panels: [
+      {
+        kind: 'plot', label: 'A', source: kineticsSource, plotType: 'amp', xAxisMode: 'time_min',
+        thresholdEnabled: false,
+        kinetics: {
+          signal: 'corrected', showData: true, showFit: true,
+          markers: ['t_lod', 't_onset10', 'inflection'],
+        },
+      },
+      { kind: 'plot', label: 'B', source: kineticsSource, plotType: 'kinetics_residuals', xAxisMode: 'time_min' },
+      {
+        kind: 'plot', label: 'C', source: kineticsSource, plotType: 'melt_deriv',
+        kinetics: { showMeltTm: true },
+      },
+      {
+        kind: 'kinetics_table', label: 'D', source: kineticsSource, section: 'readouts',
+        columns: ['well', 'sample', 't_lod', 't_onset10', 'yield_raw', 'call'],
+        timeUnit: 'min', uncertainty: 'separate',
+      },
+      {
+        kind: 'kinetics_table', label: 'E', source: kineticsSource, section: 'fit_parameters',
+        columns: ['well', 'fit_A', 'fit_B', 'fit_C', 'fit_D', 'fit_r2'],
+        uncertainty: 'plusminus',
+      },
+    ],
+  });
+  const kineticsBundlePath = path.join(work, 'kinetics.fig.json');
+  run(['figure', kineticsSpec, '--out', kineticsBundlePath]);
+  const kb = JSON.parse(readFileSync(kineticsBundlePath, 'utf-8'));
+  const panel = (label) => kb.panels.find((p) => p.label === label);
+  const a = panel('A');
+  assert.equal(a.figure.data.filter((t) => t.meta?.sharpplotRole === 'kinetics-fit').length, 2);
+  assert.deepEqual(
+    a.figure.data.filter((t) => ['t_lod', 't_onset10', 'inflection'].includes(t.name)).map((t) => t.name),
+    ['t_lod', 't_onset10', 'inflection'],
+  );
+  assert.equal(panel('B').figure.data.length, 2);
+  assert.equal(panel('B').figure.layout.shapes.some((s) => s.type === 'rect'), true);
+  assert.equal(panel('C').figure.data.some((t) => t.name === 'Tm'), true);
+  assert.equal(panel('D').columns.includes('SE'), true);
+  assert.equal(panel('D').rows.every((row) => row[0] !== '—' && row[2] !== '—'), true);
+  assert.equal(panel('E').columns.includes('A (RFU)'), true);
+  assert.equal(panel('E').rows.some((row) => String(row[1]).includes('±')), true);
+  console.log('ok  kinetics fits, landmarks, residuals, Tm marks, readouts, and fit tables share one report');
+
+  console.log('\nAll 6 synthetic sharpplot regression checks passed.');
 } finally {
   rmSync(work, { recursive: true, force: true });
 }

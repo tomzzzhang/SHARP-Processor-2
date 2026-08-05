@@ -1,6 +1,6 @@
 # sharpplot — headless figures from Processor data
 
-**Last Updated:** 2026-08-05 15:52 EDT
+**Last Updated:** 2026-08-05 17:44 EDT
 
 `sharpplot` is a command-line entry point into SHARP Data Processor 2's own
 modules, so publication figures can be produced without the desktop GUI. It is
@@ -105,9 +105,9 @@ terminal.** Build a self-contained skill and upload that:
 npm run skill:pack:cowork                    # dist-skill/sharpplot-cowork.skill (~1.9 MB)
 ```
 
-Since 2026-08-04 the same file is also attached to the **v0.2.4 release** as
+The current self-contained package is attached to the **v0.2.5 release** as
 `sharpplot.skill`, so anyone can download it without a checkout. That release
-asset is a **snapshot**: re-upload it (`gh release upload v0.2.4
+asset is a **snapshot**: re-upload it (`gh release upload v0.2.5
 dist-skill/sharpplot-cowork.skill --clobber`, renamed to `sharpplot.skill`)
 whenever the CLI or the skill changes, or it silently goes stale. `--version`
 is what tells you which build a copy actually is.
@@ -225,7 +225,7 @@ Full types, with per-field documentation, are in
     "widths": [1.35, 1, 1], "gap_in": 0.16, "margin_in": 0.14,
     "areas": ["A A B", "C C B"]        // optional; repeat a label to span
   },
-  "panels": [ /* plot | image | table */ ]
+  "panels": [ /* plot | image | table | kinetics_table */ ]
 }
 ```
 
@@ -236,7 +236,8 @@ Full types, with per-field documentation, are in
 Every analysis and view field keeps the name it has in `BuildFigureInput` /
 the app's own state, and omitting it inherits from the source:
 
-`plotType` (`amp`, `melt`, `melt_deriv`, `doubling`, `dilution`), `channel`,
+`plotType` (`amp`, `melt`, `melt_deriv`, `doubling`, `dilution`,
+`kinetics_residuals`), `channel`,
 `select`, `groups`, `groupColors`, `wellStyleOverrides`, `xAxisMode`,
 `logScale`, `baselineEnabled`, `baselineAuto`, `baselineMethod`,
 `baselineStart`, `baselineEnd`, `driftCorrectionEnabled`, `normalizeEnabled`,
@@ -286,6 +287,62 @@ already carries a `dilutionConfig` from the app's Standard Curve wizard.
 
 The resolved step table is always printed before rendering. Check it. A wrong
 x-axis produces a figure that looks perfect and is wrong.
+
+### Kinetics Report sections
+
+SharpPlot can rebuild all or selected parts of Processor 2's Kinetics Report
+as native vector plots and figure tables. The full report computation
+(FreeShoulder fit, covariance/SEs, landmarks, run σ, melt peaks) is cached once
+per source/channel and shared across panels.
+
+```jsonc
+{
+  "kind": "plot", "label": "A", "source": "run.sharpx", "plotType": "amp",
+  "thresholdEnabled": false,
+  "kinetics": {
+    "signal": "corrected",
+    "showData": true,
+    "showFit": true,
+    "markers": ["t_lod", "t_onset10", "inflection"]
+  }
+}
+```
+
+The data are bold; fits are fainter and thinner. `t_lod` is drawn on the
+measured curve, while `t_onset10` and inflection are drawn on the fitted model.
+`signal` is `corrected` (the report's fit-first baseline) or `raw`. Fits are
+never extrapolated past the report's censoring gate: a panel requesting fits
+with no usable selected fit stops with a specific error.
+
+Other independently placeable sections:
+
+```jsonc
+{ "kind": "plot", "label": "B", "source": "run.sharpx",
+  "plotType": "kinetics_residuals" }
+
+{ "kind": "plot", "label": "C", "source": "run.sharpx",
+  "plotType": "melt_deriv", "kinetics": { "showMeltTm": true } }
+
+{ "kind": "kinetics_table", "label": "D", "source": "run.sharpx",
+  "section": "readouts",
+  "columns": ["well", "sample", "t_lod", "t_onset10", "td_20", "yield_raw", "melt_tm", "call"],
+  "timeUnit": "min", "uncertainty": "plusminus" }
+
+{ "kind": "kinetics_table", "label": "E", "source": "run.sharpx",
+  "section": "fit_parameters",
+  "columns": ["well", "sample", "fit_A", "fit_B", "fit_C", "fit_D", "fit_foot", "fit_shoulder", "fit_r2", "fit_rmse"],
+  "uncertainty": "separate" }
+```
+
+Residuals are observed − fit with the ±1 pooled run-σ band. Kinetics tables
+support `readouts`, `fit_parameters`, or `all`; `columns` selects and orders
+any subset; `uncertainty` is `plusminus`, `separate`, or `none`; `timeUnit`
+converts both time/rate values and their SEs.
+
+The `.sharpx` 1.3 landmark visibility triple is intentionally not inherited
+by the CLI. Kinetics content is an explicit figure recipe, so a spec produces
+the same figure regardless of which marker happened to be toggled in the app.
+Omitting `kinetics` preserves the existing plot path byte-for-byte.
 
 ### Image and table panels
 
@@ -350,8 +407,11 @@ does:
 - `npm run test:parity` hashes `buildFigure`'s output for `amp`, `melt`,
   `melt_deriv` and `doubling` against a recorded baseline. **Existing plot
   types must stay byte-identical.** See [`test/parity/README.md`](../test/parity/README.md).
-- No `.sharpx` schema change. A file written here opens in shipped v0.2.4.
+- No `.sharpx` schema change in this feature. Current `.sharpx` 1.3 files open
+  in shipped v0.2.5.
 - No GUI wiring. Bringing any of this into the app is a separate decision.
+- Kinetics report panels reuse `computeExperimentReport`; they do not fork the
+  fit or landmark mathematics into the CLI.
 
 ### Known upstream issue, not fixed here
 
