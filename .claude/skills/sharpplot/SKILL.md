@@ -284,10 +284,11 @@ rebuilds and re-copies to `~/.claude/tools/sharpplot/` — that global copy is
 a snapshot, not a link. Testing against the stale one has produced false
 bug reports before.
 
-## The two things that must never be guessed
+## Two inputs that must never be guessed
 
-A figure that renders beautifully and is wrong is the worst output this tool
-can produce. Two inputs cause that, and both have a confirmation step:
+Many things can make a figure wrong, and most of them are visible on the
+render. These two are not — get either wrong and the figure still looks
+perfect — so both have a confirmation step:
 
 1. **Dilution concentrations.** Never infer them from a group name — `10^7` is
    suggestive, not authoritative. Ask for the top concentration and the fold

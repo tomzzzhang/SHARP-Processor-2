@@ -84,6 +84,28 @@ All existing `.sharp` / `.sharpx` files and instrument formats open exactly as b
 
 ---
 
+## Making Figures with Claude (optional)
+
+`sharpplot.skill` is a [Claude](https://claude.ai) skill that makes figures from your data by asking for them. It's a separate tool — not part of the app, and you don't need it.
+
+1. Download **`sharpplot.skill`** from the [v0.2.4 release](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.4)
+2. Upload it at claude.ai → Settings → Capabilities → Skills
+3. Drag a `.sharpx` into a chat and say what you want
+
+> make an amplification plot from this, 3.4 inches wide
+>
+> now drop the gridlines and move the legend bottom right
+
+You get a vector PDF and a PNG, sized in inches so they go straight into Word without resampling. It does amplification curves, melt curves, melt derivatives, standard curves, and multi-panel figures that can include gel images.
+
+Your `.sharpx` already holds your grouping, colours, hidden wells, baseline and threshold, so the figure comes out looking like what you had on screen — you only say what to change. Raw `.pcrd`, `.tlpd`, `.eds`, `.amxd` and BioRad folders work too.
+
+Nothing to install: no Node, no Chrome, and the app itself doesn't need to be installed. It runs the Processor's own analysis code, so the numbers match the app.
+
+Full documentation: [`docs/SHARPPLOT_MANUAL.md`](docs/SHARPPLOT_MANUAL.md).
+
+---
+
 ## What's New in v0.2.3
 
 Refinements to the **Kinetics Report** (Tools → Kinetics Report) and its exported HTML.

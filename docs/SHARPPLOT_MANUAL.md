@@ -164,10 +164,11 @@ out of the same PDF, so the two can never disagree.
 
 ---
 
-## 6. Two things it will not guess
+## 6. Two inputs it always asks about
 
-A figure that renders beautifully and is wrong is the worst thing this tool
-could produce. Two inputs cause that, and both are gated:
+Plenty of things can make a figure wrong, and most of them are visible — you
+look at it and see it. These two are not: get them wrong and the figure still
+looks perfect. So they are gated:
 
 1. **Dilution concentrations.** It will **never** read `10^7` off a group name
    and treat it as a real concentration. It asks for the top concentration and
