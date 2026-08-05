@@ -49,6 +49,24 @@ Whatever you find, `--help` must print a usage block listing `inspect`,
 `figure`, `render`, `plot`, `convert`, `group`, `bundle`. Use that same path
 for every later command — write it down rather than re-deriving it.
 
+**Then check which build it is:**
+
+```bash
+node <cli> --version
+```
+
+Prints the Processor version, the git commit, the build date and age, and the
+newest `.sharpx` format it understands. Every copy of this tool is a snapshot —
+staged, zipped into a `.skill`, uploaded — so it can fall behind the repo with
+nothing to show for it. **State the build date when you first report what you
+can do**, so a stale copy is visible before it makes a figure rather than after.
+
+You do not need to check this against anything. The correctness case is handled
+automatically: a `.sharpx` written by a newer Processor than this build
+understands is a **hard error** at load time, not a warning. If you see it, do
+not work around it with `--allow-newer-format` on your own initiative — relay
+the message, which says how to get a current build.
+
 **If there is no shell or no CLI, stop and say so.** You can still help decide
 what the figure should contain, and write the spec to be rendered later on a
 machine that has the tool — but do not pretend to have rendered anything, and

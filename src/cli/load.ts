@@ -16,8 +16,23 @@ import { resolveExperimentState, type ExperimentViewState, type ChannelAnalysisS
 import { computeChannelResults } from '@/hooks/useAnalysisResults';
 import { computeDriftSlope, type WellAnalysisResult } from '@/lib/analysis';
 import type { ExperimentData } from '@/types/experiment';
+import { isNewerFormat, newerFormatMessage } from './version';
 
 export class LoadError extends Error {}
+
+/**
+ * Whether to proceed when a source declares a `.sharpx` format newer than this
+ * build understands. Off by default — see `version.ts` for why that is a hard
+ * error rather than a warning. Set from `--allow-newer-format` in `index.ts`;
+ * a module-level switch rather than a parameter because the gate belongs at
+ * the single ingest point, and every caller of `loadSource` would otherwise
+ * have to thread a flag it does not care about.
+ */
+let allowNewerFormat = false;
+
+export function setAllowNewerFormat(allow: boolean): void {
+  allowNewerFormat = allow;
+}
 
 export interface LoadedExperiment {
   /** Normalized experiment, `amplification`/`melt` pointing at the active channel. */
@@ -64,6 +79,17 @@ export async function loadSource(sourcePath: string): Promise<LoadedExperiment> 
         `or a Bio-Rad CFX export folder. (${e.message})`,
       );
     });
+  }
+
+  // The gate. Runs on every source the CLI ingests, before any analysis, so
+  // no verb can act on a file this build cannot fully read.
+  if (isNewerFormat(raw.formatVersion)) {
+    if (!allowNewerFormat) throw new LoadError(newerFormatMessage(raw.formatVersion, abs));
+    process.stderr.write(
+      `sharpplot: proceeding under --allow-newer-format — ${path.basename(abs)} is ` +
+      `.sharpx format ${raw.formatVersion}, newer than this build understands. ` +
+      `Check the figure against the desktop app before trusting it.\n`,
+    );
   }
 
   const hasSession = Boolean(raw.session);

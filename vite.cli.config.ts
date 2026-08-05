@@ -14,8 +14,36 @@
 import { defineConfig } from 'vite';
 import path from 'path';
 import { readFileSync } from 'fs';
+import { execFileSync } from 'child_process';
 
 const pkg = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
+
+/**
+ * Which commit this bundle was built from.
+ *
+ * `sharpplot.mjs` gets copied around — staged to `~/.claude/tools/`, zipped
+ * into a `.skill` and uploaded to claude.ai — and every one of those copies is
+ * a snapshot with no link back. Stamping the commit is what makes "are you on
+ * the current build?" answerable at all. Tolerant of a missing git: a tarball
+ * of the source still builds, it just cannot name itself.
+ */
+function gitCommit(): string {
+  try {
+    const sha = execFileSync('git', ['rev-parse', '--short=9', 'HEAD'], {
+      cwd: __dirname,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    const dirty = execFileSync('git', ['status', '--porcelain'], {
+      cwd: __dirname,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim().length > 0;
+    return dirty ? `${sha}-dirty` : sha;
+  } catch {
+    return 'unknown';
+  }
+}
 
 export default defineConfig({
   resolve: {
@@ -27,6 +55,9 @@ export default defineConfig({
   define: {
     // Matches the app build so `constants.ts` reports the same version.
     __APP_VERSION__: JSON.stringify(pkg.version),
+    // CLI-only build identity. See gitCommit() above and src/cli/version.ts.
+    __SHARPPLOT_COMMIT__: JSON.stringify(gitCommit()),
+    __SHARPPLOT_BUILT_AT__: JSON.stringify(new Date().toISOString().slice(0, 19) + 'Z'),
   },
   ssr: {
     // Bundle every dependency rather than leaving them as bare imports

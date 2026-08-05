@@ -16,6 +16,7 @@ import path from 'node:path';
 import type { PlotType } from '@/lib/plot-figure';
 import { curveKey } from '@/lib/curves';
 import { loadSource, analyzeChannel, visibleWellsOf, type LoadedExperiment } from './load';
+import { buildInfo } from './version';
 import type { FigureSpec, PlotPanel } from './spec';
 
 export interface WellReport {
@@ -44,6 +45,20 @@ export interface GroupReport {
 export interface InspectReport {
   source: string;
   hasSession: boolean;
+  /**
+   * Which build read this file, and the `.sharpx` format it was written as.
+   * `inspect` is the first thing run on any file, so this is where a stale
+   * copy of the CLI announces itself before it can produce a wrong figure.
+   */
+  sharpplot: {
+    version: string;
+    commit: string;
+    builtAt: string;
+    ageDays: number;
+    maxSharpxFormat: string;
+    /** The format this file declares. `1.0` for raw instrument files. */
+    sourceFormat: string;
+  };
   experiment: {
     experimentId: string;
     instrument: string;
@@ -200,6 +215,7 @@ export function buildReport(loaded: LoadedExperiment): InspectReport {
   return {
     source: loaded.sourcePath,
     hasSession: loaded.hasSession,
+    sharpplot: { ...buildInfo(), sourceFormat: exp.formatVersion },
     experiment: {
       experimentId: exp.experimentId,
       instrument: instrumentLabel(exp.metadata),

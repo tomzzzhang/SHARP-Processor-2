@@ -23,6 +23,8 @@ import { renderBundle } from './render';
 import { convertCommand } from './convert';
 import { groupCommand, writeGroups } from './group';
 import { bundleCommand } from './bundle';
+import { setAllowNewerFormat } from './load';
+import { buildStamp, versionText } from './version';
 import { CliError, toJson } from './util';
 
 const USAGE = `sharpplot — publication figures from SHARP Processor data
@@ -58,7 +60,14 @@ Common options:
   --out PATH       where to write the result
   --pretty         indent JSON output
   --chrome PATH    Chrome/Chromium binary (or set SHARPPLOT_CHROME)
+  -v, --version    which build this is, and the newest .sharpx it understands
   -h, --help       this message
+
+  --allow-newer-format
+                   proceed with a .sharpx written by a newer Processor than
+                   this build knows. Off by default: the old rules would
+                   silently ignore whatever the new format added, and the
+                   figure would look right while being wrong.
 
 Anything a spec does not mention is inherited from the source file, so a
 one-panel spec reproduces what the app last showed for it.
@@ -132,6 +141,10 @@ async function run(args: ParsedArgs): Promise<number> {
         }
       }
 
+      // Which build drew this. Cheap, and it makes "what version made this
+      // figure?" answerable months later from a copied terminal log.
+      process.stderr.write(`${buildStamp()}\n`);
+
       for (const f of result.files) process.stdout.write(`${f}\n`);
       if (result.harnessDir) process.stdout.write(`harness: ${result.harnessDir}\n`);
       return 0;
@@ -193,6 +206,11 @@ export async function main(argv: string[]): Promise<number> {
     process.stdout.write(USAGE);
     return 0;
   }
+  if (argv.includes('--version') || argv.includes('-v')) {
+    process.stdout.write(versionText());
+    return 0;
+  }
+  setAllowNewerFormat(argv.includes('--allow-newer-format'));
   try {
     return await run(parseArgs(argv));
   } catch (err) {
