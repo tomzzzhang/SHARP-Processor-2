@@ -70,6 +70,11 @@ CFX export folder.
 
 ## Installing the skill
 
+**For using it rather than building it, see
+[`SHARPPLOT_MANUAL.md`](SHARPPLOT_MANUAL.md)** — the `.sharpx` workflow, which
+saved GUI state reaches the figure and which does not, the full capability
+list, and the two inputs the tool refuses to guess.
+
 The skill source lives at `.claude/skills/sharpplot/` and is packaged three
 ways, from one set of files:
 
