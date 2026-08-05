@@ -1,0 +1,326 @@
+===============================================================================
+  sharpplot -- user manual
+  Making publication figures from SHARP Processor data by talking to Claude
+  Updated 2026-08-04
+===============================================================================
+
+CONTENTS
+
+  1. The one idea worth understanding
+  2. How you actually use it
+  3. What is inside a .sharpx
+  4. What carries over into the figure   <-- the important one
+  5. What it can make
+  6. Two things it will never guess
+  7. Limits worth knowing
+  8. Which version am I on
+
+
+===============================================================================
+1. THE ONE IDEA WORTH UNDERSTANDING
+===============================================================================
+
+Your .sharpx is already most of the figure.
+
+When you set a run up in SHARP Processor 2 -- group your wells, pick colours,
+hide the ones that failed, set the baseline and threshold, choose a time axis
+-- all of that is saved INSIDE the .sharpx file. It is not just data.
+
+sharpplot reads that saved setup and starts from it. So a request as small as
+
+    make me an amplification plot from this
+
+already comes out grouped, coloured, baseline-corrected and legended the way
+you left it in the app. You only have to say what should be DIFFERENT for
+print.
+
+That is why the workflow is short. You are not describing a figure from
+nothing. You are describing the difference from what you already saw on
+screen.
+
+
+===============================================================================
+2. HOW YOU ACTUALLY USE IT
+===============================================================================
+
+  Step 1   Do your analysis in Processor 2 as usual. Group wells, name
+           samples, set colours, hide bad wells, set the baseline and
+           threshold. Save as .sharpx.
+
+  Step 2   Open a chat on claude.ai and drag the .sharpx in.
+
+  Step 3   Say what you want, in normal words:
+
+               make an amplification plot from this, 3.4 inches wide
+
+  Step 4   Look at the picture it shows you. Say what to change:
+
+               drop the gridlines, move the legend bottom right,
+               and stop the x axis at 25 minutes
+
+  Step 5   Repeat until it is right, then download the PDF.
+
+You never see or edit a settings file. That file exists, but it is plumbing
+between Claude and the tool. Talk in normal words.
+
+Raw instrument files work too -- .pcrd, .tlpd, .eds, .amxd, or a zipped
+Bio-Rad CFX export folder. They just have no saved setup, so grouping and
+colours start from defaults and you describe them out loud instead.
+
+
+===============================================================================
+3. WHAT IS INSIDE A .sharpx
+===============================================================================
+
+A .sharpx is a zip. Unzip one and you get:
+
+  amplification.csv     the amplification traces -- time or cycle, and RFU,
+                        per well, per channel
+
+  melt_rfu.csv          raw melt curves
+
+  melt_derivative.csv   the -dF/dT derivative
+
+  wells.csv             per-well sample name, content type (Unkn / NTC /
+                        Std), and the Cq and end-RFU from parse time
+
+  metadata.json         experiment ID, instrument, protocol, operator, run
+                        start, plate size, and the FORMAT VERSION
+
+  session.json          everything you did in the GUI -- see section 4
+
+  SUMMARY.txt           a human-readable summary
+
+
+===============================================================================
+4. WHAT CARRIES OVER INTO THE FIGURE
+===============================================================================
+
+This is the section worth reading. It tells you what to fix in the app versus
+what to ask Claude for.
+
+
+CARRIES OVER -- set it once, in Processor 2
+-------------------------------------------
+
+  Grouped wells             becomes the legend entries; replicates collapse
+                            to a single entry
+
+  Legend order              the order groups appear in the legend
+
+  Per-well colours          used exactly as you set them; otherwise the
+                            palette you picked
+
+  Palette choice            plus reversed, and group-colouring -- the colour
+                            of every trace
+
+  Hid a well                that curve is not drawn. (Checked: a 7-well file
+                            with 2 hidden renders 5 traces.)
+
+  Deactivated a well        excluded from the figure AND from pooled
+                            statistics
+
+  Sample names              the default legend labels
+
+  Baseline settings         on/off, auto, method, start/end, and per-well
+                            overrides. THIS CHANGES THE NUMBERS -- the y-axis
+                            title even reads "RFU (corrected)"
+
+  Drift correction          changes the numbers
+
+  Normalisation             amp and melt -- changes the numbers
+
+  Threshold                 on/off and the RFU value. Decides whether wells
+                            have a Tt at all, which decides whether a
+                            standard curve is even possible
+
+  Smoothing                 on/off and window -- changes the drawn curve
+
+  X-axis unit               cycle, seconds or minutes. A file saved in
+                            minutes gives you "Time (min)"
+
+  Log scale                 axis scaling
+
+  Font family               the figure's font
+
+  Text sizes                title, axis label, tick, legend
+
+  Line width                as saved
+
+  Grid on/off + alpha       as saved
+
+  Background + text colour  as saved
+
+  Legend on/off, position,
+  and sample-vs-group       as saved
+
+
+DOES NOT CARRY OVER
+-------------------
+
+  Figure DPI          The app's screen DPI (often 100) is ignored. sharpplot
+                      defaults to 600 for print. Ask if you want different.
+
+  Width and height    There is no meaningful physical size in the app.
+                      YOU MUST SAY HOW WIDE, in inches. 3.4 in is a half
+                      column; 6.5 to 7 in is full text width.
+
+  Panel titles        Off by default for publication -- you write the caption.
+
+  Panel letters       A / B / C are added by the figure, not by the app.
+
+
+WHEN TWO THINGS DISAGREE
+------------------------
+
+Later wins:
+
+    Processor defaults  ->  what your .sharpx saved  ->  figure-wide style
+                        ->  this one panel
+
+So "half column, no grid" changes two settings and inherits everything else.
+Small requests stay small.
+
+
+===============================================================================
+5. WHAT IT CAN MAKE
+===============================================================================
+
+PLOT TYPES
+
+  amp           amplification curves
+  melt          raw melt curves
+  melt_deriv    melt derivative, -dF/dT
+  dilution      STANDARD CURVE -- Tt against concentration, with a fit,
+                error bars (SD, SEM or 95% CI) and a doubling time.
+                Needs a threshold set, so wells have a Tt.
+  doubling      doubling time per well. Needs threshold + fitting on.
+
+If a plot type is impossible for your file, it says so AND why -- for example
+"thresholdEnabled is off, so no well has a Tt".
+
+
+PANEL TYPES
+
+  plot          any of the above
+  image         a gel photo, diagram or product shot. Croppable by fraction,
+                and it keeps the real aspect ratio rather than stretching
+  table         a small metrics table, drawn in the figure's own font
+
+
+LAYOUT
+
+Multi-panel composites on a grid, panels allowed to span cells. NSF figure 3
+is a plot over a gel. The private validation figure is one wide amplification panel over
+a standard curve and a melt derivative.
+
+Describe the layout in plain words --
+
+    3 panel, top one full width, bottom two side by side,
+    the ratios are the plotting areas
+
+-- or just send a hand-drawn sketch. A sketch is a perfectly good spec.
+
+Exact physical sizing is the point. You say 3.4 inches, you get 3.4 inches, as
+a vector PDF that drops into Word or Illustrator without resampling. The PNG
+comes out of the same PDF, so the two can never disagree.
+
+
+THINGS THAT TOOK REAL WORK, THAT YOU CAN NOW JUST ASK FOR
+
+  * Two source files combined into one panel, recoloured as one series
+  * Literal tick labels -- 10^0 / 10^2 / 10^4, or 1K / 2K / 3K
+  * A second legend column, to pull specific entries out of the main one
+  * Reference lines with their own legend entry (a threshold line, say)
+  * Annotations that substitute computed statistics
+  * Cross-panel alignment -- matching frame edges and axis titles between
+    panels, verified from geometry rather than by eye
+
+
+===============================================================================
+6. TWO THINGS IT WILL NEVER GUESS
+===============================================================================
+
+A figure that renders beautifully and is wrong is the worst thing this tool
+could produce. Two inputs cause that, and both are gated.
+
+  1. DILUTION CONCENTRATIONS
+
+     It will never read "10^7" off a group name and treat it as a real
+     concentration. It asks you for the top concentration and the fold
+     factor, then prints the resolved table -- concentration, n, wells, mean
+     Tt -- and waits for you to confirm before the figure counts as final.
+
+     READ THAT TABLE. It is the only place a silent mislabel would show up.
+
+  2. VERBAL GROUPING
+
+     If you describe a plate map in words, it prints the resulting
+     well-to-group table and writes nothing into your file unless explicitly
+     told to.
+
+Related: naming a well or group that does not exist is a HARD ERROR, not a
+silent omission -- because a figure quietly missing a well still looks
+correct.
+
+
+===============================================================================
+7. LIMITS WORTH KNOWING
+===============================================================================
+
+FONTS OFF A MAC
+  On claude.ai the engine runs on Linux, where Arial resolves to Liberation
+  Sans. Metrically identical -- every dimension, margin and alignment is
+  right -- but the letter shapes are not pixel-identical. Fine for working
+  and reviewing. Send the final version to be re-rendered on a Mac.
+
+LEGEND SIZE IS ARITHMETIC, NOT A PREFERENCE
+  Plotly costs about (font size + 12) pixels per legend row. Ten dilution
+  steps need a genuinely bigger legend than five. Shrinking the text below
+  about 7 pt to force a fit is not offered, because it stops being readable.
+  The trade is panel height, legend shape, or legend position.
+
+PNG NEEDS AN EXTRA TOOL
+  PDF only needs a browser. If PNG is unavailable, ask for PDF -- it is the
+  better format for Word and Illustrator anyway.
+
+IT TELLS YOU WHAT IT CANNOT DO
+  If a legend will clip, or a plot type is unavailable, it says so and says
+  what to change. Those messages get passed on to you rather than worked
+  around silently.
+
+
+===============================================================================
+8. WHICH VERSION AM I ON
+===============================================================================
+
+Every copy of sharpplot is a snapshot. It can fall behind. Two things protect
+you.
+
+ASK WHAT BUILD YOU ARE ON
+  Claude reports the build date when it first says what it can do. Or ask it
+  to run "sharpplot --version", which prints:
+
+      Processor version   0.2.4
+      built from commit   9bb7742d1
+      built at            2026-08-05T03:37:49Z  (0 days ago)
+      .sharpx format      understands up to 1.2
+
+THE CHECK THAT MATTERS IS AUTOMATIC
+  A .sharpx records the format version it was written as. If you open a file
+  written by a NEWER Processor than your copy of sharpplot understands, it
+  STOPS with an error rather than reading it with the old rules and quietly
+  ignoring whatever is new. The error tells you how to get a current build --
+  ask Tom for a fresh sharpplot.skill and re-upload it.
+
+That is the only real coupling between the desktop app and this tool, and it
+is checked rather than assumed.
+
+YOU DO NOT NEED PROCESSOR 2 INSTALLED to use sharpplot on claude.ai. The
+engine is inside the skill. Processor 2 is only how a .sharpx gets made in
+the first place.
+
+
+===============================================================================
+QUESTIONS -- ask Tom.
+===============================================================================

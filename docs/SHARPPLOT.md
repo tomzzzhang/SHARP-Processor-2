@@ -75,6 +75,13 @@ CFX export folder.
 saved GUI state reaches the figure and which does not, the full capability
 list, and the two inputs the tool refuses to guess.
 
+The same manual exists as plain text at
+[`../skills/team-install/sharpplot user manual.txt`](../skills/team-install/sharpplot%20user%20manual.txt)
+— that is the copy sent to the team, because it opens with a double-click on
+any machine and needs no Markdown renderer. **The two are parallel documents:
+edit both, or neither.** The Markdown one is for GitHub; the text one is the
+one people actually read.
+
 The skill source lives at `.claude/skills/sharpplot/` and is packaged three
 ways, from one set of files:
 
