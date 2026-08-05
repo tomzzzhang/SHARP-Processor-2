@@ -231,3 +231,27 @@ tells you how to get a current build.
 That is the one real coupling between the app and this tool — and it is
 checked, not assumed. You do **not** need Processor 2 installed to use
 sharpplot on claude.ai; the engine is inside the skill.
+
+---
+
+## 9. Does this work outside Claude?
+
+`sharpplot.skill` is packaged in the open **Agent Skills** format — a zip with
+one top-level folder holding `SKILL.md` plus its files. ChatGPT supports that
+format too, and at 1.9 MB the file is well inside its 50 MB upload limit, so it
+should upload there (rename it to `.zip` if the picker insists).
+
+**Uploading is not the same as working, and only Claude is tested.** The
+engine is `bin/sharpplot.mjs`, which needs **Node 20+**, and rendering needs a
+**Chromium** in the sandbox. ChatGPT's Code Interpreter has historically been
+Python-only; Node shows up in its Codex cloud environments and shell tool, but
+whether the skills sandbox provides Node and a browser is unconfirmed. If Node
+is absent, nothing runs.
+
+If you try it, the useful check is the same one used for any host — ask it to
+run `node --version` and look for a chromium binary. Section 8's `--version`
+output tells you the rest.
+
+The CLI itself is a plain Node program, so anything with a shell and Node 20+
+can drive it: Claude Code, an editor agent, a CI job. The `.skill` wrapper is
+only the packaging.

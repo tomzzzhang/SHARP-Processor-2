@@ -11,9 +11,10 @@ CONTENTS
   3. What is inside a .sharpx
   4. What carries over into the figure   <-- the important one
   5. What it can make
-  6. Two things it will never guess
+  6. Two inputs it always asks about
   7. Limits worth knowing
   8. Which version am I on
+  9. Does this work outside Claude
 
 
 ===============================================================================
@@ -320,6 +321,27 @@ is checked rather than assumed.
 YOU DO NOT NEED PROCESSOR 2 INSTALLED to use sharpplot on claude.ai. The
 engine is inside the skill. Processor 2 is only how a .sharpx gets made in
 the first place.
+
+
+===============================================================================
+9. DOES THIS WORK OUTSIDE CLAUDE
+===============================================================================
+
+sharpplot.skill uses the open "Agent Skills" format -- a zip with one
+top-level folder holding SKILL.md and its files. ChatGPT supports that format
+too, and at 1.9 MB the file is well inside its 50 MB upload limit, so it
+should upload there. Rename it to .zip if the file picker insists.
+
+BUT UPLOADING IS NOT THE SAME AS WORKING, and only Claude is tested. The
+engine needs Node 20 or newer, and rendering needs a Chromium browser in the
+sandbox. ChatGPT's code interpreter has historically been Python-only. If
+there is no Node, nothing runs.
+
+If you try it, ask it to run "node --version" and to look for a chromium
+binary. That answers it in one message.
+
+The engine itself is a plain Node program, so anything with a shell and Node
+20+ can drive it. The .skill wrapper is only the packaging.
 
 
 ===============================================================================

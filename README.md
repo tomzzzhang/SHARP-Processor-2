@@ -84,12 +84,12 @@ All existing `.sharp` / `.sharpx` files and instrument formats open exactly as b
 
 ---
 
-## Making Figures with Claude (optional)
+## Making Figures by Asking (optional)
 
-`sharpplot.skill` is a [Claude](https://claude.ai) skill that makes figures from your data by asking for them. It's a separate tool — not part of the app, and you don't need it.
+`sharpplot.skill` makes figures from your data by asking for them. It's a separate tool — not part of the app, and you don't need it.
 
 1. Download **`sharpplot.skill`** from the [v0.2.4 release](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.4)
-2. Upload it at claude.ai → Settings → Capabilities → Skills
+2. Upload it at [claude.ai](https://claude.ai) → Settings → Capabilities → Skills
 3. Drag a `.sharpx` into a chat and say what you want
 
 > make an amplification plot from this, 3.4 inches wide
@@ -101,6 +101,8 @@ You get a vector PDF and a PNG, sized in inches so they go straight into Word wi
 Your `.sharpx` already holds your grouping, colours, hidden wells, baseline and threshold, so the figure comes out looking like what you had on screen — you only say what to change. Raw `.pcrd`, `.tlpd`, `.eds`, `.amxd` and BioRad folders work too.
 
 Nothing to install: no Node, no Chrome, and the app itself doesn't need to be installed. It runs the Processor's own analysis code, so the numbers match the app.
+
+It uses the open [Agent Skills](https://developers.openai.com/api/docs/guides/tools-skills) format, which ChatGPT also supports, so it should upload there too (rename it to `.zip`). We've only tested it on Claude — the engine needs Node 20+ and a Chromium in the sandbox, and we haven't confirmed ChatGPT provides those.
 
 Full documentation: [`docs/SHARPPLOT_MANUAL.md`](docs/SHARPPLOT_MANUAL.md).
 
