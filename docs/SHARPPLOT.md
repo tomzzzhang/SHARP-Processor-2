@@ -102,6 +102,13 @@ terminal.** Build a self-contained skill and upload that:
 npm run skill:pack:cowork                    # dist-skill/sharpplot-cowork.skill (~1.9 MB)
 ```
 
+Since 2026-08-04 the same file is also attached to the **v0.2.4 release** as
+`sharpplot.skill`, so anyone can download it without a checkout. That release
+asset is a **snapshot**: re-upload it (`gh release upload v0.2.4
+dist-skill/sharpplot-cowork.skill --clobber`, renamed to `sharpplot.skill`)
+whenever the CLI or the skill changes, or it silently goes stale. `--version`
+is what tells you which build a copy actually is.
+
 It carries the engine in a `bin/` folder beside `SKILL.md` — `sharpplot.mjs`,
 its side chunks and `plotly.min.js` — and `SKILL.md` looks there first. So the
 recipient uploads one file and is done: no Node install, no Chrome install, no
