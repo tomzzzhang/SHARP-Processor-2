@@ -25,16 +25,17 @@
 
 ## Download & Install
 
-**The current version is v0.2.4.**
+**The current version is v0.2.5.**
 
 | Version | What it is | Download |
 |---|---|---|
-| **v0.2.4** (current) | QuantStudio `.eds` support, correct time axis, palette **Apply** | **[Download v0.2.4 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.4)** |
+| **v0.2.5** (current) | Kinetic landmarks saved with your session and drawn in exported figures | **[Download v0.2.5 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.5)** |
+| **v0.2.4** | QuantStudio `.eds` support, correct time axis, palette **Apply** | **[Download v0.2.4 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.4)** |
 | **v0.2.3** | Kinetics Report residuals, melt-temp on hover, data/fit toggles | **[Download v0.2.3 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.3)** |
 | **v0.2.2** | Multichannel support + kinetics report | **[Download v0.2.2 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.2)** |
 | **v0.1.13** (previous stable) | Single-channel — roll back here if needed | **[Download v0.1.13 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.1.13)** |
 
-v0.2.4 builds on v0.2.3 (see *What's New in v0.2.4* below) and is the auto-update "Latest". Windows (x64/x86) and macOS (Apple Silicon) installers are both attached.
+v0.2.5 builds on v0.2.4 (see *What's New in v0.2.5* below) and is the auto-update "Latest". The **macOS (Apple Silicon)** installer is attached; the **Windows (x64/x86)** installers are produced on a Windows machine and go up when that build runs.
 
 **Need to roll back?** [v0.1.13](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.1.13) is the previous stable single-channel release. Your `.sharp` / `.sharpx` files open in every version, so switching is safe.
 
@@ -60,6 +61,20 @@ v0.2.4 builds on v0.2.3 (see *What's New in v0.2.4* below) and is the auto-updat
    - Alternatively: right-click the app in Applications → **Open** → click **Open** in the dialog
 
 > macOS builds are ad-hoc signed (not notarized with Apple). After you allow it once via the steps above, subsequent launches work normally. This is standard for open-source Tauri apps distributed outside the Mac App Store.
+
+---
+
+## What's New in v0.2.5
+
+**Kinetic landmarks now stay put.** If you turn on `t_lod`, `t_onset10`, or the inflection point in **Analysis → Kinetics**, those markers are now part of the experiment rather than a setting that resets.
+
+- **Saved with your session.** Save a `.sharpx`, reopen it next week, and the same markers come back. Previously the curves came back but the markers didn't.
+- **Per experiment, not per app.** Each open tab keeps its own landmark choices, so turning them on for one run no longer changes what you see in another.
+- **Drawn in exported figures.** The **Export Wizard** now draws the landmarks it sees on screen — same symbols, same position on the curve, and its own legend entries. Before, an exported figure quietly dropped them.
+
+**File-format note.** Every `.sharpx` saved by v0.2.5 is written as format **1.3** (the version moves because the file now carries the landmark settings). A `.sharpx` saved by an older version still opens normally — it just comes back with the landmarks off, which is what it was saved with. Plain `.sharp` data files are unchanged.
+
+If you use the **sharpplot** figure tool, re-download `sharpplot.skill` from this release. An older copy will refuse to open a v0.2.5 `.sharpx` rather than risk drawing a figure from a file it doesn't fully understand.
 
 ---
 
