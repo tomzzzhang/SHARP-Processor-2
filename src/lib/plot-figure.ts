@@ -19,6 +19,7 @@ import {
   normalizeMeltCurves, tCriticalApprox,
   type DilutionSeriesResult, type WellAnalysisResult,
 } from '@/lib/analysis';
+import type { WellLandmark } from '@/lib/report/kinetics-report';
 import { getPaletteColors } from '@/lib/constants';
 
 export type PlotType = 'amp' | 'melt' | 'melt_deriv' | 'doubling' | 'dilution';
@@ -105,8 +106,72 @@ export interface BuildFigureInput {
   meltNormalizeEnabled: boolean;
   smoothingEnabled: boolean;
   smoothingWindow: number;
+  /**
+   * Which kinetic landmarks to mark on the amplification panel — the saved
+   * per-experiment view state, so an exported figure carries the same markers
+   * the on-screen plot was showing. Omitted / all-false draws none.
+   */
+  landmarks?: LandmarkVisibility | null;
+  /**
+   * Per-well landmark times (seconds) for the channel being drawn. Computed by
+   * `computeChannelLandmarks`; passed in rather than computed here so the
+   * figure uses the same memoized values the app already has and this module
+   * stays a pure drawing layer.
+   */
+  landmarkPoints?: Map<string, WellLandmark> | null;
   /** Required only by the `dilution` plot type; ignored by every other. */
   dilution?: DilutionFigureInput | null;
+}
+
+/** Landmark toggle triple, mirroring the store's `ExperimentViewState.landmarks`. */
+export interface LandmarkVisibility {
+  lod: boolean;
+  onset: boolean;
+  infl: boolean;
+}
+
+/**
+ * How each landmark is drawn and labelled. Symbols, legend names, and legend
+ * ordering match `PlotArea`'s on-screen markers so the exported figure and the
+ * live plot are the same picture.
+ */
+const LANDMARK_SPECS = [
+  { key: 'lod', field: 'tLod', symbol: 'triangle-up', name: 't_lod', rank: 10001 },
+  { key: 'onset', field: 'tOnset10', symbol: 'diamond', name: 't_onset10', rank: 10002 },
+  { key: 'infl', field: 'inflectionT', symbol: 'circle', name: 'inflection', rank: 10003 },
+] as const;
+
+/**
+ * Interpolate the (x, y) point on a drawn curve at a landmark time.
+ *
+ * Landmarks are computed in seconds while the panel's x-axis may be cycles or
+ * minutes, so the time is located in `timeS` and the fraction between samples
+ * is applied to both the x series and the plotted y series. That keeps the
+ * marker on the curve rather than at a nominal axis coordinate. A hook-free
+ * port of `PlotArea`'s `pointAtSec`.
+ */
+function pointAtSec(
+  tSec: number | null,
+  timeS: number[],
+  xs: number[],
+  ys: number[],
+): { x: number; y: number } | null {
+  if (tSec == null || !Number.isFinite(tSec)) return null;
+  const n = Math.min(timeS?.length ?? 0, xs.length, ys.length);
+  if (n < 2) return null;
+  if (tSec <= timeS[0]) return { x: xs[0], y: ys[0] };
+  if (tSec >= timeS[n - 1]) return { x: xs[n - 1], y: ys[n - 1] };
+  for (let i = 1; i < n; i++) {
+    if (timeS[i] >= tSec) {
+      const d = timeS[i] - timeS[i - 1];
+      const f = d ? (tSec - timeS[i - 1]) / d : 0;
+      return {
+        x: xs[i - 1] + f * (xs[i] - xs[i - 1]),
+        y: ys[i - 1] + f * (ys[i] - ys[i - 1]),
+      };
+    }
+  }
+  return { x: xs[n - 1], y: ys[n - 1] };
 }
 
 const X_AXIS_LABELS: Record<XAxisMode, string> = {
@@ -341,6 +406,17 @@ function buildAmp(input: BuildFigureInput): { data: Data[]; layout: Partial<Layo
   const legendGroups = computeLegendGroups(input);
   const legendRanks = buildLegendRanks(input.legendOrder);
 
+  // Landmark points, accumulated across wells and emitted below as one marker
+  // trace per landmark type — same shape as the on-screen plot, so a figure
+  // exported from a saved view shows exactly the markers that view had.
+  const lm = input.landmarks;
+  const anyLandmark = Boolean(lm && (lm.lod || lm.onset || lm.infl) && input.landmarkPoints?.size);
+  const lmPoints: Record<string, { x: number[]; y: number[]; c: string[] }> = {
+    lod: { x: [], y: [], c: [] },
+    onset: { x: [], y: [], c: [] },
+    infl: { x: [], y: [], c: [] },
+  };
+
   for (const well of visibleWells) {
     const raw = amp.wells[well];
     if (!raw) continue;
@@ -365,6 +441,44 @@ function buildAmp(input: BuildFigureInput): { data: Data[]; layout: Partial<Layo
       hoverinfo: 'name',
       showlegend: lg.isRep,
     });
+
+    if (anyLandmark) {
+      const wl = input.landmarkPoints!.get(well);
+      if (wl) {
+        for (const spec of LANDMARK_SPECS) {
+          if (!lm![spec.key]) continue;
+          const p = pointAtSec(wl[spec.field], amp.timeS, xData, y);
+          if (!p) continue;
+          const bucket = lmPoints[spec.key];
+          bucket.x.push(p.x);
+          bucket.y.push(p.y);
+          bucket.c.push(color);
+        }
+      }
+    }
+  }
+
+  // Landmark legend entries sort after every curve (high legendrank).
+  if (anyLandmark) {
+    for (const spec of LANDMARK_SPECS) {
+      const bucket = lmPoints[spec.key];
+      if (!lm![spec.key] || bucket.x.length === 0) continue;
+      data.push({
+        x: bucket.x, y: bucket.y,
+        type: 'scatter', mode: 'markers',
+        name: spec.name,
+        legendgroup: `lm:${spec.name}`,
+        legendrank: spec.rank,
+        marker: {
+          symbol: spec.symbol,
+          size: 9,
+          color: bucket.c,
+          line: { color: style.isDark ? '#000' : '#fff', width: 1 },
+        },
+        hoverinfo: 'skip',
+        showlegend: style.showLegend,
+      } as Data);
+    }
   }
 
   const shapes: Partial<Shape>[] = [];

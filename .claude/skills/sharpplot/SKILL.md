@@ -3,7 +3,7 @@ name: sharpplot
 description: Build publication figures from SHARP Data Processor 2 data — .sharpx, .sharp, .pcrd, .tlpd, .eds, .amxd, or Bio-Rad CFX folders. Amplification curves, melt curves, melt derivatives, dilution standard curves, and multi-panel composites with gel images and metrics tables, at an exact physical size as vector PDF plus PNG. Use whenever the user wants a figure, plot, panel or composite from qPCR / isothermal amplification data, mentions a .sharpx or .pcrd file, or asks for a standard curve, amplification plot, melt plot or figure panel.
 ---
 
-**Last Updated:** 2026-08-05 00:23 EDT
+**Last Updated:** 2026-08-05 15:52 EDT
 
 # sharpplot — figures from Processor data, by conversation
 
@@ -48,8 +48,9 @@ cd <checkout> && npm install && npm run cli:build
 ```
 
 Whatever you find, `--help` must print a usage block listing `inspect`,
-`figure`, `render`, `plot`, `convert`, `group`, `bundle`. Use that same path
-for every later command — write it down rather than re-deriving it.
+`figure`, `render`, `plot`, `convert`, `group`, `bundle`, `verify`, `archive`
+and `hash-source`. Use that same path for every later command — write it down
+rather than re-deriving it.
 
 **Then check which build it is:**
 
@@ -101,7 +102,10 @@ an unlisted place, pass `--chrome <path>` or set `SHARPPLOT_CHROME`.
 - **Browser present** → `plot` does figure + render in one call.
 - **No browser** → run `figure … --out fig.json` here, then stage a renderer
   (`sharpplot bundle --out <dir>` writes a self-contained copy) and run
-  `render fig.json` where a browser exists.
+  `render fig.json` where a browser exists. Current bundles embed image panels
+  as data and record the sharpplot version/commit/build date, so that one JSON
+  file is genuinely portable and traceable. A legacy bundle may still contain
+  an image path; rebuild it before moving it to another machine.
 - **No `pdftoppm`** → ask for `"formats": ["pdf"]` only. PDF needs Chrome
   alone; the PNG is rasterized from the PDF, so they are always identical.
 
@@ -113,6 +117,17 @@ state the default you are using and move on.
 
 1. **Where is the figures folder for this project?**
 2. **New figure, or a revision of an existing one?**
+
+For a **revision**, run the baseline gate before changing the spec:
+
+```bash
+node <cli> verify "Fig 3 AB/Fig 3 AB.spec.json"
+```
+
+It rerenders the unchanged spec and requires a byte-identical match to the
+accepted PNG. If it fails, stop before editing and reconcile the source hash,
+sharpplot build, fonts or browser. Do not fold unexplained drift into a small
+requested revision.
 
 Then look for `.sharpplot.json` at that figures root and read it if present:
 
@@ -149,23 +164,40 @@ Rules that go with it:
 - **Renders are named after the folder**, never `figure.pdf`. These get dragged
   into Word, and five files called `figure.pdf` in Downloads is a mess.
 - **Spec paths are relative to the figure folder** — `source/run.sharpx`, not
-  an absolute path. The folder must survive being moved or copied.
+  an absolute path. The folder must survive being moved or copied. The emitted
+  bundle never records a full machine path.
 - **Source data: copy it in when it is ours; point at it when it is not.**
   Third-party or shared data does not get duplicated into a proposal folder.
-  Write `source/source.json` instead — absolute path plus a SHA-256, so a
-  later session can prove the file has not changed:
+  Give it an opaque id and write a **path-free** public manifest at
+  `source/source.json`:
   ```jsonc
-  { "files": [ { "role": "amp panel A", "path": "/abs/path/run.sharpx",
-                 "sha256": "…", "recorded": "2026-08-04",
-                 "why_not_copied": "third-party confidential data" } ] }
+  { "version": 1, "files": [
+    { "id": "external-run-1", "role": "amp panel A", "sha256": "…",
+      "recorded": "2026-08-05",
+      "why_not_copied": "third-party confidential data" }
+  ] }
   ```
-  Say *that* it is third-party confidential data, not whose. This file is public.
-  Verify with `shasum -a 256 <path>` before trusting an old figure's numbers.
+  The spec uses `"sourceRef": "external-run-1"` (or `pathRef` for an image).
+  The real location lives **outside the figure folder and outside Git** in a
+  private machine map selected by `SHARPPLOT_SOURCE_MAP`:
+  ```jsonc
+  { "version": 1, "sources": { "external-run-1": "<real local path>" } }
+  ```
+  `node <cli> hash-source "<real local path>"` prints the path-free field and
+  digest to copy into the public manifest (`sha256` for a file,
+  `sha256_tree` for a folder). The CLI verifies it on every build and stops if
+  the data changed. Say *that* it is third-party confidential data, not whose.
+  **Never put a path in `source/source.json`; it is public.**
 - **Archive accepted versions only, not every render.** Iterate in a scratch
   directory; archive when the user says a version is good and then asks for a
   change. Flat inside `archive/`, timestamp first, triplet sharing a basename:
   `archive/2026-07-27 0110 full width gel.{pdf,png,spec.json}`. The figure name
-  is not repeated — the folder already says it.
+  is not repeated — the folder already says it. Use the archive command; it
+  copies the accepted files and rewrites relative source/image paths for the
+  spec's new directory, so the old version remains rerunnable:
+  ```bash
+  node <cli> archive "Fig 3 AB" --label "full width gel"
+  ```
 - **NOTES.md** records what the figure shows, the decisions behind it (why this
   scale, why these wells excluded) and a draft caption. Start it from the spec
   — plot types, n, fit statistics — rather than from a blank page.
@@ -205,8 +237,8 @@ node <cli> plot "Fig 3 AB/Fig 3 AB.spec.json" --out /tmp/try
 
 Writes `try.pdf` and `try.png` (show them the PNG). When a version is accepted,
 promote it into the figure folder under the folder's own name — `Fig 3 AB.pdf`,
-`Fig 3 AB.png`, `Fig 3 AB.spec.json` — moving the previous accepted triplet
-into `archive/` first.
+`Fig 3 AB.png`, `Fig 3 AB.spec.json`. Before replacing a previously accepted
+version, run `archive` as shown above; do not move the spec by hand.
 
 ## Minimum spec
 

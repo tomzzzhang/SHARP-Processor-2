@@ -1,6 +1,6 @@
 # sharpplot — headless figures from Processor data
 
-**Last Updated:** 2026-08-05 00:23 EDT
+**Last Updated:** 2026-08-05 15:52 EDT
 
 `sharpplot` is a command-line entry point into SHARP Data Processor 2's own
 modules, so publication figures can be produced without the desktop GUI. It is
@@ -60,6 +60,9 @@ app default  →  what the source file saved  →  composite style  →  panel
 | `convert <raw> --out f.sharpx` | Raw instrument file to `.sharpx` via the app's own parsers. |
 | `group <file> --assign "..."` | Assign wells to groups from a described plate map. |
 | `bundle --out <dir>` | Stage a self-contained renderer for a machine with no checkout. |
+| `verify <spec> [--against accepted.png]` | Re-render an unchanged accepted figure and stop on any byte-level PNG drift. |
+| `archive <figure-folder\|spec> [--label text]` | Archive an accepted triplet while preserving its relative source paths. |
+| `hash-source <file\|folder>` | Produce the path-free checksum used by confidential-source manifests. |
 
 `figure` and `render` are separate because the data step and the browser step
 do not always run on the same machine: the pure step runs where the data is,
@@ -161,7 +164,46 @@ browser cache; override with `--chrome` or `SHARPPLOT_CHROME`); **poppler**
 (`pdftoppm`) only for PNG output — PDF needs Chrome alone.
 
 This is what makes the split-machine flow work: run `figure` where the data
-lives, move `fig.json` to where a browser lives, and `render` there.
+lives, move `fig.json` to where a browser lives, and `render` there. Bundle
+format 2 embeds image-panel bytes and records the sharpplot version, commit,
+build date and supported `.sharpx` format. It emits no source machine paths.
+
+## Reusable figure folders
+
+Before revising an accepted figure, prove that the unchanged canonical spec
+still reproduces its accepted PNG:
+
+```bash
+node dist-cli/sharpplot.mjs verify "Fig 3 AB/Fig 3 AB.spec.json"
+```
+
+This catches changed data, a different sharpplot build, browser/font drift, or
+an accidental spec edit before those changes are mixed into a small requested
+revision. A mismatch keeps the candidate PNG for inspection and exits nonzero.
+
+Archive an accepted revision with the CLI rather than moving its spec by hand:
+
+```bash
+node dist-cli/sharpplot.mjs archive "Fig 3 AB" --label "full width gel"
+```
+
+The archived PDF/PNG/spec share a timestamped basename. Relative `source`,
+`mergeSources[].source`, and image `path` fields are rewritten for the spec's
+new location; `sourceRef`/`pathRef` remain unchanged.
+
+For confidential/shared input that must not be copied into a figure folder,
+use `sourceRef` (or `pathRef` for an image). The shareable
+`source/source.json` contains only an opaque id, role, checksum, date and
+generic reason. The real path belongs in a private machine-local map selected
+by `SHARPPLOT_SOURCE_MAP`, never in the figure folder or Git:
+
+```json
+{ "version": 1, "sources": { "external-run-1": "<real local path>" } }
+```
+
+`hash-source` prints the standard `sha256` field for a file or the stable
+`sha256_tree` field for a folder. Every resolution verifies that digest and
+stops if the source changed.
 
 ## Spec reference
 
@@ -207,6 +249,9 @@ Plus figure-authoring controls with no GUI equivalent: `legend`
 (`title`, `range`, `scale` including `log2`, `dtick`, `tickFormat`,
 `tickDirection`, `minorTicks`, `frame`), `title`, `annotations`,
 `referenceLines`, and `styleOverride`.
+
+Use `sourceRef` instead of `source` for a path-free confidential/shared input.
+The same alternative is available on every `mergeSources` entry.
 
 Well selection is explicit and validated:
 
@@ -255,7 +300,9 @@ x-axis produces a figure that looks perfect and is wrong.
 
 Crop values are fractions of the source image. Under `fit: contain` the crop
 keeps the source's aspect ratio, read from the image header — a stretched gel
-misrepresents data.
+misrepresents data. Use `pathRef` instead of `path` for a confidential/shared
+image. New `fig.json` bundles embed the image itself, so they remain renderable
+after moving to another computer or removing the original source.
 
 ## Grouping from a described plate
 

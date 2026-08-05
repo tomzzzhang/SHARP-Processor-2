@@ -1,6 +1,6 @@
 # sharpplot spec — complete field reference
 
-**Last Updated:** 2026-08-05 00:23 EDT
+**Last Updated:** 2026-08-05 15:52 EDT
 
 Read this before writing anything beyond a single basic panel.
 
@@ -21,10 +21,14 @@ edits should change only the fields actually being discussed.
 | `convert <raw> --out f.sharpx` | Raw instrument file to `.sharpx`. |
 | `group <file> --assign "..."` | Wells to groups from a described plate map. |
 | `bundle --out <dir>` | Stage a self-contained renderer (no repo needed there). |
+| `verify <spec> [--against accepted.png]` | Revision gate: unchanged spec must reproduce the accepted PNG byte-for-byte. |
+| `archive <figure-folder\|spec> [--label text]` | Copy the accepted triplet and preserve relative paths in the archived spec. |
+| `hash-source <file\|folder>` | Path-free checksum for a public confidential-source manifest. |
 
 Flags: `--pretty`, `--panel <label>`, `--chrome <path>`, `--plotly <path>`,
-`--keep-html`, `--write` (group only). Environment: `SHARPPLOT_CHROME`,
-`SHARPPLOT_PLOTLY`.
+`--keep-html`, `--write` (group only), `--against`, `--label`, `--timestamp`.
+Environment: `SHARPPLOT_CHROME`, `SHARPPLOT_PLOTLY`,
+`SHARPPLOT_SOURCE_MAP`.
 
 Sources: `.sharpx`, `.sharp`, `.pcrd`, `.tlpd`, `.eds`, `.amxd`, or a Bio-Rad
 CFX export folder.
@@ -83,6 +87,12 @@ For print, set `plotBgColor: "#ffffff"` and `textColor: "black"`.
   "select": { "groups": ["10^7"], "exclude": ["A3"] }
 }
 ```
+
+For confidential/shared data that must stay outside the figure folder, use
+`"sourceRef": "opaque-id"` instead of `source`. The figure folder's public
+`source/source.json` contains the id and checksum only; a private source map
+selected by `SHARPPLOT_SOURCE_MAP` contains the real path. Never put a machine
+path in the spec or public manifest. `mergeSources` accepts `sourceRef` too.
 
 ### Selection
 
@@ -270,6 +280,11 @@ is an error rather than being left in the figure.
 
 Under `fit: contain` a cropped image keeps the source's aspect ratio, read from
 the file header — a stretched gel misrepresents data.
+
+Use `"pathRef": "opaque-id"` instead of `path` for a confidential/shared
+image. When `figure` builds `fig.json`, the image bytes are embedded as a data
+URL; no source path is emitted, and the bundle can render on another machine
+after the original image is removed.
 
 ## Table panels
 

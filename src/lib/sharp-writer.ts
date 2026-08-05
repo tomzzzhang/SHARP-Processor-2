@@ -51,7 +51,9 @@ function fmtNum(v: number | null | undefined, decimals = 2): string {
  * `SUMMARY.txt` (human-readable overview) alongside the authoritative
  * `metadata.json`. Both are written whenever there are wells; readers
  * that only know 1.0 continue to work because metadata.json still carries
- * the same well info.
+ * the same well info. 1.2 adds the per-channel `*_ch{i}.csv` data files.
+ * 1.3 is written whenever a `session` is present (i.e. for `.sharpx`), whose
+ * view state now includes the kinetic-landmark toggles.
  *
  * Pass `liveAnalysis` (the live `useAnalysisResults` map plus an
  * `ttIsCycle` flag) so saved cq/end_rfu reflect the user's current
@@ -78,9 +80,15 @@ export async function buildSharpZip(
 
   const expChannels = exp.channels ?? [];
   const multichannel = expChannels.length > 1;
+  // 1.3 is the `.sharpx` (session-carrying) format. Its session.json gained
+  // per-experiment kinetic-landmark visibility (t_lod / t_onset10 / inflection),
+  // and a reader that predates it would restore the view with the markers
+  // silently missing — exactly the failure the CLI's format gate exists to
+  // catch, so the version has to move. Plain `.sharp` archives carry no
+  // session.json and are unchanged: still 1.2 multichannel, 1.1 single.
   const metadata: Record<string, unknown> = {
     ...(exp.metadata ?? {}),
-    format_version: multichannel ? '1.2' : '1.1',
+    format_version: session ? '1.3' : multichannel ? '1.2' : '1.1',
     experiment_id: exp.experimentId,
     channels: expChannels,
     channel_fluorophore: exp.channelFluorophore ?? {},

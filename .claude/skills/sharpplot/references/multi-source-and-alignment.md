@@ -1,21 +1,17 @@
 # Multi-source panels, custom ticks, dual legends, image alignment
 
-**Last Updated:** 2026-08-05 00:23 EDT
+**Last Updated:** 2026-08-05 15:52 EDT
 
 Five capabilities added to the CLI while building a set of NSF proposal
 figures (2026-07). Four are new fields; the fifth (`smoothingEnabled`) already
 existed but was never documented here. All are additive — no existing spec
 renders differently because of them.
 
-**Status: uncommitted.** These live in the working tree of `SHARP Processor 2`
-(`src/cli/spec.ts`, `src/cli/figure.ts`, `src/cli/decorate.ts`,
-`src/cli/harness.ts`, `src/lib/plot-figure.ts`). Before relying on them from a
-folder that doesn't already have a staged CLI reflecting these changes, check
-`git status` in the repo and re-run `npm run cli:install` after committing.
-Each addition passed the full gate suite (`tsc -b`, `vite build`,
-`test:codex`, `test:parity`, `eslint`) with zero regressions when it was
-built — re-run them again before committing, since more may have landed
-since.
+These capabilities are on `main`. A staged or uploaded CLI is still a snapshot,
+so check `--version` and re-run `npm run cli:install` after CLI changes before
+assuming a field is unsupported. The synthetic `test:sharpplot` gate covers
+bundle portability and archiving; `test:parity` protects the existing app plot
+types.
 
 ## `panel.mergeSources` — combine wells from two different files
 
@@ -43,6 +39,9 @@ smoothing — nothing is reimplemented by hand for the second file).
   "legend": { "order": ["10^4", "10^3", "10^2", "NTC"] }
 }
 ```
+
+Any primary or merged `source` may instead be a `sourceRef`, resolved through
+the path-free public manifest and private machine map described in SKILL.md.
 
 Two things to know:
 

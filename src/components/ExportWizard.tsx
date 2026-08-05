@@ -14,7 +14,7 @@ import Plotly from 'plotly.js-dist-min';
 import _createPlotlyComponent from 'react-plotly.js/factory';
 import { toast } from '@/lib/dialogs';
 import { useAppState } from '@/hooks/useAppState';
-import { useAnalysisResults } from '@/hooks/useAnalysisResults';
+import { useAnalysisResults, useChannelLandmarks } from '@/hooks/useAnalysisResults';
 import { buildFigure, type PlotType, type PlotFigureStyle, type BuildFigureInput } from '@/lib/plot-figure';
 import { exportWizardFigure } from '@/lib/export';
 import { Button } from '@/components/ui/button';
@@ -83,6 +83,10 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
   const normalizeEnabled = useAppState((s) => s.normalizeEnabled);
   const plotTab = useAppState((s) => s.plotTab);
   const figureDpi = useAppState((s) => s.figureDpi);
+  // Kinetic-landmark visibility is per-experiment view state (saved into a
+  // `.sharpx`), so the wizard reads the same toggles the main plot does and the
+  // exported figure matches what's on screen.
+  const landmarks = useAppState((s) => s.landmarks);
 
   // Style state (the preview reads from global state so Style-tab edits update live)
   const palette = useAppState((s) => s.palette);
@@ -106,6 +110,9 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
   const textColor = useAppState((s) => s.textColor);
 
   const analysisResults = useAnalysisResults();
+  // Landmark times for the active channel — the same memoized map the main plot
+  // marks up, so no recomputation and no chance of the two disagreeing.
+  const landmarkPoints = useChannelLandmarks();
 
   // Initial plot type: the active tab, mapped into PlotType values. The Standard
   // Curve tab has no parametric option here, so it falls back to amplification.
@@ -160,9 +167,10 @@ export function ExportWizard({ onClose }: ExportWizardProps) {
       baselineEnabled, normalizeEnabled, thresholdEnabled, thresholdRfu,
       meltThresholdEnabled, meltThresholdValue, meltNormalizeEnabled,
       smoothingEnabled, smoothingWindow,
+      landmarks, landmarkPoints,
     };
     return buildFigure(plotType, input);
-  }, [exp, visibleWells, wellGroups, wellStyleOverrides, analysisResults, legendOrder, style, xAxisMode, logScale, baselineEnabled, normalizeEnabled, thresholdEnabled, thresholdRfu, meltThresholdEnabled, meltThresholdValue, meltNormalizeEnabled, smoothingEnabled, smoothingWindow, plotType]);
+  }, [exp, visibleWells, wellGroups, wellStyleOverrides, analysisResults, legendOrder, style, xAxisMode, logScale, baselineEnabled, normalizeEnabled, thresholdEnabled, thresholdRfu, meltThresholdEnabled, meltThresholdValue, meltNormalizeEnabled, smoothingEnabled, smoothingWindow, landmarks, landmarkPoints, plotType]);
 
   // Preset switching
   const applyPreset = useCallback((label: string) => {

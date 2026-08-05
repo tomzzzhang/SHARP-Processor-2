@@ -1,7 +1,7 @@
 # .sharp File Format
 
-**Last Updated:** 2026-08-05 00:23 EDT — Claude (Mac session — **v0.2.3 shipped (macOS side)** (#56 — Kinetics Report residuals + melt-Tm + data/fit toggles); **on-disk format unchanged** by this session. Prior — v0.2.2 macOS DMG built + published to the v0.2.2 release; on-disk format unchanged then too. Prior — macOS live-UI sign-off PASSED + v0.1.13/v0.2.0 Mac DMGs built and published to GitHub; on-disk format unchanged then too. Prior, branch `feature/ui-ux-enhancements` — UI/UX work only: restyle (CLAUDE.md #48), themed dialogs + notes-persistence + stable-id export + User Manual fact-check (#49), responsive plot axis-label scaling (#50), toggle→checkbox + gesture-hint relocation (#51). **On-disk format unchanged** — `metadata.json` / CSV / `.sharpx` `session.json` layout as of v0.2.0 (format 1.2 multichannel); this branch touches presentation, dialogs, and on-screen plot font scaling/layout only. `session.json` still carries the curve-level fields (`selectedCurves` Set, `curveStyleOverrides` / `curveGroups` Maps) beside per-well selection/style/group. See CLAUDE.md table #48–51.)
-**Current version:** 1.2 (multichannel) / 1.1 (single-channel)
+**Last Updated:** 2026-08-05 15:52 EDT — Claude (Mac session — **v0.2.3 shipped (macOS side)** (#56 — Kinetics Report residuals + melt-Tm + data/fit toggles); **on-disk format unchanged** by this session. Prior — v0.2.2 macOS DMG built + published to the v0.2.2 release; on-disk format unchanged then too. Prior — macOS live-UI sign-off PASSED + v0.1.13/v0.2.0 Mac DMGs built and published to GitHub; on-disk format unchanged then too. Prior, branch `feature/ui-ux-enhancements` — UI/UX work only: restyle (CLAUDE.md #48), themed dialogs + notes-persistence + stable-id export + User Manual fact-check (#49), responsive plot axis-label scaling (#50), toggle→checkbox + gesture-hint relocation (#51). **On-disk format unchanged** — `metadata.json` / CSV / `.sharpx` `session.json` layout as of v0.2.0 (format 1.2 multichannel); this branch touches presentation, dialogs, and on-screen plot font scaling/layout only. `session.json` still carries the curve-level fields (`selectedCurves` Set, `curveStyleOverrides` / `curveGroups` Maps) beside per-well selection/style/group. See CLAUDE.md table #48–51.)
+**Current version:** 1.3 (`.sharpx`) / 1.2 (multichannel `.sharp`) / 1.1 (single-channel `.sharp`)
 
 A `.sharp` file is a ZIP archive (rename to `.zip` to open). It bundles one
 experiment: raw data, reconstructed timestamps, plate setup, sample
@@ -26,7 +26,7 @@ were in. Either extension opens through the same loader.
 | `amplification_ch{i}.csv` | 1.2 | **Multichannel only.** Per-channel amplification, one file per channel, index-keyed (`i`) to `metadata.channels`. Same wide layout as `amplification.csv`. |
 | `melt_rfu_ch{i}.csv` / `melt_derivative_ch{i}.csv` | 1.2 | **Multichannel only.** Per-channel melt RFU / `-dF/dT`, index-keyed to `metadata.channels`. |
 | `SUMMARY.txt` | 1.1+ | Plain-text human overview of the experiment. Lists which files are in the archive and their purpose. Not read back by the app — purely for someone browsing the ZIP by hand. Re-generated on every write from `metadata.json`. |
-| `session.json` | `.sharpx` only | Working-session state — selections (per-well **and** per-`(well,channel)` curve via `selectedCurves`), hidden / deactivated wells, baseline / normalization / drift settings, threshold, style, x-axis mode, active plot tab, groups (well + curve), per-well **and** per-curve style overrides, per-well baseline / normalize overrides, dilution wizard config. Sets serialised as arrays, Maps as `[key, value]` arrays. Written **only** by Save Session; never by plain Save as .sharp. Restored on open (a pre-curve session backfills curve selection from its wells × channels). |
+| `session.json` | `.sharpx` only | Working-session state — selections (per-well **and** per-`(well,channel)` curve via `selectedCurves`), hidden / deactivated wells, baseline / normalization / drift settings, threshold, style, x-axis mode, active plot tab, groups (well + curve), per-well **and** per-curve style overrides, per-well baseline / normalize overrides, dilution wizard config, and (1.3+) kinetic-landmark visibility. Sets serialised as arrays, Maps as `[key, value]` arrays. Written **only** by Save Session; never by plain Save as .sharp. Restored on open (a pre-curve session backfills curve selection from its wells × channels). |
 | `parsing_log.json` | No | Append-only parse history. |
 
 ### Multichannel (format 1.2)
@@ -48,6 +48,35 @@ stay at `format_version` `1.1` with no per-channel files and no behavior change.
 On read, when `metadata.channels` has >1 entry and the per-channel files exist,
 the loader rebuilds `amplificationByChannel` / `meltByChannel`; otherwise it
 falls back to a single channel.
+
+### Session view state (format 1.3)
+
+Every `.sharpx` — single- or multi-channel — writes `format_version: "1.3"`.
+Plain `.sharp` archives carry no `session.json` and are unaffected: still `1.2`
+multichannel, `1.1` single-channel.
+
+1.3 adds one key to `session.json`:
+
+```jsonc
+"landmarks": { "lod": false, "onset": false, "infl": false }
+```
+
+Kinetic-landmark visibility (`t_lod` / `t_onset10` / inflection) on the
+amplification plot, toggled in **Analysis → Kinetics**. It is per-experiment
+view state, so each open tab keeps its own, and it drives both the on-screen
+plot and the Export Wizard's figure — reopening a `.sharpx` and exporting
+reproduces the markers the saved view had.
+
+The version moves for the whole `.sharpx` even though the addition is one
+optional key, because the `sharpplot` CLI gates on `format_version`: a build
+that predates 1.3 would restore the view with the landmark markers silently
+missing, which is exactly the "looks right, is wrong" output the gate exists to
+prevent. It refuses instead (`--allow-newer-format` overrides). A pre-1.3
+`.sharpx` has no `landmarks` key and restores with all three markers off.
+
+The `sharpplot` figure CLI does **not** read this key: a figure spec states its
+own landmark rendering, so a `.sharpx` needs no saved toggles for SharpPlot to
+draw one. The key exists for the Processor's own save/reopen fidelity.
 
 ## `metadata.json` shape
 
@@ -90,9 +119,14 @@ it carries (user-editable sample / content names survive round-trips
 more legibly through plain-text diffs). Numeric fields fall back to
 `metadata.json` when the CSV cell is empty.
 
-On write, the processor always emits `format_version: "1.1"` with both
-new files populated. `metadata.json`'s `wells` section stays in lockstep
-so nothing is lost if the CSV is deleted manually.
+On write, the processor emits `format_version: "1.3"` for any `.sharpx`, and
+`"1.2"` / `"1.1"` for a multichannel / single-channel `.sharp`, with both new
+files populated. `metadata.json`'s `wells` section stays in lockstep so nothing
+is lost if the CSV is deleted manually.
+
+`MAX_SHARPX_FORMAT` in `src/cli/version.ts` must be bumped in the same commit as
+`format_version` in `src/lib/sharp-writer.ts` — that pairing is what makes the
+CLI's gate meaningful.
 
 ## Editing by hand
 

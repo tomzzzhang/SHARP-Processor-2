@@ -16,6 +16,7 @@
  */
 import path from 'node:path';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import type { Data, Layout } from 'plotly.js';
 import { buildFigure, type BuildFigureInput, type PlotFigureStyle, type PlotType } from '@/lib/plot-figure';
 import { getPaletteColors } from '@/lib/constants';
@@ -29,6 +30,8 @@ import { computePlacements, inchesToPx, type PanelPlacement } from './layout';
 import { readImageSize } from './image-size';
 import { assignLegend2, decorateLayout, referenceLineTraces } from './decorate';
 import { describeDilution, resolveDilution, statisticValues, substituteStatistics } from './dilution';
+import { resolveInputPath } from './source-ref';
+import { buildInfo } from './version';
 import {
   SpecError, type ImagePanel, type PanelLabelSpec, type PlotPanel, type ResolvedSpec,
   type SpecStyle, type TablePanel, type WellSelection,
@@ -60,8 +63,13 @@ export interface ImageRenderPanel {
   label: string;
   placement: PanelPlacement;
   labelOverride: Partial<PanelLabelSpec> | null;
-  /** Absolute path to the image on disk. */
-  path: string;
+  /**
+   * Self-contained image payload. New bundles always use this so a fig.json
+   * can move to another machine without its source files.
+   */
+  dataUrl?: string;
+  /** Legacy bundle compatibility only. Never emitted by current builds. */
+  path?: string;
   fit: 'contain' | 'cover' | 'fill';
   crop: { x: number; y: number; w: number; h: number } | null;
   background: string | null;
@@ -88,6 +96,15 @@ export interface TableRenderPanel {
 export type RenderPanel = PlotRenderPanel | ImageRenderPanel | TableRenderPanel;
 
 export interface FigureBundle {
+  /** Bundle schema. Version 2 embeds image data and build provenance. */
+  bundleFormat?: number;
+  /** Build that produced the analytical traces and layout. */
+  sharpplot?: {
+    version: string;
+    commit: string;
+    builtAt: string;
+    maxSharpxFormat: string;
+  };
   id: string;
   output: ResolvedSpec['output'];
   layout: ResolvedSpec['layout'];
@@ -428,7 +445,13 @@ async function buildPlotPanel(
   placement: PanelPlacement,
   cache: SourceCache,
 ): Promise<PlotRenderPanel> {
-  const source = path.isAbsolute(panel.source) ? panel.source : path.resolve(spec.baseDir, panel.source);
+  const resolvedSource = await resolveInputPath(
+    spec.baseDir,
+    panel.source,
+    panel.sourceRef,
+    `Plot panel "${panel.label}"`,
+  );
+  const source = resolvedSource.absolutePath;
   const loaded = await loadCached(cache, source);
   const { exp, view } = loaded;
 
@@ -543,7 +566,13 @@ async function buildPlotPanel(
   // kept; the primary's `.layout` (axes, title, legend chrome) is what ships.
   if (panel.mergeSources?.length) {
     for (const merge of panel.mergeSources) {
-      const abs = path.isAbsolute(merge.source) ? merge.source : path.resolve(spec.baseDir, merge.source);
+      const resolvedMerge = await resolveInputPath(
+        spec.baseDir,
+        merge.source,
+        merge.sourceRef,
+        `Plot panel "${panel.label}" merged source`,
+      );
+      const abs = resolvedMerge.absolutePath;
       const mergedInput = await buildSourceInput(abs, merge.select, merge.groups, panel, spec, cache, {
         xAxisMode,
         legendContent: input.style.legendContent,
@@ -577,7 +606,7 @@ async function buildPlotPanel(
     labelOverride: panel.panelLabel ?? null,
     figure: { data, layout },
     summary: {
-      source,
+      source: resolvedSource.label,
       plotType: panel.plotType,
       channel,
       wells: visibleWells,
@@ -617,10 +646,33 @@ function assertPlotTypeAvailable(
   }
 }
 
+function imageMimeType(filePath: string): string {
+  switch (path.extname(filePath).toLowerCase()) {
+    case '.png': return 'image/png';
+    case '.jpg':
+    case '.jpeg': return 'image/jpeg';
+    case '.gif': return 'image/gif';
+    case '.webp': return 'image/webp';
+    case '.svg': return 'image/svg+xml';
+    case '.bmp': return 'image/bmp';
+    default:
+      throw new SpecError(
+        `Image "${path.basename(filePath)}" has an unsupported extension. ` +
+        'Use PNG, JPEG, GIF, WebP, SVG, or BMP so it can be embedded portably.',
+      );
+  }
+}
+
 async function buildImagePanel(panel: ImagePanel, spec: ResolvedSpec, placement: PanelPlacement): Promise<ImageRenderPanel> {
-  const abs = path.isAbsolute(panel.path) ? panel.path : path.resolve(spec.baseDir, panel.path);
+  const resolvedImage = await resolveInputPath(
+    spec.baseDir,
+    panel.path,
+    panel.pathRef,
+    `Image panel "${panel.label}"`,
+  );
+  const abs = resolvedImage.absolutePath;
   if (!existsSync(abs)) {
-    throw new SpecError(`Image panel "${panel.label}" points at ${abs}, which does not exist.`);
+    throw new SpecError(`Image panel "${panel.label}" points at a file that does not exist.`);
   }
   const crop = panel.crop ?? null;
   if (crop) {
@@ -638,7 +690,7 @@ async function buildImagePanel(panel: ImagePanel, spec: ResolvedSpec, placement:
     label: panel.label!,
     placement,
     labelOverride: panel.panelLabel ?? null,
-    path: abs,
+    dataUrl: `data:${imageMimeType(abs)};base64,${(await readFile(abs)).toString('base64')}`,
     fit: panel.fit ?? 'contain',
     crop,
     background: panel.background ?? null,
@@ -734,7 +786,15 @@ export async function buildBundle(spec: ResolvedSpec): Promise<FigureBundle> {
     else panels.push(buildTablePanel(panel, spec, placement));
   }
 
+  const build = buildInfo();
   return {
+    bundleFormat: 2,
+    sharpplot: {
+      version: build.version,
+      commit: build.commit,
+      builtAt: build.builtAt,
+      maxSharpxFormat: build.maxSharpxFormat,
+    },
     id: spec.id,
     output: spec.output,
     layout: spec.layout,

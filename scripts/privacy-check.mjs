@@ -1,14 +1,25 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { unzipSync } from 'fflate';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ALLOW_MISSING = process.argv.includes('--allow-missing-denylist');
+const WORKTREE = process.argv.includes('--worktree');
 const SELF = 'scripts/privacy-check.mjs';
+
+function flagValues(name) {
+  const values = [];
+  for (let i = 0; i < process.argv.length; i++) {
+    if (process.argv[i] === `--${name}` && process.argv[i + 1]) values.push(process.argv[i + 1]);
+  }
+  return values;
+}
+
+const ARTIFACTS = flagValues('artifact');
 
 function git(args, options = {}) {
   return execFileSync('git', args, {
@@ -74,23 +85,48 @@ function scanBlob(data, location, patterns) {
   scanText(data.toString('utf8'), location, patterns);
 }
 
-const tracked = git(['ls-files', '-z']).toString('utf8').split('\0').filter(Boolean);
-for (const file of tracked) {
-  if (file === SELF) continue;
-  const data = git(['show', `:${file}`]);
-  scanBlob(data, file, [...STRUCTURAL_PATTERNS, ...privateTerms]);
+function scanFileData(data, location) {
+  scanBlob(data, location, [...STRUCTURAL_PATTERNS, ...privateTerms]);
 
-  if (file.endsWith('.skill')) {
+  if (location.endsWith('.skill')) {
     try {
       const entries = unzipSync(new Uint8Array(data));
       for (const [entry, content] of Object.entries(entries)) {
-        scanBlob(Buffer.from(content), `${file}!${entry}`, [...STRUCTURAL_PATTERNS, ...privateTerms]);
+        scanBlob(Buffer.from(content), `${location}!${entry}`, [...STRUCTURAL_PATTERNS, ...privateTerms]);
       }
     } catch {
-      findings.push(`${file}: unreadable packaged skill`);
+      findings.push(`${location}: unreadable packaged skill`);
     }
   }
 }
+
+const tracked = git(WORKTREE
+  ? ['ls-files', '-co', '--exclude-standard', '-z']
+  : ['ls-files', '-z']).toString('utf8').split('\0').filter(Boolean);
+for (const file of tracked) {
+  if (file === SELF) continue;
+  const absolute = path.join(ROOT, file);
+  if (WORKTREE && !existsSync(absolute)) continue;
+  const data = WORKTREE ? readFileSync(absolute) : git(['show', `:${file}`]);
+  scanFileData(data, file);
+}
+
+function scanArtifact(artifactPath) {
+  const absolute = path.resolve(ROOT, artifactPath);
+  if (!existsSync(absolute)) {
+    findings.push(`${artifactPath}: requested artifact does not exist`);
+    return;
+  }
+  const info = statSync(absolute);
+  if (info.isDirectory()) {
+    for (const entry of readdirSync(absolute).sort()) scanArtifact(path.join(artifactPath, entry));
+    return;
+  }
+  if (!info.isFile()) return;
+  scanFileData(readFileSync(absolute), path.relative(ROOT, absolute));
+}
+
+for (const artifact of ARTIFACTS) scanArtifact(artifact);
 
 // A clean tip is not enough: an old branch, tag, blob, or commit message must
 // not re-publish a confidential identifier. The private terms are deliberately
@@ -107,6 +143,6 @@ if (findings.length > 0) {
   process.exit(1);
 }
 
-console.log(`Privacy check passed (${tracked.length} tracked files${
+console.log(`Privacy check passed (${tracked.length} ${WORKTREE ? 'working-tree' : 'tracked'} files${
   privateTerms.length ? ', private denylist + full reachable history' : ', structural checks only'
-}).`);
+}${ARTIFACTS.length ? `, ${ARTIFACTS.length} explicit artifact(s)` : ''}).`);

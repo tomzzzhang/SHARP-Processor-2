@@ -123,7 +123,9 @@ export const DEFAULT_LAYOUT: LayoutSpec = {
  * independently-assigned colors.
  */
 export interface MergeSourceSpec {
-  source: string;
+  source?: string;
+  /** Opaque id resolved through source/source.json + a private machine map. */
+  sourceRef?: string;
   select?: WellSelection | null;
   groups?: Record<string, string> | null;
 }
@@ -296,7 +298,13 @@ export interface PlotPanel extends BasePanel {
   kind: 'plot';
   /** Path to a `.sharpx` / `.sharp`, a raw instrument file, or a Bio-Rad
    *  folder. Relative paths resolve against the spec file's directory. */
-  source: string;
+  source?: string;
+  /**
+   * Opaque id for confidential/shared data that must not be copied into the
+   * figure folder. The public manifest records only this id + a checksum; the
+   * real path stays in a private machine-local source map.
+   */
+  sourceRef?: string;
   plotType: PlotType;
   /** Which fluorescence channel to plot. Defaults to the file's active channel. */
   channel?: string | null;
@@ -393,7 +401,9 @@ export interface DilutionSpec {
 
 export interface ImagePanel extends BasePanel {
   kind: 'image';
-  path: string;
+  path?: string;
+  /** Confidential/shared-image equivalent of a plot panel's sourceRef. */
+  pathRef?: string;
   fit?: 'contain' | 'cover' | 'fill';
   /** Fractional crop of the source image, 0–1. */
   crop?: { x: number; y: number; w: number; h: number } | null;
@@ -503,11 +513,20 @@ export function resolveSpec(spec: FigureSpec, baseDir: string): ResolvedSpec {
     if (kind !== 'plot' && kind !== 'image' && kind !== 'table') {
       throw new SpecError(`Panel "${label}" has unknown kind "${kind}" (expected plot, image or table).`);
     }
-    if (p.kind === 'plot' && !p.source) {
-      throw new SpecError(`Plot panel "${p.label}" is missing "source".`);
+    if (p.kind === 'plot' && Boolean(p.source) === Boolean(p.sourceRef)) {
+      throw new SpecError(`Plot panel "${p.label}" needs exactly one of "source" or "sourceRef".`);
     }
-    if (p.kind === 'image' && !p.path) {
-      throw new SpecError(`Image panel "${p.label}" is missing "path".`);
+    if (p.kind === 'plot' && p.mergeSources) {
+      for (const [i, merge] of p.mergeSources.entries()) {
+        if (Boolean(merge.source) === Boolean(merge.sourceRef)) {
+          throw new SpecError(
+            `Plot panel "${p.label}" mergeSources[${i}] needs exactly one of "source" or "sourceRef".`,
+          );
+        }
+      }
+    }
+    if (p.kind === 'image' && Boolean(p.path) === Boolean(p.pathRef)) {
+      throw new SpecError(`Image panel "${p.label}" needs exactly one of "path" or "pathRef".`);
     }
     if (p.kind === 'table' && (!Array.isArray(p.columns) || !Array.isArray(p.rows))) {
       throw new SpecError(`Table panel "${p.label}" needs "columns" and "rows".`);

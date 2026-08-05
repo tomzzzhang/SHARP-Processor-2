@@ -1,6 +1,6 @@
 # sharpplot — user manual
 
-**Last Updated:** 2026-08-05 00:23 EDT
+**Last Updated:** 2026-08-05 15:52 EDT
 
 Making publication figures from SHARP Processor data by talking to Claude.
 
@@ -48,7 +48,62 @@ colours start from defaults and you describe them in words instead.
 
 ---
 
-## 3. What is actually inside a `.sharpx`
+## 3. Figures made this way remain reworkable
+
+**A figure created in the standard SharpPlot folder format today can be
+reopened and reworked months or years later — including in a new Claude chat,
+on another computer, or for a different publication.** It is not a flattened,
+one-way export.
+
+Each completed figure is kept as a folder:
+
+```text
+Figure name/
+  Figure name.spec.json   editable recipe and source of truth
+  Figure name.pdf         accepted vector output
+  Figure name.png         accepted preview
+  source/                 source data and images, or safe source references
+  archive/                superseded accepted versions
+  NOTES.md                decisions, interpretation, and draft caption
+```
+
+To rework an old figure, give Claude the whole folder — zip it first when
+uploading through claude.ai, or point Claude Code directly to the folder — and
+describe the new purpose:
+
+> Continue from this figure and make a half-column version for a paper.
+
+> Reuse this as the top panel of a three-panel proposal figure.
+
+> Keep the analysis and styling, but adapt the labels and dimensions for a poster.
+
+Before changing anything, SharpPlot rerenders the unchanged recipe and requires
+it to match the accepted PNG exactly. That catches changed source data, fonts,
+browser behavior, or an accidental edit before any new work is mixed in. Once
+the baseline passes, the old figure can be resized, relabelled, recoloured,
+rearranged, combined with new panels, or adapted to a new output format without
+starting from scratch. When a revision is accepted, the previous accepted
+version remains in `archive/`.
+
+Keep the full folder. The PDF and PNG alone are final outputs, not the editable
+figure. The `.spec.json` and `source/` folder preserve the analysis and
+design decisions that make later reworking possible.
+
+A `fig.json` is different: it is a portable render bundle containing the
+finished drawing instructions, embedded image panels, and SharpPlot build
+information without full paths from the source computer. It is excellent for
+reproducing an exact figure on another machine. For broad changes, the complete
+figure folder is better because it also contains the editable recipe and source
+material.
+
+If confidential source data was intentionally not copied into the folder, the
+folder contains an anonymous reference and checksum rather than its location.
+A different computer can still rework the figure once its private source map is
+connected; the shared folder itself never needs to expose the private path.
+
+---
+
+## 4. What is actually inside a `.sharpx`
 
 A `.sharpx` is a zip. Unzip one and you get:
 
@@ -64,7 +119,7 @@ A `.sharpx` is a zip. Unzip one and you get:
 
 ---
 
-## 4. What carries over into the figure
+## 5. What carries over into the figure
 
 This is the part worth knowing, because it tells you what to fix in the app
 versus what to ask Claude for.
@@ -115,7 +170,7 @@ Small requests stay small.
 
 ---
 
-## 5. What it can make
+## 6. What it can make
 
 ### Plot types
 
@@ -164,7 +219,7 @@ out of the same PDF, so the two can never disagree.
 
 ---
 
-## 6. Two inputs it always asks about
+## 7. Two inputs it always asks about
 
 Plenty of things can make a figure wrong, and most of them are visible — you
 look at it and see it. These two are not: get them wrong and the figure still
@@ -184,7 +239,7 @@ silent omission — because a figure quietly missing a well still looks correct.
 
 ---
 
-## 7. Limits worth knowing
+## 8. Limits worth knowing
 
 - **Fonts off macOS.** On claude.ai the engine runs on Linux, where Arial
   resolves to Liberation Sans. Metrically identical — every dimension, margin
@@ -203,7 +258,7 @@ silent omission — because a figure quietly missing a well still looks correct.
 
 ---
 
-## 8. Version check
+## 9. Version check
 
 Every copy of sharpplot is a snapshot — staged, zipped into a `.skill`,
 uploaded. It can fall behind the repo. Two mechanisms:
@@ -219,7 +274,7 @@ sharpplot --version
   Processor version   0.2.4
   built from commit   8cb799040
   built at            2026-08-05T03:31:29Z  (0 days ago)
-  .sharpx format      understands up to 1.2
+  .sharpx format      understands up to 1.3
 ```
 
 **The gate that matters is automatic.** A `.sharpx` records the format version
@@ -228,13 +283,19 @@ your copy of sharpplot understands, it **stops with an error** instead of
 reading it with the old rules and quietly ignoring whatever is new. The error
 tells you how to get a current build.
 
+Every `.sharpx` saved by the current Processor is format **1.3** — it now saves
+the kinetic-landmark toggles (`t_lod` / `t_onset10` / inflection) with the view.
+An older sharpplot build will stop on those files; re-pack the skill to clear
+it. `--allow-newer-format` is genuinely safe for this particular bump, because a
+figure spec declares its own landmarks and never reads the saved toggles.
+
 That is the one real coupling between the app and this tool — and it is
 checked, not assumed. You do **not** need Processor 2 installed to use
 sharpplot on claude.ai; the engine is inside the skill.
 
 ---
 
-## 9. Does this work outside Claude?
+## 10. Does this work outside Claude?
 
 `sharpplot.skill` is packaged in the open **Agent Skills** format — a zip with
 one top-level folder holding `SKILL.md` plus its files. ChatGPT supports that
@@ -249,7 +310,7 @@ whether the skills sandbox provides Node and a browser is unconfirmed. If Node
 is absent, nothing runs.
 
 If you try it, the useful check is the same one used for any host — ask it to
-run `node --version` and look for a chromium binary. Section 8's `--version`
+run `node --version` and look for a chromium binary. Section 9's `--version`
 output tells you the rest.
 
 The CLI itself is a plain Node program, so anything with a shell and Node 20+

@@ -330,7 +330,7 @@ const sections: Section[] = [
 
           <p className="text-xs font-medium mb-1">Kinetics</p>
           <ul className="list-disc pl-5 space-y-0.5 mb-2">
-            <li>Toggle kinetic <strong>landmarks</strong> onto the amplification plot — <strong>t_lod</strong> (limit of detection), <strong>t_onset10</strong> (time to 10% of fitted height), and the <strong>inflection</strong> point. They draw on the displayed curves (for the selected wells) and carry into exported figures.</li>
+            <li>Toggle kinetic <strong>landmarks</strong> onto the amplification plot — <strong>t_lod</strong> (limit of detection), <strong>t_onset10</strong> (time to 10% of fitted height), and the <strong>inflection</strong> point. They draw on the displayed curves (for the selected wells) and carry into exported figures, including the Export Wizard's. The toggles belong to the experiment, not the app — each open tab keeps its own, and saving a <code>.sharpx</code> saves them, so reopening it redraws the same markers.</li>
             <li>The results table below the plot also gains <strong>t_LoD</strong> and <strong>10%</strong> columns (in the x-axis time unit). Full per-curve readouts with standard errors live in the <strong>Kinetics Report</strong> (Tools menu — see that section).</li>
           </ul>
 
@@ -579,11 +579,11 @@ const sections: Section[] = [
               <tr><TD><code>melt_rfu.csv</code></TD><TD>Per-temperature RFU per well, if the run had a melt step.</TD></tr>
               <tr><TD><code>melt_derivative.csv</code></TD><TD>Per-temperature −dF/dT per well. Pre-smoothed using the BioRad CFX Maestro algorithm.</TD></tr>
               <tr><TD><code>metadata.json</code></TD><TD><strong>Authoritative machine-readable</strong> — instrument, protocol, run info, per-well analysis outputs, time reconstruction.</TD></tr>
-              <tr><TD><code>session.json</code></TD><TD><em>(<code>.sharpx</code> only)</em> Working-session state — selections, hidden wells, baseline / normalization / drift settings, threshold, style, plot tab, groups, per-well overrides, dilution config.</TD></tr>
+              <tr><TD><code>session.json</code></TD><TD><em>(<code>.sharpx</code> only)</em> Working-session state — selections, hidden wells, baseline / normalization / drift settings, threshold, style, plot tab, groups, per-well overrides, dilution config, and which kinetic landmarks are drawn.</TD></tr>
             </tbody>
           </table>
           <p className="mt-1.5 text-muted-foreground italic">
-            <code>wells.csv</code> and <code>SUMMARY.txt</code> were added in format v1.1. Older <code>.sharp</code> files still load — the app falls back to <code>metadata.json</code>.
+            <code>wells.csv</code> and <code>SUMMARY.txt</code> were added in format v1.1. Older <code>.sharp</code> files still load — the app falls back to <code>metadata.json</code>. Every <code>.sharpx</code> is now written as format v1.3, which added the saved landmark toggles; a <code>.sharpx</code> saved before that reopens with the landmarks off.
           </p>
         </div>
 

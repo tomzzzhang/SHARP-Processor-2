@@ -15,6 +15,7 @@
 // Side-effect import: installs the browser globals the instrument parsers
 // expect. Must come before anything that can reach a parser.
 import './shims/dom';
+import path from 'node:path';
 import { parseArgs, type ParsedArgs } from './args';
 import { inspectCommand } from './inspect';
 import { buildBundle, type FigureBundle } from './figure';
@@ -23,6 +24,9 @@ import { renderBundle } from './render';
 import { convertCommand } from './convert';
 import { groupCommand, writeGroups } from './group';
 import { bundleCommand } from './bundle';
+import { archiveCommand } from './archive';
+import { verifyAcceptedFigure } from './verify';
+import { sourceHash } from './source-ref';
 import { setAllowNewerFormat } from './load';
 import { buildStamp, versionText } from './version';
 import { CliError, toJson } from './util';
@@ -53,6 +57,17 @@ Usage:
   sharpplot bundle  --out <dir>
       Stage a self-contained renderer (sharpplot.mjs + plotly.min.js) so
       the render verb works there with no repo and no node_modules.
+
+  sharpplot verify  <spec.json> [--against accepted.png] [--chrome PATH]
+      Revision gate. Re-render the unchanged spec and require a byte-identical
+      match to the accepted PNG before editing it.
+
+  sharpplot archive <figure-folder|spec.json> [--label TEXT] [--timestamp "YYYY-MM-DD HHmm"]
+      Copy the accepted PDF/PNG/spec into archive/ and rewrite relative paths
+      so the archived spec remains rerunnable.
+
+  sharpplot hash-source <file-or-folder>
+      Print a path-free checksum for a public source/source.json manifest.
 
 Sources: .sharpx, .sharp, .pcrd, .tlpd, .eds, .amxd, or a Bio-Rad CFX folder.
 
@@ -106,6 +121,7 @@ async function run(args: ParsedArgs): Promise<number> {
         }
       }
       await args.emit(bundle);
+      process.stderr.write(`${buildStamp()}\n`);
       return 0;
     }
     case 'render':
@@ -193,6 +209,45 @@ async function run(args: ParsedArgs): Promise<number> {
       if (!out) throw new CliError('bundle needs --out <dir>');
       const result = await bundleCommand(out, typeof args.flags.plotly === 'string' ? args.flags.plotly : null);
       process.stdout.write(`${toJson(result, true)}\n`);
+      return 0;
+    }
+
+    case 'verify': {
+      const specPath = args.positional[0];
+      if (!specPath) throw new CliError('verify needs a canonical spec: sharpplot verify <spec.json>');
+      const spec = await readSpec(specPath);
+      const bundle = await buildBundle(spec);
+      const accepted = typeof args.flags.against === 'string'
+        ? args.flags.against
+        : path.join(
+            path.dirname(path.resolve(specPath)),
+            `${path.basename(specPath).replace(/\.spec\.json$/i, '')}.png`,
+          );
+      const result = await verifyAcceptedFigure(bundle, accepted, {
+        chrome: typeof args.flags.chrome === 'string' ? args.flags.chrome : null,
+        plotly: typeof args.flags.plotly === 'string' ? args.flags.plotly : null,
+      });
+      process.stderr.write(`${buildStamp()}\n`);
+      process.stdout.write(`${toJson(result, true)}\n`);
+      return 0;
+    }
+
+    case 'archive': {
+      const input = args.positional[0];
+      if (!input) throw new CliError('archive needs a figure folder or canonical spec.');
+      const result = await archiveCommand(
+        input,
+        typeof args.flags.label === 'string' ? args.flags.label : null,
+        typeof args.flags.timestamp === 'string' ? args.flags.timestamp : null,
+      );
+      process.stdout.write(`${toJson(result, true)}\n`);
+      return 0;
+    }
+
+    case 'hash-source': {
+      const input = args.positional[0];
+      if (!input) throw new CliError('hash-source needs a file or folder.');
+      process.stdout.write(`${toJson(await sourceHash(input), true)}\n`);
       return 0;
     }
 

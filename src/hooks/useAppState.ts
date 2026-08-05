@@ -83,6 +83,15 @@ export interface ChannelAnalysisState {
   fitEndFraction: number;
 }
 
+/** Which kinetic landmarks are drawn on the amplification plot. Per-experiment
+ *  view state: saved into a `.sharpx` `session.json` and restored on reopen, so
+ *  a saved view redraws with the same markers it was saved with. */
+export interface LandmarkVisibility {
+  lod: boolean;
+  onset: boolean;
+  infl: boolean;
+}
+
 /** State that is isolated per experiment tab and shared across that
  *  experiment's channels (selection, grouping, style, channel display). */
 export interface ExperimentViewState {
@@ -126,6 +135,10 @@ export interface ExperimentViewState {
   plotTab: PlotTab;
 
   showRawOverlay: boolean;
+
+  /** Kinetic landmarks drawn on the amplification plot (Analysis → Kinetics).
+   *  Per-experiment so each tab keeps its own, and saved with the view. */
+  landmarks: LandmarkVisibility;
 
   // Dilution series (standard curve wizard)
   dilutionConfig: DilutionConfig | null;
@@ -227,6 +240,7 @@ function defaultViewState(wellsUsed: string[] = [], channels: string[] = []): Ex
     autoScale: true,
     plotTab: 'amplification',
     showRawOverlay: false,
+    landmarks: { lod: false, onset: false, infl: false },
     dilutionConfig: null,
     palette: 'SHARP',
     paletteReversed: false,
@@ -283,6 +297,7 @@ function snapshotViewState(state: AppState): ExperimentViewState {
     autoScale: state.autoScale,
     plotTab: state.plotTab,
     showRawOverlay: state.showRawOverlay,
+    landmarks: state.landmarks,
     dilutionConfig: state.dilutionConfig,
     palette: state.palette,
     paletteReversed: state.paletteReversed,
@@ -395,6 +410,11 @@ const CHANNEL_STATE_KEYS: (keyof ChannelAnalysisState)[] = [
   'smoothingEnabled', 'smoothingWindow', 'fittingEnabled', 'fitStartFraction', 'fitEndFraction',
 ];
 
+/** Narrow an unknown session field to a plain object (not null, not an array). */
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
 /** Serialize a shared view-state snapshot to a JSON-safe object for a
  *  `.sharpx` session file (Sets → arrays, Maps → entry arrays). The nested
  *  `wellChannelHidden` (Map<well, Set<channel>>) is flattened to
@@ -424,6 +444,17 @@ function deserializeViewState(obj: Record<string, unknown>): Partial<ExperimentV
     out.wellChannelHidden = new Map(
       (obj.wellChannelHidden as [string, string[]][]).map(([w, arr]) => [w, new Set(arr)]),
     );
+  }
+  // `landmarks` is a nested object, so a plain spread over the defaults would
+  // replace it wholesale and leave any key the file omits `undefined`. Rebuild
+  // it key-by-key instead: a pre-1.3 `.sharpx` (no `landmarks` at all) drops the
+  // field so the caller's default wins, and a partial block fills the rest with
+  // `false` rather than drawing markers the saved view never had.
+  if (isRecord(obj.landmarks)) {
+    const lm = obj.landmarks;
+    out.landmarks = { lod: lm.lod === true, onset: lm.onset === true, infl: lm.infl === true };
+  } else {
+    delete out.landmarks;
   }
   for (const k of CHANNEL_STATE_KEYS) delete out[k];
   delete out.channelSnapshots;
@@ -601,8 +632,6 @@ interface AppState extends ExperimentViewState, ChannelAnalysisState {
   showFluorophoreWizard: boolean;
   /** The native kinetics report overlay (lazy per-curve readouts). */
   showKineticsReport: boolean;
-  /** Which kinetic landmarks are drawn on the main amp plot (session-global). */
-  landmarks: { lod: boolean; onset: boolean; infl: boolean };
   /** Bumped by `triggerAutoScale()` — PlotArea plots watch it to relayout to
    *  autorange. Transient (not persisted, not per-experiment). */
   _autoScalePulse: number;
@@ -781,7 +810,7 @@ interface AppState extends ExperimentViewState, ChannelAnalysisState {
   setShowExportWizard: (show: boolean) => void;
   setShowFluorophoreWizard: (show: boolean) => void;
   setShowKineticsReport: (show: boolean) => void;
-  setLandmark: (kind: 'lod' | 'onset' | 'infl', on: boolean) => void;
+  setLandmark: (kind: keyof LandmarkVisibility, on: boolean) => void;
   /** Apply user fluorophore labels + colours per channel (one undoable action). */
   setChannelMeta: (labels: Map<string, string>, colors: Map<string, string>) => void;
   resetStyle: () => void;
@@ -804,7 +833,6 @@ export const useAppState = create<AppState>((set, get) => ({
   showExportWizard: false,
   showFluorophoreWizard: false,
   showKineticsReport: false,
-  landmarks: { lod: false, onset: false, infl: false },
   _autoScalePulse: 0,
   analysisScopeAll: false,
 

@@ -50,7 +50,13 @@ require.extensions['.ts'] = function loadTs(module, filename) {
       esModuleInterop: true,
     },
   }).outputText;
-  module._compile(output, `${filename}.cjs`);
+  // `import.meta` survives transpilation, and Node then decides the whole
+  // module is ESM and refuses to run the CommonJS `exports` it just emitted.
+  // The only use in this codebase is Vite's `import.meta.env.DEV` guard around
+  // dev-only debug hooks (which want a `window` we don't have anyway), so pin
+  // it off — same spirit as the Tauri/Plotly stubs above.
+  const cjs = output.replace(/import\.meta\.env/g, '({ DEV: false })');
+  module._compile(cjs, `${filename}.cjs`);
 };
 
 function makeExperiment() {
@@ -447,6 +453,271 @@ async function testRoundTripPreservesMetadataAndLiveAnalysis() {
   assert.equal(reloaded.formatVersion, '1.1');
 }
 
+// ── Kinetic-landmark view state (per-experiment, saved into .sharpx) ──
+//
+// The landmark toggles (t_lod / t_onset10 / inflection) used to be one
+// session-global triple, so reopening a .sharpx redrew the curves without the
+// markers the saved view had. They now live in ExperimentViewState, ride along
+// in session.json, and the Export Wizard draws from the same state — which is
+// what these tests pin down.
+
+/** Fresh store with one experiment loaded in tab 0. Returns the store module. */
+function loadStoreWithExperiment(exp) {
+  const store = require(path.join(root, 'src/hooks/useAppState.ts'));
+  store.useAppState.setState({
+    experiments: [],
+    activeExperimentIndex: 0,
+    sourceFilePaths: new Map(),
+    _experimentSnapshots: new Map(),
+    _channelSnapshots: new Map(),
+    _undoStacks: new Map(),
+    _redoStacks: new Map(),
+  });
+  store.useAppState.getState().loadExperiment(exp);
+  return store;
+}
+
+/**
+ * Save → reopen. Toggling t_lod + inflection, saving as .sharpx, and loading
+ * the bytes back through the production loader must reproduce exactly those
+ * two toggles — and the archive must declare format 1.3, since a pre-1.3
+ * reader would restore the view with the markers silently absent.
+ */
+async function testSharpxRoundTripPreservesLandmarks() {
+  const { exportAsSharpx } = require(path.join(root, 'src/lib/export.ts'));
+  const { loadSharpFile } = require(path.join(root, 'src/lib/sharp-loader.ts'));
+  const store = loadStoreWithExperiment(makeExperiment());
+
+  store.useAppState.getState().setLandmark('lod', true);
+  store.useAppState.getState().setLandmark('infl', true);
+
+  const session = store.useAppState.getState().getSessionState();
+  assert.deepEqual(
+    session.landmarks,
+    { lod: true, onset: false, infl: true },
+    'session.json carries the landmark toggles',
+  );
+
+  const activeExp = store.useAppState.getState().experiments[0];
+  mockTauri.savePath = 'landmarks.sharpx';
+  mockTauri.fileWrites = [];
+  await exportAsSharpx(activeExp, session);
+  const written = mockTauri.fileWrites.at(-1);
+  assert.ok(written, 'exportAsSharpx wrote a file');
+
+  const zip = await JSZip.loadAsync(written.data);
+  const meta = JSON.parse(await zip.file('metadata.json').async('string'));
+  assert.equal(meta.format_version, '1.3', '.sharpx declares format 1.3');
+
+  const buffer = written.data.buffer.slice(
+    written.data.byteOffset,
+    written.data.byteOffset + written.data.byteLength,
+  );
+  const reloaded = await loadSharpFile(buffer, 'landmarks.sharpx');
+  assert.equal(reloaded.formatVersion, '1.3', 'loader reads 1.3 back');
+
+  const { view } = store.resolveExperimentState(reloaded);
+  assert.deepEqual(
+    view.landmarks,
+    { lod: true, onset: false, infl: true },
+    'reopened view restores exactly the saved landmark toggles',
+  );
+}
+
+/**
+ * A .sharpx written before 1.3 has no `landmarks` key at all. Restoring it must
+ * fall back to all-off rather than leaving the field undefined (which would
+ * crash the plot's `landmarks.lod` reads).
+ */
+async function testPre13SessionRestoresLandmarksOff() {
+  const { loadSharpFile } = require(path.join(root, 'src/lib/sharp-loader.ts'));
+  const store = require(path.join(root, 'src/hooks/useAppState.ts'));
+
+  const zip = new JSZip();
+  zip.file('metadata.json', JSON.stringify({
+    format_version: '1.1',
+    experiment_id: 'legacy-session-fixture',
+    data_summary: { wells_used: ['A1'] },
+    plate_layout: { rows: 1, cols: 1 },
+    protocol: { type: 'qpcr' },
+    run_info: {},
+    wells: { A1: { sample: 'A', content: 'Unkn' } },
+  }));
+  zip.file('amplification.csv', 'cycle,time_s,time_min,A1\n1,0,0,10\n2,30,0.5,20\n');
+  // Pre-1.3 session: real view keys, no `landmarks`.
+  zip.file('session.json', JSON.stringify({ xAxisMode: 'cycle', logScale: true }));
+
+  const bytes = await zip.generateAsync({ type: 'nodebuffer' });
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const reloaded = await loadSharpFile(buffer, 'legacy-session-fixture.sharpx');
+  const { view } = store.resolveExperimentState(reloaded);
+
+  assert.equal(view.logScale, true, 'the rest of the legacy session still restores');
+  assert.deepEqual(
+    view.landmarks,
+    { lod: false, onset: false, infl: false },
+    'a session with no landmarks block restores all markers off',
+  );
+}
+
+/**
+ * Per-experiment, not session-global: turning a landmark on in one tab must not
+ * follow the user into another tab, and switching back must bring it back.
+ */
+function testLandmarksArePerExperiment() {
+  const store = loadStoreWithExperiment(makeExperiment());
+  const second = makeExperiment();
+  second.experimentId = 'codex-fixture-2';
+  store.useAppState.getState().loadExperiment(second);
+
+  // Tab 1 (the one just opened) gets a landmark; tab 0 must stay clean.
+  store.useAppState.getState().setLandmark('onset', true);
+  assert.equal(store.useAppState.getState().activeExperimentIndex, 1);
+
+  store.useAppState.getState().switchExperiment(0);
+  assert.deepEqual(
+    store.useAppState.getState().landmarks,
+    { lod: false, onset: false, infl: false },
+    'the other experiment keeps its own (default) landmark state',
+  );
+
+  store.useAppState.getState().switchExperiment(1);
+  assert.deepEqual(
+    store.useAppState.getState().landmarks,
+    { lod: false, onset: true, infl: false },
+    'switching back restores that experiment\'s landmark state',
+  );
+}
+
+/** Plain .sharp carries no session.json, so its version must not move. */
+async function testPlainSharpKeepsPre13FormatVersion() {
+  const { exportAsSharp } = require(path.join(root, 'src/lib/export.ts'));
+  const zip = await captureSharpZip('no-session.sharp', () => exportAsSharp(makeExperiment()));
+  const meta = JSON.parse(await zip.file('metadata.json').async('string'));
+  assert.equal(meta.format_version, '1.1', 'single-channel .sharp stays 1.1');
+  assert.equal(zip.file('session.json'), null, 'plain .sharp carries no session');
+}
+
+/** The CLI's format gate must be bumped in step with the writer. */
+function testFormatGateKnowsAbout13() {
+  const { MAX_SHARPX_FORMAT, isNewerFormat } = require(path.join(root, 'src/cli/version.ts'));
+  assert.equal(MAX_SHARPX_FORMAT, '1.3', 'CLI understands the format the writer emits');
+  assert.equal(isNewerFormat('1.3'), false, '1.3 files load');
+  assert.equal(isNewerFormat('1.4'), true, 'a future format still trips the gate');
+
+  const writerSource = fs.readFileSync(path.join(root, 'src/lib/sharp-writer.ts'), 'utf8');
+  assert.match(writerSource, /format_version:\s*session\s*\?\s*'1\.3'/, 'writer emits 1.3 for sessions');
+}
+
+/**
+ * Export: `buildFigure` must draw the landmarks the view state asks for, on the
+ * curve, and nothing when they're off. The marker lands by interpolation in
+ * seconds onto the plotted x-axis (here cycles), so the placement is checked
+ * too — an off-by-one axis mapping would still "have markers".
+ */
+function testBuildFigureDrawsEnabledLandmarks() {
+  const { buildFigure } = require(path.join(root, 'src/lib/plot-figure.ts'));
+
+  const exp = makeExperiment();
+  exp.amplification = {
+    cycle: [1, 2, 3],
+    timeS: [0, 30, 60],
+    timeMin: [0, 0.5, 1],
+    wells: { A1: [10, 20, 30] },
+  };
+  const style = {
+    palette: 'SHARP', paletteReversed: false, paletteGroupColors: false,
+    lineWidth: 2, fontFamily: 'sans-serif',
+    titleSize: 12, labelSize: 10, tickSize: 9, legendSize: 9,
+    showLegend: true, legendPosition: 'best', legendContent: 'well',
+    showTitle: true, showLabels: true, showTicks: true,
+    showGrid: true, gridAlpha: 0.2, plotBgColor: '', textColor: 'auto', isDark: false,
+  };
+  const baseInput = {
+    exp,
+    visibleWells: ['A1'],
+    wellGroups: new Map(),
+    wellStyleOverrides: new Map(),
+    analysisResults: new Map(),
+    legendOrder: [],
+    style,
+    xAxisMode: 'cycle',
+    logScale: false,
+    baselineEnabled: false,
+    normalizeEnabled: false,
+    thresholdEnabled: false,
+    thresholdRfu: 100,
+    meltThresholdEnabled: false,
+    meltThresholdValue: 400,
+    meltNormalizeEnabled: false,
+    smoothingEnabled: false,
+    smoothingWindow: 11,
+    // t_lod at 45 s = halfway between cycle 2 (30 s) and cycle 3 (60 s).
+    landmarkPoints: new Map([['A1', { tLod: 45, tOnset10: 0, inflectionT: 60, fired: true }]]),
+  };
+
+  const off = buildFigure('amp', { ...baseInput, landmarks: { lod: false, onset: false, infl: false } });
+  assert.equal(
+    off.data.filter((t) => t.mode === 'markers').length,
+    0,
+    'no marker traces when every landmark is off',
+  );
+
+  const on = buildFigure('amp', { ...baseInput, landmarks: { lod: true, onset: false, infl: true } });
+  const markerNames = on.data.filter((t) => t.mode === 'markers').map((t) => t.name);
+  assert.deepEqual(markerNames, ['t_lod', 'inflection'], 'only the enabled landmarks are drawn');
+
+  const lod = on.data.find((t) => t.name === 't_lod');
+  assert.deepEqual(lod.x, [2.5], 't_lod interpolated onto the cycle axis');
+  assert.deepEqual(lod.y, [25], 't_lod sits on the plotted curve');
+
+  const infl = on.data.find((t) => t.name === 'inflection');
+  assert.deepEqual(infl.x, [3], 'inflection at the last sample');
+
+  // Absent landmark data must not fabricate markers.
+  const noPoints = buildFigure('amp', {
+    ...baseInput,
+    landmarkPoints: new Map(),
+    landmarks: { lod: true, onset: true, infl: true },
+  });
+  assert.equal(
+    noPoints.data.filter((t) => t.mode === 'markers').length,
+    0,
+    'landmarks on but no computed points draws nothing',
+  );
+}
+
+/**
+ * The Export Wizard has to feed `buildFigure` the SAME per-experiment toggles
+ * and the same memoized landmark map the main plot uses — otherwise the figure
+ * silently disagrees with the screen. Static source check: mounting React is
+ * out of reach for this harness.
+ */
+function testExportWizardHonorsLandmarkViewState() {
+  const source = fs.readFileSync(path.join(root, 'src/components/ExportWizard.tsx'), 'utf8');
+  assert.match(source, /useChannelLandmarks/, 'wizard reads the shared landmark map');
+  assert.match(source, /const landmarks = useAppState\(\(s\) => s\.landmarks\)/, 'wizard reads the view-state toggles');
+  assert.match(source, /landmarks,\s*landmarkPoints,/, 'both are passed into BuildFigureInput');
+  assert.match(
+    source,
+    /}, \[[^\]]*landmarks, landmarkPoints[^\]]*\]\)/,
+    'the figure memo re-runs when the toggles change',
+  );
+}
+
+/** The store's landmark triple must be part of the saved view state, not a
+ *  transient session-global field. */
+function testLandmarksLiveInExperimentViewState() {
+  const source = fs.readFileSync(path.join(root, 'src/hooks/useAppState.ts'), 'utf8');
+  const viewStateBlock = source.slice(
+    source.indexOf('export interface ExperimentViewState {'),
+    source.indexOf('/** All curveKeys for the given wells'),
+  );
+  assert.match(viewStateBlock, /landmarks: LandmarkVisibility;/, 'declared in ExperimentViewState');
+  assert.match(source, /landmarks: state\.landmarks,/, 'snapshotViewState carries it');
+  assert.match(source, /landmarks: \{ lod: false, onset: false, infl: false \},/, 'defaultViewState seeds it');
+}
+
 async function main() {
   const tests = [
     ['wells.csv empty content wins over metadata', testWellsCsvEmptyContentWins],
@@ -461,6 +732,14 @@ async function main() {
     ['loader missing derivative uses BioRad algorithm', testLoaderMissingDerivativeUsesBioRadAlgorithm],
     ['save computes derivative CSV when in-memory map empty', testSaveComputesDerivativeWhenMissing],
     ['round-trip preserves metadata and live analysis', testRoundTripPreservesMetadataAndLiveAnalysis],
+    ['landmarks live in the per-experiment view state', testLandmarksLiveInExperimentViewState],
+    ['landmark toggles are per-experiment, not session-global', testLandmarksArePerExperiment],
+    ['.sharpx save/reopen preserves landmark toggles (format 1.3)', testSharpxRoundTripPreservesLandmarks],
+    ['pre-1.3 session restores landmarks off', testPre13SessionRestoresLandmarksOff],
+    ['plain .sharp keeps its pre-1.3 format version', testPlainSharpKeepsPre13FormatVersion],
+    ['CLI format gate bumped in step with the writer', testFormatGateKnowsAbout13],
+    ['exported figure draws the enabled landmarks on the curve', testBuildFigureDrawsEnabledLandmarks],
+    ['Export Wizard honors the saved landmark view state', testExportWizardHonorsLandmarkViewState],
   ];
   const failures = [];
   for (const [name, fn] of tests) {

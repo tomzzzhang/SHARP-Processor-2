@@ -60,7 +60,8 @@ function objectPositionOf(align: Extract<RenderPanel, { kind: 'image' }>['align'
 }
 
 function imagePanelHtml(panel: Extract<RenderPanel, { kind: 'image' }>, boxW: number, boxH: number): string {
-  const url = fileUrl(panel.path);
+  const url = panel.dataUrl ?? (panel.path ? fileUrl(panel.path) : null);
+  if (!url) throw new Error(`Image panel "${panel.label}" has no embedded data or legacy path.`);
   const bg = panel.background ? `background:${panel.background};` : '';
   if (!panel.crop) {
     return `<img class="pimg" src="${url}" style="object-fit:${panel.fit};object-position:${objectPositionOf(panel.align)};${bg}">`;

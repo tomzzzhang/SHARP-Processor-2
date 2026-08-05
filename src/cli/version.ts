@@ -32,9 +32,11 @@ import { APP_VERSION } from '@/lib/constants';
  *
  * Keep in step with `format_version` in `src/lib/sharp-writer.ts`. If you bump
  * it there, bump it here in the same commit — that pairing is the whole
- * mechanism. `1.1` single-channel, `1.2` multichannel.
+ * mechanism. `1.1` single-channel `.sharp`, `1.2` multichannel `.sharp`,
+ * `1.3` any `.sharpx` (its `session.json` carries the kinetic-landmark
+ * toggles, which a pre-1.3 reader would drop without noticing).
  */
-export const MAX_SHARPX_FORMAT = '1.2';
+export const MAX_SHARPX_FORMAT = '1.3';
 
 export interface BuildInfo {
   /** Processor version this CLI was built from. */
