@@ -1,6 +1,6 @@
 # sharpplot spec — complete field reference
 
-**Last Updated:** 2026-08-06 13:56 EDT
+**Last Updated:** 2026-08-06 15:03 EDT
 
 Read this before writing anything beyond a single basic panel.
 

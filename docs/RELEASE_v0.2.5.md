@@ -1,6 +1,6 @@
 # Release v0.2.5 — kinetic landmarks become saved view state (`.sharpx` format 1.3)
 
-**Last Updated:** 2026-08-06 13:56 EDT
+**Last Updated:** 2026-08-06 15:03 EDT
 
 Internal record. Public-facing notes live in `README.md` → *What's New in v0.2.5* and on the GitHub release page. Everything below is implementation detail and stays here.
 
@@ -99,7 +99,9 @@ The `sharpplot` reusable-figure hardening (CLAUDE.md #59) had been sitting uncom
 - macOS (Apple Silicon) DMG built from tag commit `d38fd17` with `./build.sh`; `hdiutil verify` and `codesign --verify --deep --strict` passed.
 - Windows x64/x86 NSIS and MSI installers were rebuilt from `d38fd17` and uploaded on 2026-08-06. The release now has six assets total: four Windows installers, the macOS DMG, and `sharpplot.skill`.
 - The Windows build matched the release gates exactly: `test:codex` 20/20, the tag's `test:sharpplot` 5/5, and the documented eslint baseline of 48 findings. The human WebView2 smoke test remains open.
-- Windows installers for v0.1.13, v0.2.0, v0.2.2, v0.2.3, and v0.2.4 were rebuilt from their scrubbed tags and restored to their releases. Older macOS DMGs remain open and must also be rebuilt from the scrubbed tags rather than copied from pre-scrub local artifacts.
+- Windows installers and Apple Silicon DMGs for v0.1.13, v0.2.0, v0.2.2, v0.2.3, and v0.2.4 were rebuilt from their scrubbed tags and restored to their releases. Each DMG was built in an isolated worktree with the tag's exact lockfile, passed `hdiutil verify`, and contained an arm64 app with the matching bundle version that passed `codesign --verify --deep --strict` and satisfied its Designated Requirement. The uploaded assets were downloaded again and matched the verified local files byte-for-byte.
+- Historical DMG SHA-256: v0.1.13 `ddbf4418fd976783cb7a470b8f542881c3bfa94b3badda7a9ed23f881352cff5`; v0.2.0 `b04cabe0cd0f6056c5d58c1ca049f4c72e59c6c3fe65ce5120c9c1467c32e7f4`; v0.2.2 `069f2d9d208f642ec5da5be121c26c4705811f9af982051d92dba3489d0e7b8e`; v0.2.3 `4da80f436845b29cae259b4063829d3441142d26cbec4c200e329871a18b3bf0`; v0.2.4 `5363a26fe9349deed903f6efdb07aeb0a19324253cca3167073e34b005aea63f`.
+- The current customer/private denylist was applied to every tag and its reachable history before building. Its structural policy separately identified a machine-specific path in the historical developer-only `test-parsers.mjs`; that file is not referenced by the build and was confirmed absent from every shipped app bundle. No customer denylist term was found.
 
 ## 8. Post-release SharpPlot refresh and lockfile correction
 

@@ -2,7 +2,7 @@
   <img src="public/sharp-logo.png" alt="SHARP Logo" width="120" />
 </p>
 
-**Last Updated:** 2026-08-06 13:56 EDT
+**Last Updated:** 2026-08-06 15:03 EDT
 
 <h1 align="center">SHARP Processor 2</h1>
 
@@ -35,7 +35,7 @@
 | **v0.2.2** | Multichannel support + kinetics report | **[Download v0.2.2 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.2)** |
 | **v0.1.13** (previous stable) | Single-channel — roll back here if needed | **[Download v0.1.13 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.1.13)** |
 
-v0.2.5 builds on v0.2.4 (see *What's New in v0.2.5* below) and is the auto-update "Latest". The **macOS (Apple Silicon)** installer is attached; the **Windows (x64/x86)** installers are produced on a Windows machine and go up when that build runs.
+v0.2.5 builds on v0.2.4 (see *What's New in v0.2.5* below) and is the auto-update "Latest". The supported releases — v0.1.13, v0.2.0, v0.2.2, v0.2.3, v0.2.4, and v0.2.5 — now each have both a **macOS (Apple Silicon)** installer and **Windows (x64/x86)** installers attached.
 
 **Need to roll back?** [v0.1.13](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.1.13) is the previous stable single-channel release. Your `.sharp` / `.sharpx` files open in every version, so switching is safe.
 
@@ -105,7 +105,7 @@ All existing `.sharp` / `.sharpx` files and instrument formats open exactly as b
 
 `sharpplot.skill` makes figures from your data by asking for them. It's a separate tool — not part of the app, and you don't need it.
 
-1. Download **`sharpplot.skill`** from the [v0.2.4 release](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.4)
+1. Download **`sharpplot.skill`** from the [v0.2.5 release](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.5)
 2. Upload it at [claude.ai](https://claude.ai) → Settings → Capabilities → Skills
 3. Drag a `.sharpx` into a chat and say what you want
 

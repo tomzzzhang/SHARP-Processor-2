@@ -1,6 +1,6 @@
 # sharpplot — user manual
 
-**Last Updated:** 2026-08-06 13:56 EDT
+**Last Updated:** 2026-08-06 15:03 EDT
 
 Making publication figures from SHARP Processor data by talking to Claude.
 

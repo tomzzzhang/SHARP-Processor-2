@@ -1,6 +1,6 @@
 # Algorithms — Active vs Archived
 
-**Last Updated:** 2026-08-06 13:56 EDT
+**Last Updated:** 2026-08-06 15:03 EDT
 
 A single source of truth for which algorithm the app is currently using for
 each analysis step, and which earlier implementations have been retired.

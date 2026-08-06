@@ -3,7 +3,7 @@ name: sharpplot
 description: Build publication figures from SHARP Data Processor 2 data — .sharpx, .sharp, .pcrd, .tlpd, .eds, .amxd, or Bio-Rad CFX folders. Amplification and melt plots, fitted curves, kinetic landmarks, Kinetics Report sections and fit-parameter tables, dilution standard curves, and multi-panel composites with images/tables, at an exact physical size as vector PDF plus PNG. Use whenever the user wants a figure, plot, report panel or composite from qPCR / isothermal amplification data, mentions a .sharpx or .pcrd file, or asks for a standard curve, amplification plot, melt plot, kinetics report, fitted curve, kinetic marker or fit parameters.
 ---
 
-**Last Updated:** 2026-08-06 13:56 EDT
+**Last Updated:** 2026-08-06 15:03 EDT
 
 # sharpplot — figures from Processor data, by conversation
 
