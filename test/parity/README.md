@@ -1,6 +1,6 @@
 # Parity check — `plot-figure.ts` must not change what it already draws
 
-**Last Updated:** 2026-08-05 17:44 EDT
+**Last Updated:** 2026-08-06 13:56 EDT
 
 `sharpplot` adds capability to the Processor's shared figure modules. The rule
 governing that work is that **existing plot types must render exactly as they

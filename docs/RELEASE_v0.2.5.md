@@ -1,6 +1,6 @@
 # Release v0.2.5 — kinetic landmarks become saved view state (`.sharpx` format 1.3)
 
-**Last Updated:** 2026-08-05 17:44 EDT
+**Last Updated:** 2026-08-06 13:56 EDT
 
 Internal record. Public-facing notes live in `README.md` → *What's New in v0.2.5* and on the GitHub release page. Everything below is implementation detail and stays here.
 
@@ -96,10 +96,15 @@ The `sharpplot` reusable-figure hardening (CLAUDE.md #59) had been sitting uncom
 
 ## 7. Build + release
 
-- macOS (Apple Silicon) DMG built from `main` with `./build.sh`, `hdiutil verify` and `codesign --verify --deep --strict` clean.
-- `sharpplot.skill` **repacked** — mandatory this cycle, since the packaged copy embeds `MAX_SHARPX_FORMAT` and an un-repacked skill would reject every `.sharpx` the new app writes.
-- **Windows is not built here.** See `WINDOWS_BUILD_HANDOFF_2026-08-05.md` in the OneDrive knowledge base for the exact steps; the x64/x86 installers get attached to the v0.2.5 release when that machine runs.
+- macOS (Apple Silicon) DMG built from tag commit `d38fd17` with `./build.sh`; `hdiutil verify` and `codesign --verify --deep --strict` passed.
+- Windows x64/x86 NSIS and MSI installers were rebuilt from `d38fd17` and uploaded on 2026-08-06. The release now has six assets total: four Windows installers, the macOS DMG, and `sharpplot.skill`.
+- The Windows build matched the release gates exactly: `test:codex` 20/20, the tag's `test:sharpplot` 5/5, and the documented eslint baseline of 48 findings. The human WebView2 smoke test remains open.
+- Windows installers for v0.1.13, v0.2.0, v0.2.2, v0.2.3, and v0.2.4 were rebuilt from their scrubbed tags and restored to their releases. Older macOS DMGs remain open and must also be rebuilt from the scrubbed tags rather than copied from pre-scrub local artifacts.
 
-### Release-asset state (flagged, not changed)
+## 8. Post-release SharpPlot refresh and lockfile correction
 
-At the time of this release, **no GitHub release carried an app installer**: `v0.2.4` had only `sharpplot.skill`, and `v0.2.3` / `v0.2.2` / `v0.2.0` / `v0.1.13` had none — despite `README.md` stating that v0.2.4 has Windows and macOS installers attached. Local DMGs for 0.2.2 / 0.2.3 / 0.2.4 exist in `dist-release/macos/`. Nothing was re-uploaded to those older releases: if the assets were withdrawn deliberately (the preceding commit is a privacy-incident response), re-publishing them from a local copy would undo that. The historical v0.2.4 README text was left as-is for the same reason. **This is unresolved and needs a decision** before the older download links can be trusted.
+The desktop tag remains `v0.2.5` at `d38fd17`; the released app binaries were not rebuilt or changed for this follow-up.
+
+- `sharpplot` gained native fitted curves, selectable kinetic landmarks, residuals, Tm marks, Kinetics Report tables, and fit-parameter tables in follow-up commit `2e6ad9a`. The self-contained `sharpplot.skill` release asset was rebuilt from the clean follow-up state and replaced in place. It still reports Processor 0.2.5 and supports `.sharpx` through format 1.3.
+- `package-lock.json` had been missed during the original version bump. Its root version and `packages[""]` version are now 0.2.5, restoring the five-version-source invariant. This metadata-only fix does not change the already-built installers.
+- Follow-up gates: app build clean, `test:codex` 20/20, `test:sharpplot` 6/6, historical figure parity 4/4 byte-identical, skill validation and privacy checks clean.

@@ -1,6 +1,6 @@
 # sharpplot — headless figures from Processor data
 
-**Last Updated:** 2026-08-05 17:44 EDT
+**Last Updated:** 2026-08-06 13:56 EDT
 
 `sharpplot` is a command-line entry point into SHARP Data Processor 2's own
 modules, so publication figures can be produced without the desktop GUI. It is

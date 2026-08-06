@@ -1,6 +1,6 @@
 # Multi-source panels, custom ticks, dual legends, image alignment
 
-**Last Updated:** 2026-08-05 17:44 EDT
+**Last Updated:** 2026-08-06 13:56 EDT
 
 Five capabilities added to the CLI while building a set of NSF proposal
 figures (2026-07). Four are new fields; the fifth (`smoothingEnabled`) already
