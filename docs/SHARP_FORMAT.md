@@ -1,6 +1,6 @@
 # .sharp File Format
 
-**Last Updated:** 2026-08-06 15:03 EDT
+**Last Updated:** 2026-08-06 22:32 EDT
 **Current version:** 1.3 (`.sharpx`) / 1.2 (multichannel `.sharp`) / 1.1 (single-channel `.sharp`)
 
 A `.sharp` file is a ZIP archive (rename to `.zip` to open). It bundles one

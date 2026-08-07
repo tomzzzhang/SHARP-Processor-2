@@ -2,22 +2,21 @@
   <img src="public/sharp-logo.png" alt="SHARP Logo" width="120" />
 </p>
 
-**Last Updated:** 2026-08-06 15:03 EDT
+**Last Updated:** 2026-08-06 22:32 EDT
 
 <h1 align="center">SHARP Processor 2</h1>
 
 <p align="center">
-  Desktop app for visualizing and analyzing qPCR &amp; isothermal amplification data.<br/>
-  No programming required — just download, install, and open your data files.
+  Desktop application for viewing, processing, and exporting qPCR and isothermal amplification data.
 </p>
 
 <p align="center">
-  <a href="https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest">
-    <img src="https://img.shields.io/github/v/release/tomzzzhang/SHARP-Processor-2?label=Download&style=for-the-badge&color=c42a30" alt="Download latest release" />
+  <a href="https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.5">
+    <img src="https://img.shields.io/badge/v0.2.5-Multichannel-c42a30?style=for-the-badge" alt="Download v0.2.5 multichannel release" />
   </a>
   &nbsp;&nbsp;
   <a href="https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.1.13">
-    <img src="https://img.shields.io/badge/Roll%20back-v0.1.13-6e7681?style=for-the-badge" alt="Roll back to v0.1.13" />
+    <img src="https://img.shields.io/badge/v0.1.13-Single--channel-6e7681?style=for-the-badge" alt="Download v0.1.13 single-channel release" />
   </a>
 </p>
 
@@ -25,26 +24,17 @@
 
 ## Download & Install
 
-**The current version is v0.2.5.**
-
-| Version | What it is | Download |
+| Version | Description | Download |
 |---|---|---|
-| **v0.2.5** (current) | Kinetic landmarks saved with your session and drawn in exported figures | **[Download v0.2.5 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.5)** |
-| **v0.2.4** | QuantStudio `.eds` support, correct time axis, palette **Apply** | **[Download v0.2.4 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.4)** |
-| **v0.2.3** | Kinetics Report residuals, melt-temp on hover, data/fit toggles | **[Download v0.2.3 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.3)** |
-| **v0.2.2** | Multichannel support + kinetics report | **[Download v0.2.2 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.2)** |
-| **v0.1.13** (previous stable) | Single-channel — roll back here if needed | **[Download v0.1.13 →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.1.13)** |
+| **v0.2.5** | Multichannel processing, kinetics reporting, QuantStudio support, and saved figure settings | **[Release files](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.5)** |
+| **v0.1.13** | Single-channel processing, normalization, drift correction, and saved sessions | **[Release files](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.1.13)** |
 
-v0.2.5 builds on v0.2.4 (see *What's New in v0.2.5* below) and is the auto-update "Latest". The supported releases — v0.1.13, v0.2.0, v0.2.2, v0.2.3, v0.2.4, and v0.2.5 — now each have both a **macOS (Apple Silicon)** installer and **Windows (x64/x86)** installers attached.
-
-**Need to roll back?** [v0.1.13](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.1.13) is the previous stable single-channel release. Your `.sharp` / `.sharpx` files open in every version, so switching is safe.
+Each release page contains Windows x64/x86 installers and a macOS Apple Silicon DMG.
 
 ### Windows
 
-1. Click the **Download** button above (or go to the [Releases](https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest) page)
-2. Download the installer for your system:
-   - **64-bit:** **`SHARP Processor 2_x64-setup.exe`**
-   - **32-bit:** **`SHARP Processor 2_x86-setup.exe`**
+1. Choose v0.2.5 or v0.1.13 above.
+2. Download the installer for your system: the filename contains **`x64-setup.exe`** for 64-bit Windows or **`x86-setup.exe`** for 32-bit Windows.
 3. Double-click the installer and follow the prompts
 4. Open **SHARP Processor 2** from the Start Menu or desktop shortcut
 
@@ -52,7 +42,7 @@ v0.2.5 builds on v0.2.4 (see *What's New in v0.2.5* below) and is the auto-updat
 
 ### macOS (Apple Silicon)
 
-1. Download the **`.dmg`** file from the [latest release](https://github.com/tomzzzhang/SHARP-Processor-2/releases/latest) page
+1. Choose v0.2.5 or v0.1.13 above and download the **`aarch64.dmg`** file.
 2. Open the DMG and drag **SHARP Processor 2** into the **Applications** folder
 3. **First launch — bypass the macOS security warning:**
    - Open **System Settings → Privacy & Security**
@@ -166,8 +156,6 @@ SHARP Processor 2 now reads **every fluorophore channel** in your experiment, no
 **Smoother, too.** Plots and interactions — hovering, selecting, dragging the threshold line, toggling channels — are noticeably more responsive in this version.
 
 **Backward compatible.** Single-channel `.sharp` and `.sharpx` files from any earlier version open unchanged.
-
-**[Download v0.2.0 (beta) →](https://github.com/tomzzzhang/SHARP-Processor-2/releases/tag/v0.2.0)**
 
 ---
 

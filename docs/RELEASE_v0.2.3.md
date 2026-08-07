@@ -1,6 +1,6 @@
 # SHARP Processor 2 — v0.2.3 (Kinetics Report: residuals + melt-Tm hover + data/fit) — Dev Documentation
 
-**Last Updated:** 2026-08-06 15:03 EDT
+**Last Updated:** 2026-08-06 22:32 EDT
 
 > This is the **internal** engineering record for 0.2.3. User-facing notes live in
 > `README.md` ("What's New in v0.2.3") and the GitHub release body.

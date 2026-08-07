@@ -1,6 +1,6 @@
 # SHARP Processor 2 — v0.2.0 (Multichannel) — Dev Documentation
 
-**Last Updated:** 2026-08-06 15:03 EDT
+**Last Updated:** 2026-08-06 22:32 EDT
 **Version:** 0.1.13 → **0.2.0** (minor bump — major feature: multichannel / multi-fluorophore support)
 **Branch:** `feature/multichannel-support`
 **Status:** Implemented + typecheck/regression green + parser-level validation on real files. **NOT yet committed, tagged, or released.** Awaiting live-UI sign-off in a dev/installer build. A preliminary bug-sweep of the diff has been done — **2 High + 2 Medium issues fixed (§12)**; Low/defensive items and a pre-existing eslint-debt note are logged in **§13** for the next session.

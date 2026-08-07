@@ -1,6 +1,6 @@
 # SHARP Processor 2 — v0.2.2 (Kinetics Report + FreeShoulder baseline) — Dev Documentation
 
-**Last Updated:** 2026-08-06 15:03 EDT
+**Last Updated:** 2026-08-06 22:32 EDT
 
 > This is the **internal** engineering record for 0.2.2 — full detail (file paths,
 > functions, algorithm provenance). The user-facing release note lives in `README.md`

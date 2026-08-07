@@ -1,6 +1,6 @@
 # Release v0.2.4 — QuantStudio `.eds` support, correct time axis, colour/palette model
 
-**Last Updated:** 2026-08-06 15:03 EDT
+**Last Updated:** 2026-08-06 22:32 EDT
 
 Internal record. Public-facing notes live in `README.md` → *What's New in v0.2.4* and on the GitHub release page. Everything below is implementation detail and stays here.
 
