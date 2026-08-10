@@ -1,6 +1,6 @@
 # Composite layout — margins, alignment, legends
 
-**Last Updated:** 2026-08-06 22:32 EDT
+**Last Updated:** 2026-08-10 14:15 EDT
 
 Read this before building or revising a multi-panel composite, and before
 matching a reference figure by eye. It is the recipe behind Tom's layout

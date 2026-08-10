@@ -1,6 +1,6 @@
 # sharpplot — user manual
 
-**Last Updated:** 2026-08-06 22:32 EDT
+**Last Updated:** 2026-08-10 14:15 EDT
 
 Making publication figures from SHARP Processor data by talking to Claude.
 
@@ -279,7 +279,24 @@ silent omission — because a figure quietly missing a well still looks correct.
 
 ---
 
-## 8. Limits worth knowing
+## 8. Spacing is worked out for you
+
+You do not have to tune margins. Each panel's margins are sized from what it
+actually draws — whether each axis has a title, whether tick labels are shown,
+and how wide the widest y tick label really is — so a panel with no axis titles
+gets almost none, and one with 4-digit ticks gets what it needs. A row holding
+only a table shrinks to that table's own height and hands the leftover back to
+the plots.
+
+If you want something different, just say so: *"tighter gaps"*, *"more room
+under the x axis"*, *"line those two panels' left edges up"*. Panels that must
+align edge-to-edge still get their margins stated explicitly, because aligned
+edges need the same number on both.
+
+Nothing here disturbs a figure you already accepted — a spec that states its
+own margins keeps them exactly.
+
+## 9. Limits worth knowing
 
 - **Fonts off macOS.** On claude.ai the engine runs on Linux, where Arial
   resolves to Liberation Sans. Metrically identical — every dimension, margin
@@ -298,7 +315,7 @@ silent omission — because a figure quietly missing a well still looks correct.
 
 ---
 
-## 9. Version check
+## 10. Version check
 
 Every copy of sharpplot is a snapshot — staged, zipped into a `.skill`,
 uploaded. It can fall behind the repo. Two mechanisms:
@@ -335,7 +352,7 @@ sharpplot on claude.ai; the engine is inside the skill.
 
 ---
 
-## 10. Does this work outside Claude?
+## 11. Does this work outside Claude?
 
 `sharpplot.skill` is packaged in the open **Agent Skills** format — a zip with
 one top-level folder holding `SKILL.md` plus its files. ChatGPT supports that
@@ -350,7 +367,7 @@ whether the skills sandbox provides Node and a browser is unconfirmed. If Node
 is absent, nothing runs.
 
 If you try it, the useful check is the same one used for any host — ask it to
-run `node --version` and look for a chromium binary. Section 9's `--version`
+run `node --version` and look for a chromium binary. Section 10's `--version`
 output tells you the rest.
 
 The CLI itself is a plain Node program, so anything with a shell and Node 20+

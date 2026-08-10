@@ -1,7 +1,7 @@
 ===============================================================================
   sharpplot -- user manual
   Making publication figures from SHARP Processor data by talking to Claude
-  Updated 2026-08-05
+  Updated 2026-08-10
 ===============================================================================
 
 CONTENTS
@@ -13,9 +13,10 @@ CONTENTS
   4. What carries over into the figure   <-- the important one
   5. What it can make
   6. Two inputs it always asks about
-  7. Limits worth knowing
-  8. Which version am I on
-  9. Does this work outside Claude
+  7. Spacing is worked out for you
+  8. Limits worth knowing
+  9. Which version am I on
+ 10. Does this work outside Claude
 
 
 ===============================================================================
@@ -339,7 +340,33 @@ correct.
 
 
 ===============================================================================
-7. LIMITS WORTH KNOWING
+7. SPACING IS WORKED OUT FOR YOU
+===============================================================================
+
+You do not have to tune margins. Each panel's margins are sized from what it
+actually draws -- whether each axis has a title, whether tick labels are
+shown, and how wide the widest y tick label really is. A panel with no axis
+titles gets almost none; one with 4-digit ticks gets what it needs. A row
+holding only a table shrinks to that table's own height and hands the leftover
+back to the plots.
+
+If you want something different, just say so:
+
+    tighter gaps
+
+    more room under the x axis
+
+    line those two panels' left edges up
+
+Panels that must line up edge-to-edge still get their margins stated
+explicitly, because aligned edges need the same number on both.
+
+Nothing here disturbs a figure you already accepted -- a spec that states its
+own margins keeps them exactly.
+
+
+===============================================================================
+8. LIMITS WORTH KNOWING
 ===============================================================================
 
 FONTS OFF A MAC
@@ -365,7 +392,7 @@ IT TELLS YOU WHAT IT CANNOT DO
 
 
 ===============================================================================
-8. WHICH VERSION AM I ON
+9. WHICH VERSION AM I ON
 ===============================================================================
 
 Every copy of sharpplot is a snapshot. It can fall behind. Two things protect
@@ -396,7 +423,7 @@ the first place.
 
 
 ===============================================================================
-9. DOES THIS WORK OUTSIDE CLAUDE
+10. DOES THIS WORK OUTSIDE CLAUDE
 ===============================================================================
 
 sharpplot.skill uses the open "Agent Skills" format -- a zip with one

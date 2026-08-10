@@ -1,6 +1,6 @@
 # Kinetics report figures
 
-**Last Updated:** 2026-08-06 22:32 EDT
+**Last Updated:** 2026-08-10 14:15 EDT
 
 Read this whenever the user asks for fitted amplification curves, kinetic
 landmarks, residuals, melt-temperature marks, kinetics readouts, fit
