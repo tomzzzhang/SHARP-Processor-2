@@ -45,11 +45,107 @@ function distribute(total: number, weights: number[]): number[] {
 }
 
 /**
+ * Height a table actually draws, in inches, from its final row count.
+ *
+ * Mirrors the harness CSS: `.ptable th/td { padding: 2px 4px }`, a 1px header
+ * rule, and Chrome's default `normal` line height. Deliberately rounds up — a
+ * table clipped mid-row is far worse than a hair of slack.
+ */
+export function tableHeightIn(
+  rowCount: number,
+  fontSize: number | null | undefined,
+  /**
+   * Pixels the harness insets a table by to keep a top-anchored panel label off
+   * its first row. Non-zero whenever the panel draws a `top-*` label — omitting
+   * it costs exactly one row off the bottom, which is how this was first found.
+   */
+  labelInsetPx = 0,
+): number {
+  const CELL_PAD = 4;       // 2px top + 2px bottom
+  const LINE_H = 1.2;       // Chrome's `normal` for these faces
+  const HEADER_RULE = 1;
+  const SAFETY = 2;
+  const size = fontSize ?? 8;
+  const lines = rowCount + 1; // + header
+  const px = lines * (size * LINE_H + CELL_PAD) + HEADER_RULE + SAFETY + labelInsetPx;
+  return px / CSS_PPI;
+}
+
+/**
+ * Row heights, with rows that hold nothing but tables shrunk to their content.
+ *
+ * A table draws from its top edge and stops; the rest of its grid row is dead
+ * space that no padding setting reclaims. On a measured 3×2 composite that was
+ * 7.9% of the canvas. The reclaimed height goes back to the other rows in
+ * their existing proportion, so relative sizing between plot rows is preserved.
+ *
+ * Only rows where every occupant is a single-row table are touched — a table
+ * that spans rows, or shares a row with a plot, is left entirely alone.
+ */
+function distributeRows(
+  availH: number,
+  layout: ResolvedSpec['layout'],
+  spec: ResolvedSpec,
+  cells: Map<string, { rows: number[]; cols: number[] }>,
+  measured: ReadonlyMap<string, number>,
+): number[] {
+  const weights = layout.heights ?? new Array(layout.rows).fill(1);
+  const base = distribute(availH, weights);
+  if (measured.size === 0) return base;
+
+  const byLabel = new Map(spec.panels.map((p) => [p.label!, p]));
+  const occupants: Map<number, { spans: boolean; label: string }[]> = new Map();
+  for (const [label, { rows }] of cells) {
+    if (!byLabel.has(label)) continue;
+    const spans = Math.min(...rows) !== Math.max(...rows);
+    for (const r of new Set(rows)) {
+      const list = occupants.get(r) ?? [];
+      list.push({ spans, label });
+      occupants.set(r, list);
+    }
+  }
+
+  const natural = new Map<number, number>();
+  for (let r = 0; r < layout.rows; r++) {
+    const list = occupants.get(r) ?? [];
+    if (list.length === 0) continue;
+    // Only a row whose every occupant is a measured, single-row table. A table
+    // that spans rows, or shares a row with a plot, is left entirely alone.
+    if (!list.every((o) => measured.has(o.label) && !o.spans)) continue;
+    const tallest = Math.max(...list.map((o) => measured.get(o.label)!));
+    // Never grow a row — only give space back.
+    if (tallest < base[r]) natural.set(r, tallest);
+  }
+  if (natural.size === 0) return base;
+
+  const reclaimed = [...natural].reduce((sum, [r, h]) => sum + (base[r] - h), 0);
+  const growable = base
+    .map((h, r) => ({ h, r }))
+    .filter(({ r }) => !natural.has(r));
+  const growableTotal = growable.reduce((sum, { h }) => sum + h, 0);
+
+  return base.map((h, r) => {
+    if (natural.has(r)) return natural.get(r)!;
+    if (growableTotal <= 0) return h;
+    return h + (reclaimed * h) / growableTotal;
+  });
+}
+
+/**
  * Place every panel on the grid. With `layout.areas` a panel occupies the
  * bounding box of the cells naming it (so repeating a label spans it);
  * without, panels fill the grid in order, one cell each.
  */
-export function computePlacements(spec: ResolvedSpec): Map<string, PanelPlacement> {
+export function computePlacements(
+  spec: ResolvedSpec,
+  /**
+   * Natural drawn height, in inches, for table panels whose content is known.
+   * A `kinetics_table`'s row count is not knowable until its report has been
+   * computed, so `buildBundle` places once provisionally, measures, then places
+   * again with this filled in. Empty on the first pass.
+   */
+  measuredTableHeights: ReadonlyMap<string, number> = new Map(),
+): Map<string, PanelPlacement> {
   const { layout, output } = spec;
   const margin = layout.margin_in ?? 0;
   const gap = layout.gap_in;
@@ -66,16 +162,9 @@ export function computePlacements(spec: ResolvedSpec): Map<string, PanelPlacemen
   }
 
   const colWidths = distribute(availW, layout.widths ?? new Array(layout.cols).fill(1));
-  const rowHeights = distribute(availH, layout.heights ?? new Array(layout.rows).fill(1));
 
-  const colX: number[] = [];
-  let x = margin;
-  for (let c = 0; c < layout.cols; c++) { colX.push(x); x += colWidths[c] + gap; }
-  const rowY: number[] = [];
-  let y = margin;
-  for (let r = 0; r < layout.rows; r++) { rowY.push(y); y += rowHeights[r] + gap; }
-
-  // label → the cells it occupies
+  // label → the cells it occupies. Built before the row heights because a row
+  // holding nothing but tables is sized to its content, not to its share.
   const cells = new Map<string, { rows: number[]; cols: number[] }>();
   if (layout.areas) {
     layout.areas.forEach((rowSpec, r) => {
@@ -97,6 +186,15 @@ export function computePlacements(spec: ResolvedSpec): Map<string, PanelPlacemen
       cells.set(p.label!, { rows: [Math.floor(i / layout.cols)], cols: [i % layout.cols] });
     });
   }
+
+  const rowHeights = distributeRows(availH, layout, spec, cells, measuredTableHeights);
+
+  const colX: number[] = [];
+  let x = margin;
+  for (let c = 0; c < layout.cols; c++) { colX.push(x); x += colWidths[c] + gap; }
+  const rowY: number[] = [];
+  let y = margin;
+  for (let r = 0; r < layout.rows; r++) { rowY.push(y); y += rowHeights[r] + gap; }
 
   const out = new Map<string, PanelPlacement>();
   for (const [label, { rows, cols }] of cells) {

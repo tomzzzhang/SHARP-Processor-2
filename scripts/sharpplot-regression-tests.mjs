@@ -227,7 +227,84 @@ try {
   assert.equal(panel('E').rows.some((row) => String(row[1]).includes('±')), true);
   console.log('ok  kinetics fits, landmarks, residuals, Tm marks, readouts, and fit tables share one report');
 
-  console.log('\nAll 6 synthetic sharpplot regression checks passed.');
+  // ── Padding: content-derived margins and table rows sized to content ──────
+  //
+  // Both are defaults, so both are silent if they regress: a figure would just
+  // quietly get roomier again. Assert the mechanism, not a pixel count.
+  const padSpec = path.join(work, 'padding.spec.json');
+  writeJson(padSpec, {
+    id: 'padding',
+    output: { width_in: 6, height_in: 5, dpi: 96, formats: ['png'] },
+    style: { labelSize: 9, tickSize: 8, showTitle: false },
+    layout: { rows: 2, cols: 1, heights: [1, 1] },
+    panels: [
+      {
+        kind: 'plot', label: 'A', source: kineticsSource, plotType: 'amp',
+        xaxis: { title: 'Time (min)' }, yaxis: { title: 'RFU' },
+      },
+      {
+        kind: 'kinetics_table', label: 'B', source: kineticsSource,
+        section: 'readouts', columns: ['well', 't_lod'], fontSize: 7,
+      },
+    ],
+  });
+  const padPath = path.join(work, 'padding.fig.json');
+  run(['figure', padSpec, '--out', padPath]);
+  const pad = JSON.parse(readFileSync(padPath, 'utf-8'));
+  const plotPanel = pad.panels.find((p) => p.label === 'A');
+  const tablePanel = pad.panels.find((p) => p.label === 'B');
+
+  // `computeMargins` in plot-figure.ts would give l = 40 + 9*1.5 + 8*2 = 70,
+  // r = 20, t = 20, b = 30 + 9*1.5 + 8*1.2 ≈ 53. Content-derived must be
+  // tighter on every side, and must still leave room for the labels.
+  const pm = plotPanel.figure.layout.margin;
+  assert.ok(pm.l < 70 && pm.l > 15, `left margin ${pm.l} not tightened-but-safe`);
+  assert.ok(pm.b < 53 && pm.b > 15, `bottom margin ${pm.b} not tightened-but-safe`);
+  assert.ok(pm.t < 20, `top margin ${pm.t} should shrink with no title`);
+  assert.ok(pm.r < 20, `right margin ${pm.r} should shrink with no outside legend`);
+
+  // An explicit margin still wins outright.
+  const pinnedSpec = path.join(work, 'pinned.spec.json');
+  const pinned = JSON.parse(readFileSync(padSpec, 'utf-8'));
+  pinned.panels[0].margin = { l: 88, r: 21, t: 22, b: 61 };
+  writeJson(pinnedSpec, pinned);
+  const pinnedPath = path.join(work, 'pinned.fig.json');
+  run(['figure', pinnedSpec, '--out', pinnedPath]);
+  const pinnedMargin = JSON.parse(readFileSync(pinnedPath, 'utf-8'))
+    .panels.find((p) => p.label === 'A').figure.layout.margin;
+  assert.deepEqual(
+    { l: pinnedMargin.l, r: pinnedMargin.r, t: pinnedMargin.t, b: pinnedMargin.b },
+    { l: 88, r: 21, t: 22, b: 61 },
+    'an explicit panel margin must override the derived one',
+  );
+
+  // The table row is sized to what the table draws, not to its grid share —
+  // including the inset the harness adds so a top-anchored panel label does not
+  // land on the first row. Omitting that inset here silently cost the last row
+  // off the bottom of the table, which is the bug this assertion locks down.
+  const padLabels = pad.panelLabels;
+  const insetPx = padLabels.mode !== 'none' && padLabels.position.startsWith('top')
+    ? padLabels.size * 1.5 + padLabels.offset_in * 96
+    : 0;
+  const drawnIn = ((tablePanel.rows.length + 1) * (tablePanel.fontSize * 1.2 + 4) + 3 + insetPx) / 96;
+  assert.ok(
+    Math.abs(tablePanel.placement.h_in - drawnIn) < 0.02,
+    `table row ${tablePanel.placement.h_in.toFixed(3)}in should match drawn ${drawnIn.toFixed(3)}in`,
+  );
+  // Every row must actually be inside the box the row was given.
+  assert.ok(
+    tablePanel.placement.h_in * 96 >= insetPx
+      + (tablePanel.rows.length + 1) * (tablePanel.fontSize * 1.2 + 4),
+    'table content must fit inside its row — the last row was being clipped',
+  );
+  // and the reclaimed height went to the plot row rather than being discarded.
+  assert.ok(
+    plotPanel.placement.h_in > tablePanel.placement.h_in * 1.5,
+    'reclaimed table height should go back to the plot row',
+  );
+  console.log('ok  margins derive from content, explicit margins still win, table rows size to content');
+
+  console.log('\nAll 7 synthetic sharpplot regression checks passed.');
 } finally {
   rmSync(work, { recursive: true, force: true });
 }

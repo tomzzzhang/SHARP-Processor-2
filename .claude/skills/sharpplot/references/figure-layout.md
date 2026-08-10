@@ -22,9 +22,20 @@ than one without).
 
 1. Decide each panel's chrome: does it have a title, a legend, how many axis
    digits, any panel label. Pick explicit `panel.margin` in px for each
-   (`{l, r, t, b}`, 96 px/in) — do not rely on `plot-figure.ts`'s computed
-   margins for a composite; they're sized for the app's own generous
-   defaults, not a tight publication layout.
+   (`{l, r, t, b}`, 96 px/in).
+
+   Margins are now **derived from panel content by default** — axis titles,
+   tick-label visibility, and the real width of the widest y tick label — so
+   an unstated margin is already far tighter than `plot-figure.ts`'s formula
+   (which returns roughly `l:70 r:20 t:20 b:53`). That is a good starting
+   point, and enough on its own for a single-panel figure.
+
+   **It does not replace step 2 for a composite.** Cross-panel edge alignment
+   requires panels to share a margin *number*, and content-derived margins
+   differ per panel by design — a 4-digit y axis gets a wider left margin than
+   a 2-digit one. When edges must line up, state the margins explicitly and
+   equally; see §2. Read the derived values first (§3) and use them to choose
+   what to pin.
 2. Set `layout.widths` / `layout.heights` so that, once each panel's margin
    is subtracted, the **remaining inner rectangle** matches Tom's requested
    ratio. Work this out numerically (see §3), not by trial rendering alone.

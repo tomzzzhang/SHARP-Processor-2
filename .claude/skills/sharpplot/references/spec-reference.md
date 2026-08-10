@@ -57,13 +57,20 @@ CFX export folder.
     "rows": 1, "cols": 3,
     "widths": [1.35, 1, 1],            // relative; length must equal cols
     "heights": [1],                    // relative; length must equal rows
-    "gap_in": 0.16,
-    "margin_in": 0.14,
+    "gap_in": 0.16,                    // default 0.10
+    "margin_in": 0.14,                 // default 0.02
     "areas": ["A A B", "C C B"]        // optional; repeat a label to span cells
   },
   "panels": [ /* … */ ]
 }
 ```
+
+**A row holding nothing but tables is sized to what those tables draw**, not to
+its share of `heights`, and the reclaimed height is returned to the other rows
+in their existing proportion. A table stops at its last row, so the remainder
+of its grid cell would otherwise be dead space no setting reclaims. A table
+that spans rows, or shares a row with a plot, is left alone — set `heights`
+for those yourself.
 
 ### style (composite-wide, overridable per panel via `styleOverride`)
 
@@ -177,10 +184,27 @@ the figure spec so the same spec is deterministic.
 
 Line styles: `solid`, `dash`, `dot`, `dashdot`.
 
-`panel.margin` overrides the plot's computed pixel margins (96 px/in),
-per edge — omitted edges keep the computed value. This is the primary lever
-for hitting an exact inner-plot-area ratio and for aligning panel edges
-across a composite; see `references/figure-layout.md` for the full recipe.
+`panel.margin` overrides the plot's pixel margins (96 px/in), per edge —
+omitted edges keep the derived value. This is the primary lever for hitting an
+exact inner-plot-area ratio and for aligning panel edges across a composite;
+see `references/figure-layout.md` for the full recipe.
+
+**Margins are derived from panel content by default.** Rather than
+`plot-figure.ts`'s font-size formula plus a fixed constant (which yields
+`l: 70, r: 20, t: 20, b: 53` at typical sizes), sharpplot sizes each edge from
+what the panel actually draws: whether each axis has a title, whether tick
+labels are shown, and how wide the widest y tick label can be — read from
+literal `ticktext` when given, otherwise from the data's magnitude. A panel
+with no axis titles and no title gets very little.
+
+```jsonc
+"autoMargins": false   // fall back to the app's generous margins
+```
+
+Only worth setting if something is being clipped. **Any edge given in
+`margin` always wins**, so a spec that states its margins is completely
+unaffected — which is why every previously accepted figure still renders
+byte-identically.
 
 ### Legend, beyond position/content
 

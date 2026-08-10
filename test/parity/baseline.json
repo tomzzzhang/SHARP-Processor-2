@@ -2,32 +2,32 @@
   "fixtureId": "sharpplot-parity-v1",
   "panels": {
     "amp": {
-      "hash": "f18fbf676bba9264",
+      "hash": "017fa6006554a92f",
       "traces": 27,
       "wells": 27,
       "dataHash": "2c7b1e7e733ead60",
-      "layoutHash": "f516d11138fa7183"
+      "layoutHash": "e653fcba56172529"
     },
     "melt": {
-      "hash": "81df511dfc7f77db",
+      "hash": "3c10c480adc450ee",
       "traces": 54,
       "wells": 27,
       "dataHash": "97b516b00143e4c1",
-      "layoutHash": "18fb3d1b9457e639"
+      "layoutHash": "26e8b6c8601599a8"
     },
     "deriv": {
-      "hash": "2e862b6fc5f569f8",
+      "hash": "926504c7b255680b",
       "traces": 27,
       "wells": 27,
       "dataHash": "5da84e3b14cf7dcb",
-      "layoutHash": "9a13802801c3a6bc"
+      "layoutHash": "1dddd3280eac0c52"
     },
     "dbl": {
-      "hash": "76f3e4b355dbe0ae",
+      "hash": "d6c00c86cf2a81db",
       "traces": 1,
       "wells": 27,
       "dataHash": "4ca8df281a0b5d8f",
-      "layoutHash": "5dfc5909e1b2eaee"
+      "layoutHash": "1bfe4bfb440066d6"
     }
   }
 }

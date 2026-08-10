@@ -104,7 +104,10 @@ export interface LayoutSpec {
 export const DEFAULT_LAYOUT: LayoutSpec = {
   rows: 1,
   cols: 1,
-  gap_in: 0.14,
+  // 0.10 rather than the app's roomier spacing: in a figure sized to the
+  // millimetre, gaps are dead space. Measured on a 3×2 composite this is 3.1%
+  // of canvas height. Any spec may set its own.
+  gap_in: 0.10,
   margin_in: 0.02,
 };
 
@@ -356,6 +359,14 @@ export interface PlotPanel extends BasePanel {
    * much of the panel the axes occupy. Omitted edges keep the computed value.
    */
   margin?: { l?: number; r?: number; t?: number; b?: number } | null;
+  /**
+   * Size margins from what this panel actually draws — axis titles, tick-label
+   * visibility, and the width of the widest y tick label — rather than from
+   * `plot-figure.ts`'s font-size formula plus a fixed constant. On by default;
+   * any side given in `margin` still wins. Set `false` to go back to the app's
+   * generous margins, which is only worth doing if a label is being clipped.
+   */
+  autoMargins?: boolean;
 
   // ── Dilution / standard-curve panels ──
   /** Explicit dilution config. When absent the file's saved `dilutionConfig`

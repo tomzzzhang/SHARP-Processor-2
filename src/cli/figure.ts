@@ -27,7 +27,7 @@ import type { ChannelAnalysisState } from '@/hooks/useAppState';
 import type { XAxisMode } from '@/types/experiment';
 import { parseCurveKey } from '@/lib/curves';
 import { loadSource, visibleWellsOf, type LoadedExperiment } from './load';
-import { computePlacements, inchesToPx, type PanelPlacement } from './layout';
+import { computePlacements, inchesToPx, tableHeightIn, CSS_PPI, type PanelPlacement } from './layout';
 import { readImageSize } from './image-size';
 import { assignLegend2, decorateLayout, referenceLineTraces } from './decorate';
 import { describeDilution, resolveDilution, statisticValues, substituteStatistics } from './dilution';
@@ -1015,9 +1015,36 @@ function defaultLabelFont(panels: RenderPanel[]): string | undefined {
 
 /** Build every panel of a resolved spec. Pure: no browser involved. */
 export async function buildBundle(spec: ResolvedSpec): Promise<FigureBundle> {
-  const placements = computePlacements(spec);
   const cache: SourceCache = new Map();
   const reportCache: ReportCache = new Map();
+
+  // Pass 1 — place provisionally, then build only the table panels to learn how
+  // many rows they actually draw. A table stops at its last row and leaves the
+  // rest of its grid cell empty, so a row holding nothing but tables should be
+  // sized to its content rather than to its share of the grid. A
+  // `kinetics_table`'s row count is not knowable any earlier than this, and the
+  // report cache makes building it a second time free.
+  const provisional = computePlacements(spec);
+  const measured = new Map<string, number>();
+  for (const panel of spec.panels) {
+    if (panel.kind !== 'table' && panel.kind !== 'kinetics_table') continue;
+    const at = provisional.get(panel.label!);
+    if (!at) continue;
+    const built = panel.kind === 'kinetics_table'
+      ? await buildKineticsTablePanel(panel, spec, at, cache, reportCache)
+      : buildTablePanel(panel, spec, at);
+    if (built.kind === 'table') {
+      // Mirror the harness: a top-anchored panel label pushes a table's content
+      // down, so the row must be that much taller or the last row falls off.
+      const cfg = { ...spec.panelLabels, ...(built.labelOverride ?? {}) };
+      const labelInsetPx = cfg.mode !== 'none' && cfg.position.startsWith('top')
+        ? cfg.size * 1.5 + cfg.offset_in * CSS_PPI
+        : 0;
+      measured.set(panel.label!, tableHeightIn(built.rows.length, built.fontSize, labelInsetPx));
+    }
+  }
+
+  const placements = measured.size > 0 ? computePlacements(spec, measured) : provisional;
 
   const panels: RenderPanel[] = [];
   for (const panel of spec.panels) {

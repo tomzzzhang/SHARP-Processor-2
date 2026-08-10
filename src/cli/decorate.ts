@@ -16,6 +16,7 @@
 import type { Layout, Shape } from 'plotly.js';
 import { LEGEND_POS_MAP, type PlotFigureStyle } from '@/lib/plot-figure';
 import { SpecError, type AnnotationSpec, type AxisSpec, type LegendSpec, type PlotPanel, type ReferenceLineSpec } from './spec';
+import { deriveMargins, wantsAutoMargins } from './margins';
 
 type AxisLayout = Record<string, unknown>;
 
@@ -257,7 +258,14 @@ export function decorateLayout(
   style: PlotFigureStyle,
   data: readonly unknown[] = [],
 ): void {
+  // Note whether the outside-legend reservation actually widened the right
+  // margin. Without this the auto-margin pass below cannot tell a real legend
+  // reservation from `computeMargins`' unconditional `r: 20`, and would keep
+  // the 20 on every panel — which is most of what it is meant to reclaim.
+  const rBefore = ((layout.margin ?? {}) as { r?: number }).r ?? 20;
   reserveOutsideLegend(layout, data, style);
+  const rAfter = ((layout.margin ?? {}) as { r?: number }).r ?? 20;
+  const legendReservedR = rAfter > rBefore ? rAfter : null;
 
   const l = layout as unknown as Record<string, AxisLayout | unknown>;
 
@@ -271,6 +279,25 @@ export function decorateLayout(
     layout.title = {
       text: panel.title,
       font: { family: style.fontFamily, size: style.titleSize },
+    };
+  }
+
+  // Content-derived margins first, then any explicit override on top, so a
+  // spec that states its own margins renders exactly as it always has.
+  // `reserveOutsideLegend` ran above and only ever widens `r`, so take the
+  // larger of the two rather than letting a tighter estimate undo it.
+  // Runs after `applyAxisSpec` so a title the panel itself adds is accounted
+  // for — deriving before that would under-reserve for a spec that names an
+  // axis the source file left unlabelled.
+  if (wantsAutoMargins(panel)) {
+    const current = (layout.margin ?? {}) as { l?: number; r?: number; t?: number; b?: number };
+    const auto = deriveMargins(layout, style, data);
+    layout.margin = {
+      ...current,
+      l: auto.l,
+      t: auto.t,
+      b: auto.b,
+      r: legendReservedR ?? auto.r,
     };
   }
 
